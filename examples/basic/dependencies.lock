@@ -1,0 +1,36 @@
+dependencies:
+  esp_wifi_manager:
+    dependencies: []
+    source:
+      path: /Users/tuan/Projects/2025/me/esp/esp_wifi_manager
+      type: local
+    version: 1.0.0
+  idf:
+    source:
+      type: idf
+    version: 5.3.4
+  tuanpmt/esp_bus:
+    component_hash: e78c5ae0f388a278258e4c7ca15b7e6a937e6aca0228ff49686836d2724c4727
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32c2
+    - esp32c3
+    - esp32c6
+    - esp32h2
+    version: 1.0.3
+direct_dependencies:
+- esp_wifi_manager
+- idf
+- tuanpmt/esp_bus
+manifest_hash: 32476368e7dbed34a9310c734a20980e4826147a64bb7bf4707c32e41e322e3b
+target: esp32s3
+version: 2.0.0

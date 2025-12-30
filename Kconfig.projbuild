@@ -1,0 +1,52 @@
+menu "WiFi Manager"
+
+    config WIFI_MGR_MAX_NETWORKS
+        int "Maximum saved networks"
+        default 5
+        help
+            Maximum number of WiFi networks that can be saved in NVS.
+
+    config WIFI_MGR_MAX_VARS
+        int "Maximum custom variables"
+        default 10
+        help
+            Maximum number of custom variables that can be saved.
+
+    config WIFI_MGR_DEFAULT_RETRY
+        int "Default retry per network"
+        default 3
+        help
+            Number of connection retries per network before trying the next one.
+
+    config WIFI_MGR_RETRY_INTERVAL_MS
+        int "Retry interval (ms)"
+        default 5000
+        help
+            Interval between connection retries in milliseconds.
+
+    config WIFI_MGR_AP_SSID
+        string "Default AP SSID"
+        default "ESP32-Config"
+        help
+            Default SSID for SoftAP mode.
+
+    config WIFI_MGR_AP_PASSWORD
+        string "Default AP Password"
+        default ""
+        help
+            Default password for SoftAP mode. Empty for open network.
+
+    config WIFI_MGR_AP_IP
+        string "Default AP IP"
+        default "192.168.4.1"
+        help
+            Default IP address for SoftAP mode.
+
+    config WIFI_MGR_HOSTNAME
+        string "Default hostname"
+        default "esp32"
+        help
+            Default hostname for mDNS.
+
+endmenu
+

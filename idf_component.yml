@@ -1,0 +1,23 @@
+version: "1.0.0"
+description: WiFi Manager component with multi-network support, auto-reconnect, SoftAP captive portal, and REST API configuration
+url: https://github.com/tuanpmt/esp_wifi_manager
+repository: https://github.com/tuanpmt/esp_wifi_manager.git
+documentation: https://github.com/tuanpmt/esp_wifi_manager/tree/main/docs
+issues: https://github.com/tuanpmt/esp_wifi_manager/issues
+license: MIT
+
+maintainers:
+  - tuanpmt
+
+targets:
+  - esp32
+  - esp32s2
+  - esp32s3
+  - esp32c3
+  - esp32c6
+  - esp32h2
+
+dependencies:
+  idf:
+    version: ">=5.0.0"
+  tuanpmt/esp_bus: "^1.0.3"
