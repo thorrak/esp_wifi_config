@@ -1,0 +1,80 @@
+.status-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.status-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.status-icon.connected {
+  background: #dcfce7;
+  color: var(--color-success);
+}
+
+.status-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.status-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-state {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.status-ip {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-family: monospace;
+}
+
+.status-signal {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+
+.signal-bars .bar {
+  width: 4px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+
+.signal-bars .bar:nth-child(1) { height: 20%; }
+.signal-bars .bar:nth-child(2) { height: 40%; }
+.signal-bars .bar:nth-child(3) { height: 60%; }
+.signal-bars .bar:nth-child(4) { height: 80%; }
+.signal-bars .bar:nth-child(5) { height: 100%; }
+
+.signal-bars .bar.filled {
+  background: var(--color-success);
+}
+
+.status-loading,
+.status-error {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-4);
+}

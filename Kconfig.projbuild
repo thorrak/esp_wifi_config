@@ -50,5 +50,16 @@ menu "WiFi Manager"
             will be replaced with last 3 bytes of MAC address.
             Example: "esp32-{id}" becomes "esp32-AABBCC"
 
+    config WIFI_MGR_ENABLE_CLI
+        bool "Enable CLI interface"
+        default n
+        help
+            Enable command-line interface for WiFi Manager.
+            Requires ESP Console component.
+
+            Commands: wifi_status, wifi_scan, wifi_list, wifi_add,
+            wifi_del, wifi_connect, wifi_disconnect, wifi_ap_start,
+            wifi_ap_stop, wifi_reset, wifi_var_get, wifi_var_set
+
 endmenu
 
