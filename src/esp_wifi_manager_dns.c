@@ -123,7 +123,8 @@ static void dns_server_task(void *arg)
                           (struct sockaddr *)&client_addr, &addr_len);
 
         if (len < 0) {
-            if (dns_running) {
+            // EAGAIN (11) is expected on socket timeout - ignore it
+            if (errno != EAGAIN && errno != EWOULDBLOCK && dns_running) {
                 ESP_LOGW(TAG, "DNS recvfrom error: %d", errno);
             }
             continue;
