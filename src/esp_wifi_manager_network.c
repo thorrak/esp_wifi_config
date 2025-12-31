@@ -311,15 +311,23 @@ esp_err_t wifi_manager_disconnect(void)
 esp_err_t wifi_manager_scan(wifi_scan_result_t *results, size_t max_count, size_t *count)
 {
     if (!g_wifi_mgr || !results || !count) return ESP_ERR_INVALID_ARG;
-    
+
     ESP_LOGI(TAG, "Starting scan");
-    
+
+    // Stop connection attempt if in progress (scan not allowed while connecting)
+    if (g_wifi_mgr->connecting || g_wifi_mgr->state == WIFI_STATE_CONNECTING) {
+        ESP_LOGI(TAG, "Stopping connection for scan");
+        g_wifi_mgr->connecting = false;
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(100));  // Brief delay for disconnect
+    }
+
     xEventGroupClearBits(g_wifi_mgr->event_group, WIFI_SCAN_DONE_BIT);
-    
+
     wifi_scan_config_t scan_cfg = {
         .show_hidden = true,
     };
-    
+
     esp_err_t ret = esp_wifi_scan_start(&scan_cfg, false);
     if (ret != ESP_OK) return ret;
     
