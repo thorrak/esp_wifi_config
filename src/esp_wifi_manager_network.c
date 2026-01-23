@@ -356,7 +356,26 @@ esp_err_t wifi_manager_scan(wifi_scan_result_t *results, size_t max_count, size_
         results[i].rssi = ap_list[i].rssi;
         results[i].auth = ap_list[i].authmode;
     }
-    
+
+    // Deduplicate by SSID, keeping the entry with strongest RSSI
+    // This handles mesh networks and enterprise setups with multiple APs
+    for (size_t i = 0; i < copy_count; i++) {
+        for (size_t j = i + 1; j < copy_count; ) {
+            if (strcmp(results[i].ssid, results[j].ssid) == 0) {
+                // Keep stronger signal
+                if (results[j].rssi > results[i].rssi) {
+                    results[i].rssi = results[j].rssi;
+                    results[i].auth = results[j].auth;
+                }
+                // Remove duplicate by shifting remaining entries
+                memmove(&results[j], &results[j + 1], (copy_count - j - 1) * sizeof(wifi_scan_result_t));
+                copy_count--;
+            } else {
+                j++;
+            }
+        }
+    }
+
     *count = copy_count;
     free(ap_list);
     
