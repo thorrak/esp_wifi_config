@@ -26,20 +26,20 @@ extern "C" {
 // =============================================================================
 
 
-#ifndef WIFI_MGR_MAX_NETWORKS
-#define WIFI_MGR_MAX_NETWORKS 5
+#ifndef CONFIG_WIFI_MGR_MAX_NETWORKS
+#define CONFIG_WIFI_MGR_MAX_NETWORKS 5
 #endif
 
-#ifndef WIFI_MGR_MAX_VARS
-#define WIFI_MGR_MAX_VARS 10
+#ifndef CONFIG_WIFI_MGR_MAX_VARS
+#define CONFIG_WIFI_MGR_MAX_VARS 10
 #endif
 
-#ifndef WIFI_MGR_DEFAULT_RETRY
-#define WIFI_MGR_DEFAULT_RETRY 3
+#ifndef CONFIG_WIFI_MGR_DEFAULT_RETRY
+#define CONFIG_WIFI_MGR_DEFAULT_RETRY 3
 #endif
 
-#ifndef WIFI_MGR_RETRY_INTERVAL_MS
-#define WIFI_MGR_RETRY_INTERVAL_MS 5000
+#ifndef CONFIG_WIFI_MGR_RETRY_INTERVAL_MS
+#define CONFIG_WIFI_MGR_RETRY_INTERVAL_MS 5000
 #endif
 
 #ifndef CONFIG_WIFI_MGR_AP_SSID
@@ -54,8 +54,8 @@ extern "C" {
 #define CONFIG_WIFI_MGR_AP_IP "192.168.4.1"
 #endif
 
-#ifndef WIFI_MGR_BLE_DEVICE_NAME
-#define WIFI_MGR_BLE_DEVICE_NAME "ESP32-WiFi-{id}"
+#ifndef CONFIG_WIFI_MGR_BLE_DEVICE_NAME
+#define CONFIG_WIFI_MGR_BLE_DEVICE_NAME "ESP32-WiFi-{id}"
 #endif
 
 

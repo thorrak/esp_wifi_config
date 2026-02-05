@@ -76,10 +76,10 @@ static int cmd_wifi_scan(int argc, char **argv)
 
 static int cmd_wifi_list(int argc, char **argv)
 {
-    wifi_network_t networks[CONFIG_WIFI_MGR_MAX_NETWORKS];
+    wifi_network_t networks[WIFI_MGR_MAX_NETWORKS];
     size_t count = 0;
 
-    esp_err_t ret = wifi_manager_list_networks(networks, CONFIG_WIFI_MGR_MAX_NETWORKS, &count);
+    esp_err_t ret = wifi_manager_list_networks(networks, WIFI_MGR_MAX_NETWORKS, &count);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
