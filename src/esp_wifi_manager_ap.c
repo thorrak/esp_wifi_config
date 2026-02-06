@@ -59,13 +59,7 @@ esp_err_t wifi_manager_start_ap(const wifi_mgr_ap_config_t *config)
     
     ESP_LOGI(TAG, "Starting AP: %s", ssid_expanded);
 
-    // Only change mode if not already in APSTA
-    wifi_mode_t current_mode;
-    esp_wifi_get_mode(&current_mode);
-    if (current_mode != WIFI_MODE_APSTA) {
-        esp_wifi_set_mode(WIFI_MODE_APSTA);
-    }
-    
+    // Build AP config
     wifi_config_t wifi_cfg = {
         .ap = {
             .max_connection = ap_cfg->max_connections ? ap_cfg->max_connections : 4,
@@ -79,8 +73,16 @@ esp_err_t wifi_manager_start_ap(const wifi_mgr_ap_config_t *config)
     if (ap_cfg->password[0]) {
         strncpy((char *)wifi_cfg.ap.password, ap_cfg->password, sizeof(wifi_cfg.ap.password) - 1);
     }
-    
+
+    // Set config BEFORE changing mode to avoid AP restart
     esp_wifi_set_config(WIFI_IF_AP, &wifi_cfg);
+
+    // Only change mode if not already in APSTA
+    wifi_mode_t current_mode;
+    esp_wifi_get_mode(&current_mode);
+    if (current_mode != WIFI_MODE_APSTA) {
+        esp_wifi_set_mode(WIFI_MODE_APSTA);
+    }
 
     // Start DNS server for captive portal
     wifi_mgr_dns_start();
