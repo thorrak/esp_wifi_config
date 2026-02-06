@@ -962,7 +962,7 @@ esp_err_t wifi_mgr_http_deinit(void)
 {
     if (!g_wifi_mgr) return ESP_ERR_INVALID_STATE;
     
-    if (g_wifi_mgr->httpd)
+    if (g_wifi_mgr->httpd) {
         if(g_wifi_mgr->httpd_owned) {
             // Stop and delete httpd if we created (own) it
             httpd_stop(g_wifi_mgr->httpd);
