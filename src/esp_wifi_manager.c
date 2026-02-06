@@ -321,7 +321,7 @@ cleanup:
     return ret;
 }
 
-esp_err_t wifi_manager_deinit(void)
+esp_err_t wifi_manager_deinit(bool deinit_wifi)
 {
     if (!g_wifi_mgr) return ESP_ERR_INVALID_STATE;
     
@@ -339,8 +339,10 @@ esp_err_t wifi_manager_deinit(void)
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
     esp_event_handler_unregister(IP_EVENT, ESP_EVENT_ANY_ID, &ip_event_handler);
     
-    esp_wifi_stop();
-    esp_wifi_deinit();
+    if (deinit_wifi) {
+        esp_wifi_stop();
+        esp_wifi_deinit();
+    }
     
     if (g_wifi_mgr->sta_netif && g_wifi_mgr->sta_netif_owned) {
         esp_netif_destroy(g_wifi_mgr->sta_netif);

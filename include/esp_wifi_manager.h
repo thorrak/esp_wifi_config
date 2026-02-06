@@ -484,11 +484,11 @@ esp_err_t wifi_manager_init(const wifi_manager_config_t *config);
 /**
  * @brief Deinitialize WiFi Manager
  * 
- * Dừng WiFi, HTTP server và giải phóng resources.
+ * Stop the HTTP server, BLE, mDNS, and (optionally) WiFi interfaces. Free resources.
  * 
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_deinit(void);
+esp_err_t wifi_manager_deinit(bool deinit_wifi);
 
 /**
  * @brief Check if WiFi is connected
