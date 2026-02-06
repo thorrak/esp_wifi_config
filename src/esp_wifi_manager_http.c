@@ -805,6 +805,8 @@ esp_err_t wifi_mgr_http_init(void)
         }
         g_wifi_mgr->httpd_owned = true;
         ESP_LOGI(TAG, "HTTP server started");
+    } else {
+        g_wifi_mgr->httpd_owned = false;
     }
     
     // Register handlers with static URI strings
@@ -909,14 +911,68 @@ esp_err_t wifi_mgr_http_init(void)
     return ESP_OK;
 }
 
+esp_err_t wifi_mgr_http_unregister_handlers(void)
+{
+    if (!g_wifi_mgr || !g_wifi_mgr->httpd) return ESP_ERR_INVALID_STATE;
+
+    httpd_handle_t httpd = g_wifi_mgr->httpd;
+
+    // Unregister API handlers initialized in wifi_mgr_http_init
+    httpd_unregister_uri_handler(httpd, uri_status, HTTP_GET);
+    httpd_unregister_uri_handler(httpd, uri_scan, HTTP_GET);
+    httpd_unregister_uri_handler(httpd, uri_networks, HTTP_GET);
+    httpd_unregister_uri_handler(httpd, uri_networks, HTTP_POST);
+    httpd_unregister_uri_handler(httpd, uri_networks_wildcard, HTTP_PUT);
+    httpd_unregister_uri_handler(httpd, uri_networks_wildcard, HTTP_DELETE);
+    httpd_unregister_uri_handler(httpd, uri_connect, HTTP_POST);
+    httpd_unregister_uri_handler(httpd, uri_disconnect, HTTP_POST);
+    httpd_unregister_uri_handler(httpd, uri_ap_status, HTTP_GET);
+    httpd_unregister_uri_handler(httpd, uri_ap_config, HTTP_GET);
+    httpd_unregister_uri_handler(httpd, uri_ap_config, HTTP_PUT);
+    httpd_unregister_uri_handler(httpd, uri_ap_start, HTTP_POST);
+    httpd_unregister_uri_handler(httpd, uri_ap_stop, HTTP_POST);
+    httpd_unregister_uri_handler(httpd, uri_vars, HTTP_GET);
+    httpd_unregister_uri_handler(httpd, uri_vars_wildcard, HTTP_PUT);
+    httpd_unregister_uri_handler(httpd, uri_vars_wildcard, HTTP_DELETE);
+    httpd_unregister_uri_handler(httpd, uri_factory_reset, HTTP_POST);
+    httpd_unregister_uri_handler(httpd, uri_options_wildcard, HTTP_OPTIONS);
+
+    // Unregister Web UI or simple page
+#ifdef CONFIG_WIFI_MGR_ENABLE_WEBUI
+    // Unregister Web UI handlers initialized in wifi_mgr_webui_init
+    httpd_unregister_uri_handler(httpd, "/", HTTP_GET);
+    httpd_unregister_uri_handler(httpd, "/assets/app.js", HTTP_GET);
+    httpd_unregister_uri_handler(httpd, "/assets/index.css", HTTP_GET);
+#else
+    httpd_unregister_uri_handler(httpd, "/", HTTP_GET);
+#endif
+
+    // Unregister captive portal detection handlers
+    if (g_wifi_mgr->config.enable_captive_portal) {
+        for (int i = 0; captive_detect_paths[i] != NULL; i++) {
+            httpd_unregister_uri_handler(httpd, captive_detect_paths[i], HTTP_GET);
+        }
+    }
+
+    ESP_LOGI(TAG, "HTTP handlers unregistered");
+    return ESP_OK;
+}
+
 esp_err_t wifi_mgr_http_deinit(void)
 {
     if (!g_wifi_mgr) return ESP_ERR_INVALID_STATE;
     
-    if (g_wifi_mgr->httpd && g_wifi_mgr->httpd_owned) {
-        httpd_stop(g_wifi_mgr->httpd);
-        g_wifi_mgr->httpd = NULL;
-        g_wifi_mgr->httpd_owned = false;
+    if (g_wifi_mgr->httpd)
+        if(g_wifi_mgr->httpd_owned) {
+            // Stop and delete httpd if we created (own) it
+            httpd_stop(g_wifi_mgr->httpd);
+            g_wifi_mgr->httpd = NULL;
+            g_wifi_mgr->httpd_owned = false;
+            ESP_LOGI(TAG, "Owned HTTP server stopped");
+        } else {
+            // Just unregister handlers if httpd not owned
+            wifi_mgr_http_unregister_handlers();
+        }
     }
     
     return ESP_OK;

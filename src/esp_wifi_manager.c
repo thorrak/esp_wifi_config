@@ -184,12 +184,16 @@ esp_err_t wifi_manager_init(const wifi_manager_config_t *config)
     if (!g_wifi_mgr->sta_netif) {
         g_wifi_mgr->sta_netif = esp_netif_create_default_wifi_sta();
         g_wifi_mgr->sta_netif_owned = true;
+    } else {
+        g_wifi_mgr->sta_netif_owned = false;
     }
     
     g_wifi_mgr->ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     if (!g_wifi_mgr->ap_netif) {
         g_wifi_mgr->ap_netif = esp_netif_create_default_wifi_ap();
         g_wifi_mgr->ap_netif_owned = true;
+    } else {
+        g_wifi_mgr->ap_netif_owned = false;
     }
     
     // Init WiFi (có thể đã init bởi component khác)
