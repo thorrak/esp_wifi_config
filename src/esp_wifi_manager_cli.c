@@ -43,11 +43,11 @@ static int cmd_wifi_status(int argc, char **argv)
 
 static int cmd_wifi_scan(int argc, char **argv)
 {
-    wifi_scan_result_t results[20];
+    wifi_scan_result_t results[WIFI_MGR_MAX_SCAN_RESULTS];
     size_t count = 0;
 
     printf("Scanning...\n");
-    esp_err_t ret = wifi_manager_scan(results, 20, &count);
+    esp_err_t ret = wifi_manager_scan(results, WIFI_MGR_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;

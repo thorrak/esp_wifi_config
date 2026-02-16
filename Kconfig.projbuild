@@ -50,6 +50,37 @@ menu "WiFi Manager"
             will be replaced with last 3 bytes of MAC address.
             Example: "esp32-{id}" becomes "esp32-AABBCC"
 
+    config WIFI_MGR_MAX_SCAN_RESULTS
+        int "Maximum scan results returned"
+        default 20
+        help
+            Maximum number of WiFi scan results returned by the scan API.
+
+    config WIFI_MGR_HTTP_MAX_CONTENT_LEN
+        int "HTTP max request body size"
+        default 2048
+        help
+            Maximum allowed size (bytes) for HTTP request bodies (JSON payloads).
+
+    config WIFI_MGR_TASK_STACK_SIZE
+        int "Manager task stack size"
+        default 4096
+        help
+            Stack size (bytes) for the WiFi Manager FreeRTOS task.
+
+    config WIFI_MGR_TASK_PRIORITY
+        int "Manager task priority"
+        default 5
+        help
+            FreeRTOS priority for the WiFi Manager task and DNS server task.
+
+    config WIFI_MGR_HTTP_MAX_URI_HANDLERS
+        int "Max HTTP URI handlers"
+        default 32
+        help
+            Maximum number of URI handlers registered with the HTTP server.
+            Default accounts for API(18) + WebUI(3) + Captive(8) + reserve.
+
     config WIFI_MGR_ENABLE_CLI
         bool "Enable CLI interface"
         default n

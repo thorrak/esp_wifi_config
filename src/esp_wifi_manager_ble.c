@@ -177,10 +177,10 @@ static cJSON *handle_get_status(void)
 
 static cJSON *handle_scan(void)
 {
-    wifi_scan_result_t results[20];
+    wifi_scan_result_t results[WIFI_MGR_MAX_SCAN_RESULTS];
     size_t count = 0;
 
-    esp_err_t ret = wifi_manager_scan(results, 20, &count);
+    esp_err_t ret = wifi_manager_scan(results, WIFI_MGR_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
         return NULL;
     }

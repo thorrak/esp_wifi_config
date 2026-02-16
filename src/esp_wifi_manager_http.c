@@ -127,7 +127,7 @@ static esp_err_t handler_options(httpd_req_t *req)
 static cJSON *read_json_body(httpd_req_t *req)
 {
     int content_len = req->content_len;
-    if (content_len <= 0 || content_len > 2048) {
+    if (content_len <= 0 || content_len > WIFI_MGR_HTTP_MAX_CONTENT) {
         return NULL;
     }
     
@@ -189,10 +189,10 @@ static esp_err_t handler_get_scan(httpd_req_t *req)
         return send_error(req, 401, "Unauthorized");
     }
     
-    wifi_scan_result_t results[20];
+    wifi_scan_result_t results[WIFI_MGR_MAX_SCAN_RESULTS];
     size_t count = 0;
-    
-    esp_err_t ret = wifi_manager_scan(results, 20, &count);
+
+    esp_err_t ret = wifi_manager_scan(results, WIFI_MGR_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
         return send_error(req, 500, "Scan failed");
     }
@@ -796,7 +796,7 @@ esp_err_t wifi_mgr_http_init(void)
     if (!g_wifi_mgr->httpd) {
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.uri_match_fn = httpd_uri_match_wildcard;
-        config.max_uri_handlers = 32;  // API(18) + WebUI(3) + Captive(8) + reserve
+        config.max_uri_handlers = WIFI_MGR_HTTP_MAX_HANDLERS;  // Default 32: API(18) + WebUI(3) + Captive(8) + reserve
 
         esp_err_t ret = httpd_start(&g_wifi_mgr->httpd, &config);
         if (ret != ESP_OK) {
