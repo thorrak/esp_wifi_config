@@ -48,11 +48,19 @@ static cJSON *handle_get_status(void)
 
 static cJSON *handle_scan(void)
 {
-    wifi_scan_result_t results[20];
-    size_t count = 0;
+    // If we merge the default configuration defines patch, the max count should be WIFI_MGR_MAX_SCAN_RESULTS rather than 20
+    // To make it explicit, I'm defining a local constant here for the max scan results for now
+    const size_t max_scan_results = 20;
+    // malloc an array to hold the scan results (offloads from BLE host's stack)
+    wifi_scan_result_t *results = malloc(max_scan_results * sizeof(wifi_scan_result_t));
+    if (!results) {
+        return NULL;
+    }
 
-    esp_err_t ret = wifi_manager_scan(results, 20, &count);
+    size_t count = 0;
+    esp_err_t ret = wifi_manager_scan(results, max_scan_results, &count);
     if (ret != ESP_OK) {
+        free(results);
         return NULL;
     }
 
@@ -78,6 +86,7 @@ static cJSON *handle_scan(void)
         cJSON_AddItemToArray(arr, net);
     }
 
+    free(results);
     return data;
 }
 

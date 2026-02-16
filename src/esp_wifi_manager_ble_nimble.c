@@ -291,7 +291,7 @@ esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t lengt
         return ESP_ERR_NO_MEM;
     }
 
-    int rc = ble_gattc_notify_custom(s_conn_handle, s_response_val_handle, om);
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_response_val_handle, om);
     if (rc != 0) {
         ESP_LOGE(TAG, "Notify failed, rc=%d", rc);
         return ESP_FAIL;
