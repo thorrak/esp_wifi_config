@@ -11,6 +11,10 @@
 #include "esp_log.h"
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -22,6 +26,16 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 static const char *TAG = "wifi_mgr_ble_nb";
+
+/** Stack size for the command-processing task (handles JSON + WiFi scan). */
+#define BLE_CMD_TASK_STACK_SIZE  4096
+#define BLE_CMD_QUEUE_DEPTH      2
+
+/** Queued command message. */
+typedef struct {
+    uint8_t *data;   /**< heap-allocated copy of command bytes */
+    uint16_t length;
+} ble_cmd_msg_t;
 
 // =============================================================================
 // UUIDs
@@ -43,6 +57,8 @@ static const ble_uuid16_t s_char_response_uuid =
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_response_val_handle;
 static char s_device_name[32];
+static QueueHandle_t s_cmd_queue;
+static TaskHandle_t  s_cmd_task;
 
 // Forward declarations
 static void nimble_host_task(void *param);
@@ -69,17 +85,31 @@ static int gatt_command_access(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        // Flatten the mbuf chain into a contiguous buffer
+        // Flatten the mbuf chain into a heap buffer and queue for processing
+        // off the nimble_host task (whose stack is too small for command handling).
         uint16_t om_len = OS_MBUF_PKTLEN(ctxt->om);
-        uint8_t buf[512];
-        uint16_t len = om_len < sizeof(buf) ? om_len : sizeof(buf);
-
-        int rc = ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len);
-        if (rc != 0) {
+        if (om_len == 0 || om_len > 512) {
             return BLE_ATT_ERR_UNLIKELY;
         }
 
-        wifi_mgr_ble_on_command(buf, len);
+        uint8_t *buf = malloc(om_len);
+        if (!buf) {
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+
+        uint16_t len = om_len;
+        int rc = ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len);
+        if (rc != 0) {
+            free(buf);
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+
+        ble_cmd_msg_t msg = { .data = buf, .length = len };
+        if (xQueueSend(s_cmd_queue, &msg, 0) != pdTRUE) {
+            ESP_LOGW(TAG, "Command queue full, dropping command");
+            free(buf);
+        }
+
         return 0;
     }
     return BLE_ATT_ERR_UNLIKELY;
@@ -230,6 +260,16 @@ static void ble_on_reset(int reason)
     ESP_LOGW(TAG, "BLE host reset, reason=%d", reason);
 }
 
+static void ble_cmd_task(void *param)
+{
+    ble_cmd_msg_t msg;
+    while (xQueueReceive(s_cmd_queue, &msg, portMAX_DELAY) == pdTRUE) {
+        wifi_mgr_ble_on_command(msg.data, msg.length);
+        free(msg.data);
+    }
+    vTaskDelete(NULL);
+}
+
 static void nimble_host_task(void *param)
 {
     nimble_port_run();
@@ -302,6 +342,24 @@ esp_err_t wifi_mgr_ble_backend_init(const char *device_name)
         return ESP_FAIL;
     }
 
+    // Create command processing queue and task (runs off nimble_host stack)
+    s_cmd_queue = xQueueCreate(BLE_CMD_QUEUE_DEPTH, sizeof(ble_cmd_msg_t));
+    if (!s_cmd_queue) {
+        ESP_LOGE(TAG, "Failed to create command queue");
+        nimble_port_deinit();
+        return ESP_ERR_NO_MEM;
+    }
+
+    BaseType_t ret2 = xTaskCreate(ble_cmd_task, "ble_cmd", BLE_CMD_TASK_STACK_SIZE,
+                                   NULL, 5, &s_cmd_task);
+    if (ret2 != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create command task");
+        vQueueDelete(s_cmd_queue);
+        s_cmd_queue = NULL;
+        nimble_port_deinit();
+        return ESP_ERR_NO_MEM;
+    }
+
     // Start NimBLE host task
     nimble_port_freertos_init(nimble_host_task);
 
@@ -318,6 +376,21 @@ esp_err_t wifi_mgr_ble_backend_deinit(void)
     rc = nimble_port_deinit();
     if (rc != 0) {
         ESP_LOGE(TAG, "nimble_port_deinit failed, rc=%d", rc);
+    }
+
+    // Clean up command processing task and queue
+    if (s_cmd_task) {
+        vTaskDelete(s_cmd_task);
+        s_cmd_task = NULL;
+    }
+    if (s_cmd_queue) {
+        // Drain any pending messages to free their heap buffers
+        ble_cmd_msg_t msg;
+        while (xQueueReceive(s_cmd_queue, &msg, 0) == pdTRUE) {
+            free(msg.data);
+        }
+        vQueueDelete(s_cmd_queue);
+        s_cmd_queue = NULL;
     }
 
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
