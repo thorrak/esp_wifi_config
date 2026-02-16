@@ -125,9 +125,11 @@ static const esp_gatts_attr_db_t wifi_gatt_db[WIFI_IDX_NB] = {
 static struct {
     esp_gatt_if_t gatts_if;
     uint16_t conn_id;
+    uint16_t mtu;
     bool connected;
 } s_profile = {
     .gatts_if = ESP_GATT_IF_NONE,
+    .mtu = 23,
     .connected = false,
 };
 
@@ -239,6 +241,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 
         case ESP_GATTS_DISCONNECT_EVT:
             s_profile.connected = false;
+            s_profile.mtu = 23;
             ESP_LOGI(TAG, "BLE client disconnected");
 
             wifi_mgr_ble_on_disconnect();
@@ -278,6 +281,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
             break;
 
         case ESP_GATTS_MTU_EVT:
+            s_profile.mtu = param->mtu.mtu;
             ESP_LOGI(TAG, "MTU changed to %d", param->mtu.mtu);
             break;
 
@@ -300,6 +304,11 @@ esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t lengt
                                  wifi_handle_table[IDX_CHAR_RESPONSE_VAL],
                                  length, (uint8_t *)data, false);
     return ESP_OK;
+}
+
+uint16_t wifi_mgr_ble_backend_get_mtu(void)
+{
+    return s_profile.connected ? s_profile.mtu : 0;
 }
 
 esp_err_t wifi_mgr_ble_backend_init(const char *device_name)

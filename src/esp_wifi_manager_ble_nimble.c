@@ -300,6 +300,14 @@ esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t lengt
     return ESP_OK;
 }
 
+uint16_t wifi_mgr_ble_backend_get_mtu(void)
+{
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return 0;
+    }
+    return ble_att_mtu(s_conn_handle);
+}
+
 esp_err_t wifi_mgr_ble_backend_init(const char *device_name)
 {
     strncpy(s_device_name, device_name, sizeof(s_device_name) - 1);

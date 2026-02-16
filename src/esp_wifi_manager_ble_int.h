@@ -68,6 +68,13 @@ void wifi_mgr_ble_set_response_notify(bool enabled);
 esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t length);
 
 /**
+ * @brief Get the current negotiated MTU for the active connection.
+ *
+ * @return Negotiated MTU in bytes, or 0 if not connected
+ */
+uint16_t wifi_mgr_ble_backend_get_mtu(void);
+
+/**
  * @brief Initialize the BLE stack backend.
  *
  * Must set up the BT controller, host stack, GATT service, and start advertising.

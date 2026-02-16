@@ -9,6 +9,8 @@
 #include "esp_log.h"
 #include "cJSON.h"
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #ifdef CONFIG_WIFI_MGR_ENABLE_BLE
 
@@ -261,18 +263,41 @@ static cJSON *handle_factory_reset(void)
 // Response Sending (via backend)
 // =============================================================================
 
+/** Minimum payload size if MTU query fails or returns something unusable. */
+#define BLE_MIN_CHUNK_SIZE  20
+
+/** Delay between chunks to avoid flooding the BLE controller's TX queue. */
+#define BLE_CHUNK_DELAY_MS  20
+
 static void send_response(const char *json_str)
 {
     if (!s_connected || !s_response_notify_enabled) {
         return;
     }
 
-    size_t len = strlen(json_str);
-    if (len > 500) {
-        len = 500;  // Truncate for BLE MTU
-    }
+    uint16_t mtu = wifi_mgr_ble_backend_get_mtu();
+    size_t chunk_size = (mtu >= 3 + BLE_MIN_CHUNK_SIZE) ? (mtu - 3) : BLE_MIN_CHUNK_SIZE;
 
-    wifi_mgr_ble_backend_notify_response((const uint8_t *)json_str, len);
+    const uint8_t *ptr = (const uint8_t *)json_str;
+    size_t remaining = strlen(json_str);
+
+    while (remaining > 0) {
+        size_t send_len = (remaining > chunk_size) ? chunk_size : remaining;
+
+        esp_err_t err = wifi_mgr_ble_backend_notify_response(ptr, send_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Notify failed during chunked send, %d bytes remaining",
+                     (int)remaining);
+            return;
+        }
+
+        ptr += send_len;
+        remaining -= send_len;
+
+        if (remaining > 0) {
+            vTaskDelay(pdMS_TO_TICKS(BLE_CHUNK_DELAY_MS));
+        }
+    }
 }
 
 // =============================================================================

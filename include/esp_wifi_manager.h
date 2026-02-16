@@ -262,7 +262,7 @@ typedef enum {
  * Cấu hình 1 mạng WiFi. Priority cao hơn sẽ được thử kết nối trước.
  */
 typedef struct {
-    char ssid[32];          ///< SSID (max 31 chars)
+    char ssid[33];          ///< SSID (max 31 chars)
     char password[64];      ///< Password (max 63 chars)
     uint8_t priority;       ///< 0-255, cao = ưu tiên hơn
 } wifi_network_t;
@@ -274,7 +274,7 @@ typedef struct {
  */
 typedef struct {
     wifi_state_t state;     ///< Trạng thái kết nối
-    char ssid[32];          ///< SSID đang kết nối
+    char ssid[33];          ///< SSID đang kết nối
     uint8_t bssid[6];       ///< BSSID của AP
     int8_t rssi;            ///< Cường độ tín hiệu (dBm), -100 to 0
     uint8_t quality;        ///< Chất lượng tín hiệu 0-100%
@@ -300,7 +300,7 @@ typedef struct {
  * Kết quả quét 1 mạng WiFi xung quanh.
  */
 typedef struct {
-    char ssid[32];          ///< SSID
+    char ssid[33];          ///< SSID
     int8_t rssi;            ///< Cường độ tín hiệu (dBm)
     wifi_auth_mode_t auth;  ///< Auth mode: WIFI_AUTH_OPEN, WIFI_AUTH_WPA2_PSK, etc.
 } wifi_scan_result_t;
@@ -312,7 +312,7 @@ typedef struct {
  * @note Đổi tên thành wifi_mgr_ap_config_t để tránh conflict với ESP-IDF
  */
 typedef struct {
-    char ssid[32];          ///< AP SSID
+    char ssid[33];          ///< AP SSID
     char password[64];      ///< AP password (empty = open network)
     uint8_t channel;        ///< Channel 1-13, 0 = auto
     uint8_t max_connections;///< Max clients, default 4
@@ -335,7 +335,7 @@ typedef struct {
  */
 typedef struct {
     bool active;            ///< AP đang chạy?
-    char ssid[32];          ///< AP SSID
+    char ssid[33];          ///< AP SSID
     char ip[16];            ///< AP IP
     uint8_t channel;        ///< Channel
     uint8_t sta_count;      ///< Số clients kết nối
@@ -363,7 +363,7 @@ typedef struct {
  * Data được gửi kèm event WIFI_EVENT_CONNECTED.
  */
 typedef struct {
-    char ssid[32];          ///< SSID đã kết nối
+    char ssid[33];          ///< SSID đã kết nối
     int8_t rssi;            ///< RSSI khi kết nối
     uint8_t channel;        ///< Channel
 } wifi_connected_t;
@@ -374,7 +374,7 @@ typedef struct {
  * Data được gửi kèm event WIFI_EVENT_DISCONNECTED.
  */
 typedef struct {
-    char ssid[32];          ///< SSID đã ngắt
+    char ssid[33];          ///< SSID đã ngắt
     uint8_t reason;         ///< Reason code (wifi_err_reason_t)
 } wifi_disconnected_t;
 
