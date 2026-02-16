@@ -295,6 +295,14 @@ CONFIG_BT_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=y
 ```
 
+or for NimBLE stack:
+
+```kconfig
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+```
+
+
 ### Service & Characteristics
 
 | UUID | Name | Properties | Description |
