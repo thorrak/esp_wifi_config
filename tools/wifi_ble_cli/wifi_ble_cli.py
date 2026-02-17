@@ -200,9 +200,11 @@ def add(ctx, ssid, password, priority):
     async def run():
         cmd = {
             "cmd": "add_network",
-            "ssid": ssid,
-            "pass": password,
-            "prio": priority
+            "params": {
+                "ssid": ssid,
+                "password": password,
+                "priority": priority
+            }
         }
         resp = await connect_and_run(ctx, cmd)
         if resp.get("status") == "ok":
@@ -215,11 +217,33 @@ def add(ctx, ssid, password, priority):
 
 @cli.command()
 @click.argument('ssid')
+@click.option('--password', '-pw', default=None, help='New password for the network')
+@click.option('--priority', '-p', default=None, type=int, help='New priority (higher = preferred)')
+@click.pass_context
+def update(ctx, ssid, password, priority):
+    """Update password or priority of a saved WiFi network."""
+    async def run():
+        params = {"ssid": ssid}
+        if password is not None:
+            params["password"] = password
+        if priority is not None:
+            params["priority"] = priority
+        resp = await connect_and_run(ctx, {"cmd": "update_network", "params": params})
+        if resp.get("status") == "ok":
+            click.echo(f"Network '{ssid}' updated successfully")
+        else:
+            click.echo(f"Error: {resp.get('error', 'Unknown error')}")
+
+    asyncio.run(run())
+
+
+@cli.command()
+@click.argument('ssid')
 @click.pass_context
 def delete(ctx, ssid):
     """Delete a saved WiFi network."""
     async def run():
-        resp = await connect_and_run(ctx, {"cmd": "del_network", "ssid": ssid})
+        resp = await connect_and_run(ctx, {"cmd": "del_network", "params": {"ssid": ssid}})
         if resp.get("status") == "ok":
             click.echo(f"Network '{ssid}' deleted")
         else:
@@ -236,7 +260,7 @@ def connect(ctx, ssid):
     async def run():
         cmd = {"cmd": "connect"}
         if ssid:
-            cmd["ssid"] = ssid
+            cmd["params"] = {"ssid": ssid}
 
         resp = await connect_and_run(ctx, cmd)
         if resp.get("status") == "ok":
@@ -315,7 +339,7 @@ def stop_ap(ctx):
 def get_var(ctx, key):
     """Get a custom variable."""
     async def run():
-        resp = await connect_and_run(ctx, {"cmd": "get_var", "key": key})
+        resp = await connect_and_run(ctx, {"cmd": "get_var", "params": {"key": key}})
         if resp.get("status") == "ok":
             value = resp.get("data", {}).get("value", "")
             click.echo(f"{key}={value}")
@@ -332,9 +356,45 @@ def get_var(ctx, key):
 def set_var(ctx, key, value):
     """Set a custom variable."""
     async def run():
-        resp = await connect_and_run(ctx, {"cmd": "set_var", "key": key, "val": value})
+        resp = await connect_and_run(ctx, {"cmd": "set_var", "params": {"key": key, "value": value}})
         if resp.get("status") == "ok":
             click.echo(f"Variable '{key}' set")
+        else:
+            click.echo(f"Error: {resp.get('error', 'Unknown error')}")
+
+    asyncio.run(run())
+
+
+@cli.command('list-vars')
+@click.pass_context
+def list_vars(ctx):
+    """List all custom variables."""
+    async def run():
+        resp = await connect_and_run(ctx, {"cmd": "list_vars"})
+        if resp.get("status") == "ok":
+            variables = resp.get("data", {}).get("vars", [])
+            if not variables:
+                click.echo("No variables set")
+                return
+
+            click.echo(f"\nCustom variables ({len(variables)}):\n")
+            for var in variables:
+                click.echo(f"  {var.get('key')}={var.get('value')}")
+        else:
+            click.echo(f"Error: {resp.get('error', 'Unknown error')}")
+
+    asyncio.run(run())
+
+
+@cli.command('del-var')
+@click.argument('key')
+@click.pass_context
+def del_var(ctx, key):
+    """Delete a custom variable."""
+    async def run():
+        resp = await connect_and_run(ctx, {"cmd": "del_var", "params": {"key": key}})
+        if resp.get("status") == "ok":
+            click.echo(f"Variable '{key}' deleted")
         else:
             click.echo(f"Error: {resp.get('error', 'Unknown error')}")
 

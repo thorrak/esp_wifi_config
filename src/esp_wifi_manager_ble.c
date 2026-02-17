@@ -261,6 +261,66 @@ static cJSON *handle_set_var(cJSON *params)
     return cJSON_CreateObject();
 }
 
+static cJSON *handle_update_network(cJSON *params)
+{
+    cJSON *ssid = cJSON_GetObjectItem(params, "ssid");
+    if (!cJSON_IsString(ssid)) {
+        return NULL;
+    }
+
+    wifi_network_t network = {0};
+    strncpy(network.ssid, ssid->valuestring, sizeof(network.ssid) - 1);
+
+    cJSON *password = cJSON_GetObjectItem(params, "password");
+    cJSON *priority = cJSON_GetObjectItem(params, "priority");
+    if (cJSON_IsString(password)) {
+        strncpy(network.password, password->valuestring, sizeof(network.password) - 1);
+    }
+    if (cJSON_IsNumber(priority)) {
+        network.priority = (uint8_t)priority->valueint;
+    }
+
+    esp_err_t ret = wifi_manager_update_network(&network);
+    if (ret != ESP_OK) {
+        return NULL;
+    }
+
+    return cJSON_CreateObject();
+}
+
+static cJSON *handle_list_vars(void)
+{
+    wifi_mgr_lock();
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(data, "vars");
+
+    for (size_t i = 0; i < g_wifi_mgr->var_count; i++) {
+        cJSON *var = cJSON_CreateObject();
+        cJSON_AddStringToObject(var, "key", g_wifi_mgr->vars[i].key);
+        cJSON_AddStringToObject(var, "value", g_wifi_mgr->vars[i].value);
+        cJSON_AddItemToArray(arr, var);
+    }
+
+    wifi_mgr_unlock();
+    return data;
+}
+
+static cJSON *handle_del_var(cJSON *params)
+{
+    cJSON *key = cJSON_GetObjectItem(params, "key");
+    if (!cJSON_IsString(key)) {
+        return NULL;
+    }
+
+    esp_err_t ret = wifi_manager_del_var(key->valuestring);
+    if (ret != ESP_OK) {
+        return NULL;
+    }
+
+    return cJSON_CreateObject();
+}
+
 static cJSON *handle_factory_reset(void)
 {
     wifi_manager_factory_reset();
@@ -359,6 +419,12 @@ static void handle_command(const char *json_str)
         result = handle_get_var(params);
     } else if (strcmp(cmd_str, "set_var") == 0) {
         result = handle_set_var(params);
+    } else if (strcmp(cmd_str, "update_network") == 0) {
+        result = handle_update_network(params);
+    } else if (strcmp(cmd_str, "list_vars") == 0) {
+        result = handle_list_vars();
+    } else if (strcmp(cmd_str, "del_var") == 0) {
+        result = handle_del_var(params);
     } else if (strcmp(cmd_str, "factory_reset") == 0) {
         result = handle_factory_reset();
     } else {

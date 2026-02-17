@@ -288,14 +288,16 @@ Enable with `CONFIG_WIFI_MGR_ENABLE_CLI=y`:
 
 ## BLE GATT Interface
 
-Enable with `CONFIG_WIFI_MGR_ENABLE_BLE=y`. Requires Bluetooth enabled in sdkconfig:
+Enable with `CONFIG_WIFI_MGR_ENABLE_BLE=y`. Both Bluedroid and NimBLE host stacks are supported. Requires Bluetooth enabled in sdkconfig:
+
+**Bluedroid** (~100KB flash / ~40KB RAM):
 
 ```kconfig
 CONFIG_BT_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=y
 ```
 
-or for NimBLE stack:
+**NimBLE** (~50KB flash / ~20KB RAM):
 
 ```kconfig
 CONFIG_BT_ENABLED=y
@@ -315,23 +317,107 @@ CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
 
 ### Commands
 
-Send JSON to Command characteristic (0xFFE2):
+Send JSON to the Command characteristic (0xFFE2). Parameters are passed in a `"params"` object. Responses are sent as notifications on the Response characteristic (0xFFE3). Large responses are automatically chunked across multiple notifications.
+
+| Command          | Params | Description |
+|------------------|--------|-------------|
+| `get_status`     | (none) | Get connection status |
+| `scan`           | (none) | Scan available networks |
+| `list_networks`  | (none) | List saved networks |
+| `add_network`    | `ssid`, `password`?, `priority`? | Add new network |
+| `update_network` | `ssid`, `password`?, `priority`? | Update saved network |
+| `del_network`    | `ssid` | Remove network |
+| `connect`        | `ssid`? | Connect (auto or specific SSID) |
+| `disconnect`     | (none) | Disconnect |
+| `get_ap_status`  | (none) | Get AP status |
+| `start_ap`       | `ssid`?, `password`? | Start SoftAP |
+| `stop_ap`        | (none) | Stop SoftAP |
+| `get_var`        | `key` | Get variable |
+| `set_var`        | `key`, `value` | Set variable |
+| `list_vars`      | (none) | List all variables |
+| `del_var`        | `key` | Delete variable |
+| `factory_reset`  | (none) | Factory reset |
+
+### Example Commands
 
 ```json
 {"cmd": "get_status"}
 {"cmd": "scan"}
 {"cmd": "list_networks"}
-{"cmd": "add_network", "ssid": "MyWiFi", "pass": "secret", "prio": 10}
-{"cmd": "del_network", "ssid": "MyWiFi"}
-{"cmd": "connect"}
-{"cmd": "connect", "ssid": "MyWiFi"}
-{"cmd": "disconnect"}
-{"cmd": "get_ap_status"}
-{"cmd": "start_ap"}
-{"cmd": "stop_ap"}
-{"cmd": "get_var", "key": "device_name"}
-{"cmd": "set_var", "key": "device_name", "val": "My ESP32"}
+{"cmd": "add_network", "params": {"ssid": "MyWiFi", "password": "secret", "priority": 10}}
+{"cmd": "update_network", "params": {"ssid": "MyWiFi", "password": "newpass", "priority": 5}}
+{"cmd": "del_network", "params": {"ssid": "MyWiFi"}}
+{"cmd": "connect", "params": {"ssid": "MyWiFi"}}
+{"cmd": "get_var", "params": {"key": "device_name"}}
+{"cmd": "set_var", "params": {"key": "device_name", "value": "My ESP32"}}
+{"cmd": "list_vars"}
+{"cmd": "del_var", "params": {"key": "device_name"}}
 {"cmd": "factory_reset"}
+```
+
+### Response Format
+
+Successful responses:
+
+```json
+{"status": "ok", "data": { ... }}
+```
+
+Error responses:
+
+```json
+{"status": "error", "error": "Error message"}
+```
+
+### Response Examples
+
+**get_status**
+```json
+{
+  "status": "ok",
+  "data": {
+    "state": "connected",
+    "ssid": "MyWiFi",
+    "rssi": -65,
+    "quality": 70,
+    "ip": "192.168.1.100",
+    "channel": 6,
+    "netmask": "255.255.255.0",
+    "gateway": "192.168.1.1",
+    "dns": "192.168.1.1",
+    "mac": "AA:BB:CC:DD:EE:FF",
+    "hostname": "esp32-aabbcc",
+    "uptime_ms": 123456,
+    "ap_active": false
+  }
+}
+```
+
+**get_ap_status**
+```json
+{
+  "status": "ok",
+  "data": {
+    "active": true,
+    "ssid": "ESP32-AABBCC",
+    "ip": "192.168.4.1",
+    "channel": 1,
+    "sta_count": 2
+  }
+}
+```
+
+**list_vars**
+```json
+{
+  "status": "ok",
+  "data": {
+    "vars": [
+      {"key": "server_url", "value": "https://api.example.com"},
+      {"key": "device_name", "value": "My ESP32"}
+    ]
+  }
+}
 ```
 
 ### Python CLI Client
@@ -340,20 +426,45 @@ Send JSON to Command characteristic (0xFFE2):
 cd tools/wifi_ble_cli
 pip install -r requirements.txt
 
-# Scan for devices
+# Global options: --device/-d (MAC address), --name/-n (name prefix, default "ESP32-WiFi")
+python wifi_ble_cli.py --name "ESP32-WiFi" <command>
+
+# Scan for BLE devices
 python wifi_ble_cli.py devices
 
-# Get status
+# Get WiFi status
 python wifi_ble_cli.py status
 
-# Add network
-python wifi_ble_cli.py add "MyWiFi" "password123"
-
-# Scan networks
+# Scan WiFi networks
 python wifi_ble_cli.py scan
 
-# Connect
+# List saved networks
+python wifi_ble_cli.py list
+
+# Add network (with optional priority)
+python wifi_ble_cli.py add "MyWiFi" "password123" --priority 10
+
+# Delete a saved network
+python wifi_ble_cli.py delete "MyWiFi"
+
+# Connect (auto or specific SSID)
 python wifi_ble_cli.py connect
+python wifi_ble_cli.py connect "MyWiFi"
+
+# Disconnect
+python wifi_ble_cli.py disconnect
+
+# AP management
+python wifi_ble_cli.py ap-status
+python wifi_ble_cli.py start-ap
+python wifi_ble_cli.py stop-ap
+
+# Custom variables
+python wifi_ble_cli.py get-var device_name
+python wifi_ble_cli.py set-var device_name "My ESP32"
+
+# Factory reset (with confirmation prompt)
+python wifi_ble_cli.py factory-reset
 ```
 
 ## REST API Reference
