@@ -42,6 +42,13 @@ static cJSON *handle_get_status(void)
         cJSON_AddNumberToObject(data, "rssi", status.rssi);
         cJSON_AddNumberToObject(data, "quality", status.quality);
         cJSON_AddStringToObject(data, "ip", status.ip);
+        cJSON_AddNumberToObject(data, "channel", status.channel);
+        cJSON_AddStringToObject(data, "netmask", status.netmask);
+        cJSON_AddStringToObject(data, "gateway", status.gateway);
+        cJSON_AddStringToObject(data, "dns", status.dns);
+        cJSON_AddStringToObject(data, "mac", status.mac);
+        cJSON_AddStringToObject(data, "hostname", status.hostname);
+        cJSON_AddNumberToObject(data, "uptime_ms", status.uptime_ms);
         cJSON_AddBoolToObject(data, "ap_active", status.ap_active);
     }
 
@@ -183,6 +190,7 @@ static cJSON *handle_ap_status(void)
     cJSON_AddBoolToObject(data, "active", status.active);
     cJSON_AddStringToObject(data, "ssid", status.ssid);
     cJSON_AddStringToObject(data, "ip", status.ip);
+    cJSON_AddNumberToObject(data, "channel", status.channel);
     cJSON_AddNumberToObject(data, "sta_count", status.sta_count);
 
     return data;
