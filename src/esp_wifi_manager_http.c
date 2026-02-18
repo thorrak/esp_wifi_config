@@ -283,8 +283,12 @@ static esp_err_t handler_post_networks(httpd_req_t *req)
     cJSON_Delete(json);
     
     esp_err_t ret = wifi_manager_add_network(&network);
+    if (ret == ESP_ERR_INVALID_STATE) {
+        // Network already exists — update it instead (upsert)
+        ret = wifi_manager_update_network(&network);
+    }
     if (ret != ESP_OK) {
-        return send_error(req, 400, ret == ESP_ERR_INVALID_STATE ? "Already exists" : "Failed");
+        return send_error(req, 400, "Failed");
     }
     
     return send_ok(req);

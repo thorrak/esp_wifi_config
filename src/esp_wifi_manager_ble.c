@@ -141,6 +141,10 @@ static cJSON *handle_add_network(cJSON *params)
     }
 
     esp_err_t ret = wifi_manager_add_network(&network);
+    if (ret == ESP_ERR_INVALID_STATE) {
+        // Network already exists — update it instead (upsert)
+        ret = wifi_manager_update_network(&network);
+    }
     if (ret != ESP_OK) {
         return NULL;
     }
