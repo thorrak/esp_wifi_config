@@ -325,7 +325,7 @@ esp_err_t wifi_manager_scan(wifi_scan_result_t *results, size_t max_count, size_
     xEventGroupClearBits(g_wifi_mgr->event_group, WIFI_SCAN_DONE_BIT);
 
     wifi_scan_config_t scan_cfg = {
-        .show_hidden = true,
+        .show_hidden = false,
     };
 
     esp_err_t ret = esp_wifi_scan_start(&scan_cfg, false);
