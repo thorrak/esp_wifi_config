@@ -401,9 +401,18 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_STA_DISCONNECTED: {
             wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
             ESP_LOGW(TAG, "STA disconnected from %s, reason: %d", event->ssid, event->reason);
-            // Set bit immediately to unblock connect sequence (avoid deadlock)
-            xEventGroupSetBits(g_wifi_mgr->event_group, WIFI_FAIL_BIT);
-            xEventGroupClearBits(g_wifi_mgr->event_group, WIFI_CONNECTED_BIT);
+            // Only clear connected bit if this disconnect is for the network we're
+            // actually connected to; stale disconnects from failed attempts at other
+            // networks should not blow away a working connection.
+            bool is_current = (g_wifi_mgr->connected_ssid[0] == '\0') ||
+                              (strcmp(g_wifi_mgr->connected_ssid, (char *)event->ssid) == 0);
+            if (is_current) {
+                xEventGroupSetBits(g_wifi_mgr->event_group, WIFI_FAIL_BIT);
+                xEventGroupClearBits(g_wifi_mgr->event_group, WIFI_CONNECTED_BIT);
+            } else {
+                // Still set FAIL_BIT to unblock connect sequence retry loop
+                xEventGroupSetBits(g_wifi_mgr->event_group, WIFI_FAIL_BIT);
+            }
             evt.type = WM_INT_EVT_STA_DISCONNECTED;
             strncpy(evt.data.disconnect.ssid, (char *)event->ssid, sizeof(evt.data.disconnect.ssid) - 1);
             evt.data.disconnect.reason = event->reason;
@@ -497,10 +506,30 @@ static void wifi_mgr_task(void *arg)
                     g_wifi_mgr->connect_time = esp_timer_get_time() / 1000;
                     g_wifi_mgr->retry_count = 0;
                     g_wifi_mgr->connecting = false;
+                    strncpy(g_wifi_mgr->connected_ssid, evt.data.connected.ssid,
+                            sizeof(g_wifi_mgr->connected_ssid) - 1);
+                    g_wifi_mgr->connected_ssid[sizeof(g_wifi_mgr->connected_ssid) - 1] = '\0';
                     break;
                     
                 case WM_INT_EVT_STA_DISCONNECTED: {
+                    // Check if this disconnect is for the network we're actually
+                    // connected to, or a stale event from a failed attempt at a
+                    // different network during the connect sequence.
+                    bool is_current_network =
+                        (g_wifi_mgr->connected_ssid[0] == '\0') ||
+                        (strcmp(g_wifi_mgr->connected_ssid, evt.data.disconnect.ssid) == 0);
+
+                    if (!is_current_network) {
+                        // Stale disconnect for a network we're not connected to
+                        // (e.g. failed attempt at OPT while connected to OPT-Roam).
+                        // Don't touch connection state or trigger reconnect.
+                        ESP_LOGD(TAG, "Ignoring disconnect from %s (connected to %s)",
+                                 evt.data.disconnect.ssid, g_wifi_mgr->connected_ssid);
+                        break;
+                    }
+
                     g_wifi_mgr->state = WIFI_STATE_DISCONNECTED;
+                    g_wifi_mgr->connected_ssid[0] = '\0';
                     xEventGroupClearBits(g_wifi_mgr->event_group, WIFI_CONNECTED_BIT);
                     xEventGroupSetBits(g_wifi_mgr->event_group, WIFI_FAIL_BIT);
 
@@ -608,7 +637,12 @@ static void wifi_mgr_task(void *arg)
 bool wifi_manager_is_connected(void)
 {
     if (!g_wifi_mgr) return false;
-    return g_wifi_mgr->state == WIFI_STATE_CONNECTED;
+    // Check both the task-queue-driven state and the ISR-set event bit.
+    // The event bit is set synchronously in ip_event_handler and reflects
+    // connection status immediately, while g_wifi_mgr->state may lag
+    // behind due to async task queue processing.
+    return g_wifi_mgr->state == WIFI_STATE_CONNECTED ||
+           (xEventGroupGetBits(g_wifi_mgr->event_group) & WIFI_CONNECTED_BIT);
 }
 
 wifi_state_t wifi_manager_get_state(void)

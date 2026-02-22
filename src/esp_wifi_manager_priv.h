@@ -187,6 +187,7 @@ typedef struct {
     // Retry state
     int retry_count;
     int current_network_idx;
+    char connected_ssid[32];        // SSID of currently connected network (empty if none)
     
     // Scan results (temporary)
     wifi_scan_result_t *scan_results;
