@@ -642,18 +642,13 @@ static esp_err_t handler_put_var(httpd_req_t *req)
         return send_error(req, 400, "Missing value");
     }
 
-    // Run variable validation callback if configured
-    if (g_wifi_mgr->config.on_before_var_set) {
-        esp_err_t vret = g_wifi_mgr->config.on_before_var_set(key, value->valuestring, g_wifi_mgr->config.var_validator_ctx);
-        if (vret != ESP_OK) {
-            cJSON_Delete(json);
-            return send_error(req, 400, "var_invalid");
-        }
-    }
-    
-    wifi_manager_set_var(key, value->valuestring);
+    esp_err_t set_ret = wifi_manager_set_var(key, value->valuestring);
     cJSON_Delete(json);
-    
+
+    if (set_ret != ESP_OK) {
+        return send_error(req, 400, "var_invalid");
+    }
+
     return send_ok(req);
 }
 
