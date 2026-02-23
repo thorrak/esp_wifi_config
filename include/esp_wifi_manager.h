@@ -387,7 +387,7 @@ typedef struct {
  *
  * Called before every API handler (after CORS, before auth check).
  * Return ESP_OK to continue to the handler, ESP_FAIL to reject (sends 403).
- * Only applies to /api/wifi/* endpoints, not static file serving.
+ * Only applies to /api/wifi/ endpoints, not static file serving.
  */
 typedef esp_err_t (*wifi_mgr_http_hook_t)(httpd_req_t *req, void *ctx);
 
