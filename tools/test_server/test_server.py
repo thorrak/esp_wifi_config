@@ -3,13 +3,15 @@
 Mock HTTP server emulating esp_wifi_manager API endpoints.
 
 Usage:
-    python3 tools/test_server.py [--port 8080] [--no-aps] [--no-vars]
+    python3 tools/test_server/test_server.py [--port 8080] [--no-aps] [--no-vars]
+    python3 tools/test_server/test_server.py --config tools/test_server/config.sample.json
 
-Requires: pip install -r tools/requirements.txt
+Requires: pip install -r tools/test_server/requirements.txt
 """
 
 import argparse
 import copy
+import json
 import time
 from urllib.parse import unquote
 
@@ -77,15 +79,42 @@ cli_args = None  # set in main()
 state = {}
 
 
+def load_config(path):
+    """Load a JSON config file. Returns the parsed dict."""
+    with open(path, "r") as f:
+        return json.load(f)
+
+
 def init_state():
-    """Reset state to defaults, respecting CLI flags."""
+    """Reset state to defaults, respecting CLI flags and config file."""
     global state
+
+    config = None
+    if cli_args and cli_args.config:
+        config = load_config(cli_args.config)
+
+    # Scan results: --no-aps flag, or config "networks" key, or defaults
+    if cli_args and cli_args.no_aps:
+        scan_results = []
+    elif config and "networks" in config:
+        scan_results = copy.deepcopy(config["networks"])
+    else:
+        scan_results = copy.deepcopy(DEFAULT_SCAN_RESULTS)
+
+    # Variables: --no-vars flag, or config "variables" key, or defaults
+    if cli_args and cli_args.no_vars:
+        variables = []
+    elif config and "variables" in config:
+        variables = [{"key": k, "value": v} for k, v in config["variables"].items()]
+    else:
+        variables = copy.deepcopy(DEFAULT_VARS)
+
     state = {
         "sta": copy.deepcopy(DEFAULT_STA),
         "ap": copy.deepcopy(DEFAULT_AP),
         "networks": [],
-        "vars": [] if (cli_args and cli_args.no_vars) else copy.deepcopy(DEFAULT_VARS),
-        "scan_results": [] if (cli_args and cli_args.no_aps) else copy.deepcopy(DEFAULT_SCAN_RESULTS),
+        "vars": variables,
+        "scan_results": scan_results,
     }
 
 
@@ -391,19 +420,23 @@ def main():
     parser.add_argument("--port", type=int, default=8080, help="Listen port (default: 8080)")
     parser.add_argument("--no-aps", action="store_true", help="Start with empty scan results")
     parser.add_argument("--no-vars", action="store_true", help="Start with no preconfigured variables")
+    parser.add_argument("--config", type=str, metavar="FILE", help="JSON config file for networks/variables")
     cli_args = parser.parse_args()
 
     init_state()
     start_time = time.time()
 
+    scan_count = len(state["scan_results"])
+    var_count = len(state["vars"])
+
     print("=" * 50)
     print("  ESP WiFi Manager — Mock HTTP Server")
     print("=" * 50)
     print(f"  Port:       {cli_args.port}")
-    scan_count = len(state["scan_results"])
-    var_count = len(state["vars"])
-    print(f"  Scan APs:   {'none (--no-aps)' if cli_args.no_aps else f'{scan_count} fake APs'}")
-    print(f"  Variables:  {'none (--no-vars)' if cli_args.no_vars else f'{var_count} defaults'}")
+    if cli_args.config:
+        print(f"  Config:     {cli_args.config}")
+    print(f"  Scan APs:   {scan_count} APs")
+    print(f"  Variables:  {var_count} vars")
     print(f"  Base URL:   http://localhost:{cli_args.port}/api/wifi")
     print("=" * 50)
 

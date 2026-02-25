@@ -1,0 +1,11 @@
+{
+  "networks": [
+    {"ssid": "MyHomeWiFi", "rssi": -42, "auth": "WPA2"},
+    {"ssid": "GuestNetwork", "rssi": -70, "auth": "OPEN"}
+  ],
+  "variables": {
+    "device_name": "Living Room Sensor",
+    "firmware_version": "123abc",
+    "api_key": ""
+  }
+}
