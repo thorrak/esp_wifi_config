@@ -914,17 +914,8 @@ esp_err_t wifi_mgr_http_init(void)
     httpd_uri_t options_uri = { .uri = uri_options_wildcard, .method = HTTP_OPTIONS, .handler = handler_options };
     httpd_register_uri_handler(g_wifi_mgr->httpd, &options_uri);
 
-    // Initialize Web UI if enabled, otherwise use simple fallback page
-#ifdef CONFIG_WIFI_MGR_ENABLE_WEBUI
-    wifi_mgr_webui_init(g_wifi_mgr->httpd);
-#else
-    // Simple fallback page at root when Web UI not enabled
-    httpd_uri_t simple_uri = { .uri = "/", .method = HTTP_GET, .handler = handler_simple_page };
-    httpd_register_uri_handler(g_wifi_mgr->httpd, &simple_uri);
-    ESP_LOGI(TAG, "Simple setup page registered at /");
-#endif
-
-    // Captive portal detection handlers (for specific OS detection paths)
+    // Captive portal detection handlers - register BEFORE wildcard handlers
+    // so they take priority and aren't shadowed by "/*" wildcard matching
     if (g_wifi_mgr->config.enable_captive_portal) {
         for (int i = 0; captive_detect_paths[i] != NULL; i++) {
             httpd_uri_t captive_uri = {
@@ -936,6 +927,16 @@ esp_err_t wifi_mgr_http_init(void)
         }
         ESP_LOGI(TAG, "Captive portal detection enabled");
     }
+
+    // Initialize Web UI if enabled, otherwise use simple fallback page
+#ifdef CONFIG_WIFI_MGR_ENABLE_WEBUI
+    wifi_mgr_webui_init(g_wifi_mgr->httpd);
+#else
+    // Simple fallback page at root when Web UI not enabled
+    httpd_uri_t simple_uri = { .uri = "/", .method = HTTP_GET, .handler = handler_simple_page };
+    httpd_register_uri_handler(g_wifi_mgr->httpd, &simple_uri);
+    ESP_LOGI(TAG, "Simple setup page registered at /");
+#endif
 
     ESP_LOGI(TAG, "HTTP handlers registered");
     return ESP_OK;
