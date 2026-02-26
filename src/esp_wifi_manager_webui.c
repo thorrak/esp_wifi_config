@@ -62,28 +62,30 @@ static bool serve_from_filesystem(httpd_req_t *req, const char *filepath)
     char fullpath[128];
     snprintf(fullpath, sizeof(fullpath), "%s%s", base_path, filepath);
 
-    // Check if file exists
     struct stat st;
+    bool gzipped = false;
+    char gzpath[132];
+    snprintf(gzpath, sizeof(gzpath), "%s.gz", fullpath);
+
     if (stat(fullpath, &st) != 0) {
-        return false;
+        // No uncompressed file — try gzipped variant
+        if (stat(gzpath, &st) != 0) {
+            return false;
+        }
+        gzipped = true;
+    } else if (stat(gzpath, &st) == 0) {
+        // Both exist — prefer gzipped
+        gzipped = true;
     }
 
-    FILE *f = fopen(fullpath, "r");
+    FILE *f = fopen(gzipped ? gzpath : fullpath, "r");
     if (!f) {
         return false;
     }
 
     httpd_resp_set_type(req, get_content_type(filepath));
-
-    // Check for gzipped version
-    char gzpath[132];
-    snprintf(gzpath, sizeof(gzpath), "%s.gz", fullpath);
-    if (stat(gzpath, &st) == 0) {
-        fclose(f);
-        f = fopen(gzpath, "r");
-        if (f) {
-            httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-        }
+    if (gzipped) {
+        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     }
 
     // Stream file
@@ -160,7 +162,9 @@ static esp_err_t handler_webui_static(httpd_req_t *req)
     }
 #endif
 
-    ESP_LOGW(TAG, "404 Not Found: uri=%s filepath=%s", req->uri, filepath);
+    const char *base = get_fs_base_path();
+    ESP_LOGW(TAG, "404 Not Found: uri=%s (tried %s%s)",
+             req->uri, base ? base : "", filepath);
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, NULL);
     return ESP_FAIL;
 }
