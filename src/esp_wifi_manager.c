@@ -552,7 +552,9 @@ static void wifi_mgr_task(void *arg)
                     
                 case WM_INT_EVT_AP_STARTED:
                     g_wifi_mgr->ap_active = true;
-                    esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_AP_START, NULL, 0);
+                    // esp_bus event is emitted from wifi_manager_start_ap() after
+                    // config is fully applied, not here (avoids double events from
+                    // intermediate driver restarts)
                     break;
                     
                 case WM_INT_EVT_AP_STOPPED:
