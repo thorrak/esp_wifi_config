@@ -559,7 +559,7 @@ static void wifi_mgr_task(void *arg)
                     
                 case WM_INT_EVT_AP_STOPPED:
                     g_wifi_mgr->ap_active = false;
-                    esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_AP_STOP, NULL, 0);
+                    // esp_bus event is emitted from wifi_manager_stop_ap()
                     break;
                     
                 case WM_INT_EVT_AP_STA_CONN:

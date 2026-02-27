@@ -118,6 +118,8 @@ esp_err_t wifi_manager_stop_ap(void)
     g_wifi_mgr->ap_active = false;
     esp_wifi_set_mode(WIFI_MODE_STA);
 
+    esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_AP_STOP, NULL, 0);
+
     return ESP_OK;
 }
 
