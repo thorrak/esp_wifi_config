@@ -12,17 +12,6 @@
 
 static const char *TAG = "wifi_mgr_webui";
 
-#ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
-// Embedded files (linked via CMakeLists.txt EMBED_FILES)
-// Symbol names: _binary_{filename with . replaced by _}_{start|end}
-extern const uint8_t index_html_start[] asm("_binary_index_html_start");
-extern const uint8_t index_html_end[] asm("_binary_index_html_end");
-extern const uint8_t app_js_gz_start[] asm("_binary_app_js_gz_start");
-extern const uint8_t app_js_gz_end[] asm("_binary_app_js_gz_end");
-extern const uint8_t index_css_gz_start[] asm("_binary_index_css_gz_start");
-extern const uint8_t index_css_gz_end[] asm("_binary_index_css_gz_end");
-#endif
-
 /**
  * @brief Get the filesystem base path for custom WebUI files
  *
@@ -73,28 +62,30 @@ static bool serve_from_filesystem(httpd_req_t *req, const char *filepath)
     char fullpath[128];
     snprintf(fullpath, sizeof(fullpath), "%s%s", base_path, filepath);
 
-    // Check if file exists
     struct stat st;
+    bool gzipped = false;
+    char gzpath[132];
+    snprintf(gzpath, sizeof(gzpath), "%s.gz", fullpath);
+
     if (stat(fullpath, &st) != 0) {
-        return false;
+        // No uncompressed file — try gzipped variant
+        if (stat(gzpath, &st) != 0) {
+            return false;
+        }
+        gzipped = true;
+    } else if (stat(gzpath, &st) == 0) {
+        // Both exist — prefer gzipped
+        gzipped = true;
     }
 
-    FILE *f = fopen(fullpath, "r");
+    FILE *f = fopen(gzipped ? gzpath : fullpath, "r");
     if (!f) {
         return false;
     }
 
     httpd_resp_set_type(req, get_content_type(filepath));
-
-    // Check for gzipped version
-    char gzpath[132];
-    snprintf(gzpath, sizeof(gzpath), "%s.gz", fullpath);
-    if (stat(gzpath, &st) == 0) {
-        fclose(f);
-        f = fopen(gzpath, "r");
-        if (f) {
-            httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-        }
+    if (gzipped) {
+        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     }
 
     // Stream file
@@ -110,91 +101,70 @@ static bool serve_from_filesystem(httpd_req_t *req, const char *filepath)
     return true;
 }
 
-/**
- * @brief Handler for index.html (root path)
- */
-static esp_err_t handler_webui_index(httpd_req_t *req)
+#ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
+// Embedded files (linked via CMakeLists.txt EMBED_FILES)
+extern const uint8_t index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+extern const uint8_t app_js_gz_start[] asm("_binary_app_js_gz_start");
+extern const uint8_t app_js_gz_end[] asm("_binary_app_js_gz_end");
+extern const uint8_t index_css_gz_start[] asm("_binary_index_css_gz_start");
+extern const uint8_t index_css_gz_end[] asm("_binary_index_css_gz_end");
+
+static const struct {
+    const char *uri;
+    const uint8_t *start;
+    const uint8_t *end;
+    bool gzipped;
+} embedded_assets[] = {
+    { "/index.html",       index_html_start,   index_html_end,   false },
+    { "/assets/app.js",    app_js_gz_start,    app_js_gz_end,    true  },
+    { "/assets/index.css", index_css_gz_start, index_css_gz_end, true  },
+};
+
+static bool serve_embedded(httpd_req_t *req, const char *filepath)
 {
-    // Try filesystem first
-    if (serve_from_filesystem(req, "/index.html")) {
-        return ESP_OK;
+    for (size_t i = 0; i < sizeof(embedded_assets) / sizeof(embedded_assets[0]); i++) {
+        if (strcmp(filepath, embedded_assets[i].uri) == 0) {
+            httpd_resp_set_type(req, get_content_type(filepath));
+            if (embedded_assets[i].gzipped) {
+                httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+            }
+            httpd_resp_send(req, (const char *)embedded_assets[i].start,
+                            embedded_assets[i].end - embedded_assets[i].start);
+            return true;
+        }
     }
-
-#ifdef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
-    // No embedded fallback — filesystem is the only source
-    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-    return ESP_FAIL;
-#else
-    // Serve embedded index.html
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)index_html_start,
-                    index_html_end - index_html_start);
-    return ESP_OK;
-#endif
+    return false;
 }
+#endif // !CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
 
 /**
- * @brief Handler for app.js
- */
-static esp_err_t handler_webui_app_js(httpd_req_t *req)
-{
-    // Try filesystem first
-    if (serve_from_filesystem(req, "/assets/app.js")) {
-        return ESP_OK;
-    }
-
-#ifdef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
-    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-    return ESP_FAIL;
-#else
-    // Serve embedded gzipped file
-    httpd_resp_set_type(req, "application/javascript");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=31536000");
-    httpd_resp_send(req, (const char *)app_js_gz_start,
-                    app_js_gz_end - app_js_gz_start);
-    return ESP_OK;
-#endif
-}
-
-/**
- * @brief Handler for index.css
- */
-static esp_err_t handler_webui_index_css(httpd_req_t *req)
-{
-    // Try filesystem first
-    if (serve_from_filesystem(req, "/assets/index.css")) {
-        return ESP_OK;
-    }
-
-#ifdef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
-    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-    return ESP_FAIL;
-#else
-    // Serve embedded gzipped file
-    httpd_resp_set_type(req, "text/css");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=31536000");
-    httpd_resp_send(req, (const char *)index_css_gz_start,
-                    index_css_gz_end - index_css_gz_start);
-    return ESP_OK;
-#endif
-}
-
-/**
- * @brief Wildcard handler for additional static files from filesystem
+ * @brief Unified handler for all Web UI static files
  *
- * Serves any file found on the configured filesystem path that doesn't
- * match the explicit handlers (index, app.js, index.css). Returns 404
- * if the file doesn't exist on the filesystem.
+ * Serves files by trying the filesystem first, then falling back to
+ * embedded content (when available). Remaps "/" to "/index.html".
  */
-static esp_err_t handler_webui_wildcard(httpd_req_t *req)
+static esp_err_t handler_webui_static(httpd_req_t *req)
 {
-    // req->uri is the file path (e.g., "/assets/logo.png")
-    if (serve_from_filesystem(req, req->uri)) {
+    const char *filepath = req->uri;
+
+    if (strcmp(filepath, "/") == 0) {
+        filepath = "/index.html";
+    }
+
+    if (serve_from_filesystem(req, filepath)) {
         return ESP_OK;
     }
 
+#ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
+    if (serve_embedded(req, filepath)) {
+        return ESP_OK;
+    }
+#endif
+
+    const char *base = get_fs_base_path();
+    ESP_LOGW(TAG, "404 Not Found: uri=%s (tried %s%s)",
+             req->uri, base ? base : "", filepath);
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, NULL);
     return ESP_FAIL;
 }
@@ -208,42 +178,22 @@ esp_err_t wifi_mgr_webui_init(httpd_handle_t httpd)
         return ESP_ERR_INVALID_ARG;
     }
 
-    const char *fs_path = get_fs_base_path();
+    ESP_LOGI(TAG, "Initializing Web UI (fs_path: %s)",
+             get_fs_base_path() ? get_fs_base_path() : "(embedded only)");
 
-    ESP_LOGI(TAG, "Initializing Web UI (fs_path: %s)", fs_path ? fs_path : "(embedded only)");
-
-    // Register explicit handlers for known files
     httpd_uri_t index_uri = {
         .uri = "/",
         .method = HTTP_GET,
-        .handler = handler_webui_index,
+        .handler = handler_webui_static,
     };
     httpd_register_uri_handler(httpd, &index_uri);
 
-    httpd_uri_t app_js_uri = {
-        .uri = "/assets/app.js",
+    httpd_uri_t wildcard_uri = {
+        .uri = "/*",
         .method = HTTP_GET,
-        .handler = handler_webui_app_js,
+        .handler = handler_webui_static,
     };
-    httpd_register_uri_handler(httpd, &app_js_uri);
-
-    httpd_uri_t css_uri = {
-        .uri = "/assets/index.css",
-        .method = HTTP_GET,
-        .handler = handler_webui_index_css,
-    };
-    httpd_register_uri_handler(httpd, &css_uri);
-
-    // Register wildcard handler for additional static files from filesystem
-    if (fs_path) {
-        httpd_uri_t wildcard_uri = {
-            .uri = "/*",
-            .method = HTTP_GET,
-            .handler = handler_webui_wildcard,
-        };
-        httpd_register_uri_handler(httpd, &wildcard_uri);
-        ESP_LOGI(TAG, "Wildcard file serving enabled from %s", fs_path);
-    }
+    httpd_register_uri_handler(httpd, &wildcard_uri);
 
 #ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
     size_t total_size = (index_html_end - index_html_start) +
