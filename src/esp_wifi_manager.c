@@ -652,7 +652,6 @@ static void wifi_mgr_task(void *arg)
                     break;
                     
                 case WM_INT_EVT_STA_CONNECTED:
-                    g_wifi_mgr->state = WIFI_STATE_CONNECTED;
                     g_wifi_mgr->connect_time = esp_timer_get_time() / 1000;
                     g_wifi_mgr->retry_count = 0;
                     g_wifi_mgr->connecting = false;
@@ -733,6 +732,7 @@ static void wifi_mgr_task(void *arg)
                 }
                     
                 case WM_INT_EVT_GOT_IP: {
+                    g_wifi_mgr->state = WIFI_STATE_CONNECTED;
                     xEventGroupSetBits(g_wifi_mgr->event_group, WIFI_CONNECTED_BIT);
                     xEventGroupClearBits(g_wifi_mgr->event_group, WIFI_FAIL_BIT);
 
