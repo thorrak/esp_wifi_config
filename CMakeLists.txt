@@ -65,3 +65,17 @@ if(CONFIG_BT_ENABLED AND CONFIG_WIFI_CFG_ENABLE_BLE)
     target_link_libraries(${lib} PRIVATE ${bt_lib})
 endif()
 
+# Add Improv WiFi support
+if(CONFIG_WIFI_MGR_ENABLE_IMPROV)
+    idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
+    target_sources(${lib} PRIVATE "src/esp_wifi_manager_improv.c")
+    if(CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE)
+        target_sources(${lib} PRIVATE "src/esp_wifi_manager_improv_ble.c")
+    endif()
+    if(CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL)
+        target_sources(${lib} PRIVATE "src/esp_wifi_manager_improv_serial.c")
+        idf_component_get_property(driver_lib driver COMPONENT_LIB)
+        target_link_libraries(${lib} PRIVATE ${driver_lib})
+    endif()
+endif()
+

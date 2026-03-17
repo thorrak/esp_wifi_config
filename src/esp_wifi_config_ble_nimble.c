@@ -8,6 +8,9 @@
 #if defined(CONFIG_WIFI_CFG_ENABLE_BLE) && defined(CONFIG_BT_NIMBLE_ENABLED)
 
 #include "esp_wifi_config_ble_int.h"
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+#include "esp_wifi_config_improv.h"
+#endif
 #include "esp_log.h"
 #include <string.h>
 
@@ -173,6 +176,10 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
                 wifi_cfg_ble_on_connect();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+                extern void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle);
+                wifi_cfg_improv_ble_on_connect_nimble(s_conn_handle);
+#endif
             } else {
                 ESP_LOGE(TAG, "Connection failed, status %d", event->connect.status);
                 start_advertising();
@@ -183,6 +190,10 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             ESP_LOGI(TAG, "BLE client disconnected, reason %d", event->disconnect.reason);
             wifi_cfg_ble_on_disconnect();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+            extern void wifi_cfg_improv_ble_on_disconnect_nimble(void);
+            wifi_cfg_improv_ble_on_disconnect_nimble();
+#endif
             start_advertising();
             break;
 
@@ -237,6 +248,23 @@ static void start_advertising(void)
         ESP_LOGE(TAG, "Failed to set adv fields, rc=%d", rc);
         return;
     }
+
+#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+    // Put Improv 128-bit service UUID in scan response to stay within 31-byte adv limit
+    static const ble_uuid128_t improv_adv_uuid = BLE_UUID128_INIT(
+        0x00, 0x80, 0x26, 0x78, 0x74, 0x27, 0x63, 0x46,
+        0x72, 0x22, 0x28, 0x62, 0x68, 0x77, 0x46, 0x00);
+
+    struct ble_hs_adv_fields rsp_fields = {0};
+    rsp_fields.uuids128 = (ble_uuid128_t *)&improv_adv_uuid;
+    rsp_fields.num_uuids128 = 1;
+    rsp_fields.uuids128_is_complete = 1;
+
+    rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Failed to set scan response fields, rc=%d", rc);
+    }
+#endif
 
     rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
                             &adv_params, gap_event_handler, NULL);
@@ -370,6 +398,26 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         ESP_LOGE(TAG, "ble_gatts_add_svcs failed, rc=%d", rc);
         return ESP_FAIL;
     }
+
+#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+    // Register Improv GATT service alongside custom service.
+    // NOTE: NimBLE requires all services to be registered before ble_gatts_start().
+    // In "service-only" mode (stack already running), this may fail if ble_gatts_start()
+    // was already called. In that case, Improv BLE will not be available, and the user
+    // must ensure BLE init happens before the host stack is fully started.
+    extern const struct ble_gatt_svc_def wifi_mgr_improv_nimble_svcs[];
+    rc = ble_gatts_count_cfg(wifi_mgr_improv_nimble_svcs);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Improv ble_gatts_count_cfg failed, rc=%d (stack already started?)", rc);
+    } else {
+        rc = ble_gatts_add_svcs(wifi_mgr_improv_nimble_svcs);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "Improv ble_gatts_add_svcs failed, rc=%d (stack already started?)", rc);
+        } else {
+            ESP_LOGI(TAG, "Improv BLE GATT service registered");
+        }
+    }
+#endif
 
     // Create command processing queue and task (runs off nimble_host stack)
     s_cmd_queue = xQueueCreate(BLE_CMD_QUEUE_DEPTH, sizeof(ble_cmd_msg_t));

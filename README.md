@@ -13,6 +13,7 @@ WiFi Config component for ESP-IDF with multi-network support, auto-reconnect, So
 - **Web UI**: Embedded responsive web interface (Preact-based, ~10KB gzipped)
 - **CLI interface**: Serial console commands for configuration
 - **BLE GATT**: Configure WiFi via Bluetooth Low Energy (smartphone or Python CLI)
+- **Improv WiFi**: Open standard provisioning via [Web Bluetooth](https://www.improv-wifi.com/) or Web Serial (Chrome/Edge)
 - **REST API**: HTTP endpoints for remote configuration with CORS support
 - **Basic Auth**: Optional authentication for HTTP endpoints
 - **Custom variables**: Key-value storage for application settings
@@ -35,12 +36,12 @@ WiFi Config component for ESP-IDF with multi-network support, auto-reconnect, So
 │                                                                      │
 │  ┌─────────────── Configuration Interfaces ───────────────────────┐  │
 │  │                                                                │  │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                  │  │
-│  │  │ Web UI │ │  HTTP  │ │  CLI   │ │  BLE   │                  │  │
-│  │  │(Preact)│ │  API   │ │(Console│ │  GATT  │                  │  │
-│  │  └────────┘ └────────┘ └────────┘ └────────┘                  │  │
-│  │       │          │          │          │                      │  │
-│  │       └──────────┴──────────┴──────────┘                      │  │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐        │  │
+│  │  │ Web UI │ │  HTTP  │ │  CLI   │ │  BLE   │ │ Improv │        │  │
+│  │  │(Preact)│ │  API   │ │(Console│ │  GATT  │ │  WiFi  │        │  │
+│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘        │  │
+│  │       │          │          │          │          │              │  │
+│  │       └──────────┴──────────┴──────────┴──────────┘              │  │
 │  │                              │                                │  │
 │  │                              ▼                                │  │
 │  │                 ┌─────────────────────────┐                   │  │
@@ -126,6 +127,7 @@ void app_main(void)
 | [with_webui](examples/with_webui/) | Embedded Web UI (no external files needed) |
 | [with_webui_customize](examples/with_webui_customize/) | Custom frontend from LittleFS |
 | [with_ble](examples/with_ble/) | BLE GATT interface for smartphone/Python CLI |
+| [with_improv](examples/with_improv/) | Improv WiFi provisioning (Web Bluetooth / Web Serial) |
 
 ## Configuration
 
@@ -147,6 +149,11 @@ Configure via `idf.py menuconfig` → WiFi Config:
 | `WIFI_CFG_WEBUI_CUSTOM_PATH` | "" | Custom Web UI path (LittleFS/SPIFFS) |
 | `WIFI_CFG_ENABLE_BLE` | n | Enable BLE GATT interface |
 | `WIFI_CFG_BLE_DEVICE_NAME` | "ESP32-WiFi-{id}" | BLE device name (supports {id}) |
+| `WIFI_CFG_ENABLE_IMPROV` | n | Enable Improv WiFi (master switch) |
+| `WIFI_CFG_ENABLE_IMPROV_BLE` | y* | Enable Improv BLE transport (*when IMPROV + BT enabled) |
+| `WIFI_CFG_ENABLE_IMPROV_SERIAL` | n | Enable Improv Serial transport |
+| `WIFI_CFG_IMPROV_SERIAL_UART_NUM` | 0 | UART port for Improv Serial |
+| `WIFI_CFG_IMPROV_SERIAL_BAUD` | 115200 | Baud rate for Improv Serial |
 
 ### Runtime Configuration
 
@@ -202,6 +209,16 @@ wifi_cfg_config_t config = {
         .enable = true,
         .device_name = "ESP32-WiFi-{id}",  // NULL uses Kconfig default
     },
+
+    // Improv WiFi (requires CONFIG_WIFI_MGR_ENABLE_IMPROV=y)
+    .improv = {
+        .enable_ble = true,                    // Web Bluetooth provisioning
+        .enable_serial = false,                // Web Serial provisioning
+        .firmware_name = "my_project",         // Shown in Device Info
+        .firmware_version = "1.0.0",
+        .device_name = "My Device",
+        .on_identify = my_identify_callback,   // Optional: flash LED on Identify
+    },
 };
 
 wifi_cfg_init(&config);
@@ -209,18 +226,18 @@ wifi_cfg_init(&config);
 
 ### Provisioning Modes
 
-The `provisioning_mode` field controls when the WiFi Config automatically starts provisioning interfaces (AP and/or BLE):
+The `provisioning_mode` field controls when the WiFi Config automatically starts provisioning interfaces (AP, BLE, and/or Improv):
 
 | Mode | Behavior |
 |------|----------|
-| `WIFI_PROV_ALWAYS` | AP/BLE start at init and remain active, even after STA connects |
+| `WIFI_PROV_ALWAYS` | AP/BLE/Improv start at init and remain active, even after STA connects |
 | `WIFI_PROV_ON_FAILURE` | Start provisioning when no networks are saved or all saved networks fail to connect |
 | `WIFI_PROV_WHEN_UNPROVISIONED` | Start provisioning only if no networks exist in NVS |
 | `WIFI_PROV_MANUAL` | Never auto-start provisioning; the application calls `wifi_cfg_start_ap()` explicitly (e.g., on button press) |
 
 ### Post-Connect Behavior
 
-**Provisioning teardown:** When `stop_provisioning_on_connect` is `true`, the manager stops AP/BLE after the STA obtains an IP address. The `provisioning_teardown_delay_ms` value adds a delay before teardown so the Web UI can display connection results to the user.
+**Provisioning teardown:** When `stop_provisioning_on_connect` is `true`, the manager stops AP/BLE/Improv after the STA obtains an IP address. The `provisioning_teardown_delay_ms` value adds a delay before teardown so the Web UI can display connection results to the user.
 
 **Reconnect exhaustion:** After a post-connect disconnect, the manager retries up to `max_reconnect_attempts` times (0 = infinite). When attempts are exhausted, `on_reconnect_exhausted` controls what happens:
 - `WIFI_RECONNECT_PROVISION` — Re-enter provisioning mode so the user can reconfigure
@@ -543,6 +560,79 @@ python wifi_ble_cli.py set-var device_name "My ESP32"
 python wifi_ble_cli.py factory-reset
 ```
 
+## Improv WiFi
+
+[Improv WiFi](https://www.improv-wifi.com/) is an open standard by ESPHome for provisioning IoT devices over BLE or Serial using browsers and companion apps. It coexists with the custom BLE GATT service (0xFFE0) — both are advertised simultaneously.
+
+### Enable
+
+In `sdkconfig.defaults` (or via `idf.py menuconfig` → WiFi Manager → Improv WiFi):
+
+```kconfig
+# Master switch
+CONFIG_WIFI_MGR_ENABLE_IMPROV=y
+
+# BLE transport (requires Bluetooth enabled)
+CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE=y
+
+# Serial transport (optional)
+CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL=y
+CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM=0
+CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD=115200
+```
+
+### Configuration
+
+```c
+wifi_manager_init(&(wifi_manager_config_t){
+    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    .enable_ap = true,
+    .improv = {
+        .enable_ble = true,
+        .enable_serial = false,
+        .firmware_name = "my_project",
+        .firmware_version = "1.0.0",
+        .device_name = "My Device",
+        .on_identify = my_led_flash_callback,  // Optional
+    },
+});
+```
+
+### How to Provision
+
+**Via Web Bluetooth (Chrome/Edge):**
+1. Open [improv-wifi.com](https://www.improv-wifi.com/) in Chrome or Edge
+2. Click "Connect device via Bluetooth"
+3. Select the device from the browser pairing dialog
+4. Enter WiFi credentials — the device connects and returns its IP
+
+**Via ESPHome Companion App:**
+1. Install the ESPHome app (Android/iOS)
+2. The device appears automatically for Improv provisioning
+3. Tap and enter WiFi credentials
+
+**Via Web Serial (if enabled):**
+1. Open [improv-wifi.com](https://www.improv-wifi.com/) in Chrome or Edge
+2. Click "Connect device via Serial"
+3. Select the serial port and enter WiFi credentials
+
+### Coexistence with Custom BLE
+
+When both `ble.enable` and `improv.enable_ble` are `true`:
+- The custom service (UUID `0xFFE0`) is in the primary advertising packet
+- The Improv service (UUID `00467768-6228-2272-4663-277478268000`) is in the scan response
+- Both services share the same BLE connection and stack instance
+- A BLE scanner (e.g., nRF Connect) will show both services on the device
+
+### Supported RPC Commands
+
+| Command | ID | Description |
+|---------|-----|-------------|
+| Send WiFi Settings | 0x01 | Provide SSID + password, device connects |
+| Identify | 0x02 | Flash LED / beep (calls `on_identify` callback) |
+| Get Device Info | 0x03 | Returns firmware name, version, chip, device name |
+| Get WiFi Networks | 0x04 | Triggers a WiFi scan and returns results |
+
 ## REST API Reference
 
 Base URL: `http://<device-ip>/api/wifi` (configurable via `api_base_path`)
@@ -699,7 +789,7 @@ Post-connect disconnect:
 
 Provisioning teardown (when stop_provisioning_on_connect = true):
 1. STA gets IP → wait provisioning_teardown_delay_ms
-2. Emit PROVISIONING_STOPPED → stop AP/BLE
+2. Emit PROVISIONING_STOPPED → stop AP/BLE/Improv
 3. Transition HTTP per http_post_prov_mode
 ```
 
