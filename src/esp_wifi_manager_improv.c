@@ -393,8 +393,8 @@ esp_err_t wifi_mgr_improv_init(void)
     s_state_cb_count = 0;
 
     // Subscribe to wifi events for state transitions
-    esp_bus_subscribe(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_connected, NULL);
-    esp_bus_subscribe(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_connected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
 
 #ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
     if (g_wifi_mgr->config.improv.enable_serial) {
@@ -421,8 +421,8 @@ esp_err_t wifi_mgr_improv_deinit(void)
 {
     ESP_LOGI(TAG, "Deinitializing Improv WiFi");
 
-    esp_bus_unsubscribe(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_connected);
-    esp_bus_unsubscribe(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected);
+    esp_bus_unsub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_connected);
+    esp_bus_unsub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected);
 
 #ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
     wifi_mgr_improv_serial_deinit();
