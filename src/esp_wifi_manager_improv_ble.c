@@ -117,10 +117,10 @@ const struct ble_gatt_svc_def wifi_mgr_improv_nimble_svcs[] = {
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
             },
             {
-                // RPC Command (write)
+                // RPC Command (write + write-no-rsp)
                 .uuid = &s_char_rpc_cmd_uuid.u,
                 .access_cb = improv_rpc_cmd_access,
-                .flags = BLE_GATT_CHR_F_WRITE,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
             },
             {
                 // RPC Result (read + notify)
@@ -168,7 +168,15 @@ static int improv_rpc_cmd_access(uint16_t conn, uint16_t attr,
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         uint16_t om_len = OS_MBUF_PKTLEN(ctxt->om);
+        ESP_LOGI(TAG, "RPC Command write, %d bytes", om_len);
+
         if (om_len == 0 || om_len > 512) {
+            ESP_LOGW(TAG, "RPC write rejected: invalid length %d", om_len);
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+
+        if (!s_cmd_queue) {
+            ESP_LOGE(TAG, "Command queue not initialized");
             return BLE_ATT_ERR_UNLIKELY;
         }
 
@@ -190,6 +198,7 @@ static int improv_rpc_cmd_access(uint16_t conn, uint16_t attr,
         }
         return 0;
     }
+    ESP_LOGD(TAG, "RPC cmd access: unexpected op %d", ctxt->op);
     return BLE_ATT_ERR_UNLIKELY;
 }
 
@@ -288,7 +297,7 @@ static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_C
 
 static const uint8_t char_prop_read         = ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t char_prop_read_notify  = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
-static const uint8_t char_prop_write        = ESP_GATT_CHAR_PROP_BIT_WRITE;
+static const uint8_t char_prop_write        = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR;
 
 // 128-bit service UUID in little-endian for Bluedroid
 static const uint8_t improv_svc_uuid128[16] = IMPROV_BLE_SVC_UUID_128;
