@@ -135,10 +135,12 @@ menu "WiFi Config"
             bool "Enable Improv BLE transport"
             default y
             depends on WIFI_MGR_ENABLE_IMPROV && BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
+            select WIFI_MGR_ENABLE_BLE
             help
                 Enable the Improv WiFi BLE transport. Registers a separate GATT
                 service (UUID 00467768-...) alongside the existing custom BLE service.
-                Requires Bluetooth to be enabled.
+                Requires Bluetooth to be enabled. Automatically enables the BLE
+                backend (WIFI_MGR_ENABLE_BLE) for stack and advertising management.
 
         config WIFI_MGR_ENABLE_IMPROV_SERIAL
             bool "Enable Improv Serial transport"

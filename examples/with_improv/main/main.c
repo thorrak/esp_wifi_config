@@ -130,8 +130,10 @@ void app_main(void)
         },
 
         // Custom BLE GATT (0xFFE0) — JSON-based protocol
+        // Can be disabled if only Improv is needed; the BLE stack will still
+        // be initialized automatically when .improv.enable_ble is true.
         .ble = {
-            .enable = true,
+            .enable = false,
             .device_name = NULL,  // Kconfig default: "ESP32-WiFi-{id}"
         },
 
