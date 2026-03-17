@@ -232,6 +232,70 @@ static void start_advertising(void)
     adv_params.itvl_min = 0x20;
     adv_params.itvl_max = 0x40;
 
+    int rc;
+
+#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+    // Improv spec: Service UUID + Service Data MUST be in primary adv (not scan response).
+    // NimBLE's ble_hs_adv_fields doesn't support service data, so use raw bytes.
+
+    // Primary adv: Flags + Improv 128-bit UUID + Service Data (UUID16 0x4677)
+    static const uint8_t improv_uuid_le[] = IMPROV_BLE_SVC_UUID_128;
+    uint8_t adv_buf[31];
+    int pos = 0;
+
+    // Flags (3 bytes)
+    adv_buf[pos++] = 2;
+    adv_buf[pos++] = 0x01;  // AD type: Flags
+    adv_buf[pos++] = 0x06;  // General Discoverable + BR/EDR Not Supported
+
+    // Complete List of 128-bit UUIDs (18 bytes)
+    adv_buf[pos++] = 17;
+    adv_buf[pos++] = 0x07;  // AD type: Complete List of 128-bit UUIDs
+    memcpy(&adv_buf[pos], improv_uuid_le, 16);
+    pos += 16;
+
+    // Service Data - 16 bit UUID (10 bytes)
+    adv_buf[pos++] = 9;
+    adv_buf[pos++] = 0x16;  // AD type: Service Data - 16 bit UUID
+    adv_buf[pos++] = 0x77;  // UUID16 0x4677 in little-endian
+    adv_buf[pos++] = 0x46;
+    adv_buf[pos++] = wifi_mgr_improv_get_state();
+    adv_buf[pos++] = wifi_mgr_improv_get_capabilities();
+    adv_buf[pos++] = 0x00;  // Reserved
+    adv_buf[pos++] = 0x00;
+    adv_buf[pos++] = 0x00;
+    adv_buf[pos++] = 0x00;
+
+    rc = ble_gap_adv_set_data(adv_buf, pos);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to set raw adv data, rc=%d", rc);
+        return;
+    }
+
+    // Scan response: device name + custom 16-bit UUID (0xFFE0)
+    size_t name_len = strlen(s_device_name);
+    uint8_t rsp_buf[31];
+    int rpos = 0;
+
+    // Complete Local Name
+    rsp_buf[rpos++] = (uint8_t)(name_len + 1);
+    rsp_buf[rpos++] = 0x09;  // AD type: Complete Local Name
+    memcpy(&rsp_buf[rpos], s_device_name, name_len);
+    rpos += name_len;
+
+    // Complete List of 16-bit UUIDs (custom service)
+    rsp_buf[rpos++] = 3;
+    rsp_buf[rpos++] = 0x03;  // AD type: Complete List of 16-bit UUIDs
+    rsp_buf[rpos++] = 0xE0;  // 0xFFE0 in little-endian
+    rsp_buf[rpos++] = 0xFF;
+
+    rc = ble_gap_adv_rsp_set_data(rsp_buf, rpos);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Failed to set scan response data, rc=%d", rc);
+    }
+
+#else
+    // Without Improv: original layout — name + custom UUID in primary adv
     static const ble_uuid16_t adv_service_uuid = BLE_UUID16_INIT(WIFI_BLE_SVC_UUID);
 
     struct ble_hs_adv_fields fields = {0};
@@ -243,26 +307,10 @@ static void start_advertising(void)
     fields.num_uuids16 = 1;
     fields.uuids16_is_complete = 1;
 
-    int rc = ble_gap_adv_set_fields(&fields);
+    rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to set adv fields, rc=%d", rc);
         return;
-    }
-
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
-    // Put Improv 128-bit service UUID in scan response to stay within 31-byte adv limit
-    static const ble_uuid128_t improv_adv_uuid = BLE_UUID128_INIT(
-        0x00, 0x80, 0x26, 0x78, 0x74, 0x27, 0x63, 0x46,
-        0x72, 0x22, 0x28, 0x62, 0x68, 0x77, 0x46, 0x00);
-
-    struct ble_hs_adv_fields rsp_fields = {0};
-    rsp_fields.uuids128 = (ble_uuid128_t *)&improv_adv_uuid;
-    rsp_fields.num_uuids128 = 1;
-    rsp_fields.uuids128_is_complete = 1;
-
-    rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
-    if (rc != 0) {
-        ESP_LOGW(TAG, "Failed to set scan response fields, rc=%d", rc);
     }
 #endif
 

@@ -146,6 +146,49 @@ static bool s_ble_stack_owned = false;
 // GAP Event Handler
 // =============================================================================
 
+#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+// When Improv is enabled:
+//   Primary adv: Improv 128-bit UUID + service data (state + caps) — spec requires these
+//                MUST NOT be in scan response.
+//   Scan response: device name + custom 16-bit UUID (0xFFE0)
+
+static uint8_t improv_adv_svc_uuid128[] = IMPROV_BLE_SVC_UUID_128;
+
+// Service data format: UUID16 (0x4677 LE) + state + capabilities + 4 reserved bytes
+static uint8_t improv_svc_data[] = {
+    0x77, 0x46,                     // UUID16 0x4677 in little-endian
+    IMPROV_STATE_AUTHORIZED,        // Current state (updated at runtime)
+    0x00,                           // Capabilities (updated at runtime)
+    0x00, 0x00, 0x00, 0x00,        // Reserved
+};
+
+static esp_ble_adv_data_t adv_data = {
+    .set_scan_rsp = false,
+    .include_name = false,          // Name goes in scan response
+    .include_txpower = false,
+    .service_uuid_len = sizeof(improv_adv_svc_uuid128),
+    .p_service_uuid = improv_adv_svc_uuid128,
+    .service_data_len = sizeof(improv_svc_data),
+    .p_service_data = improv_svc_data,
+    .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
+};
+
+static uint8_t scan_rsp_custom_uuid[] = {
+    0xE0, 0xFF,  // WIFI_BLE_SVC_UUID (0xFFE0) in little-endian
+};
+
+static esp_ble_adv_data_t scan_rsp_data = {
+    .set_scan_rsp = true,
+    .include_name = true,           // Device name in scan response
+    .include_txpower = false,
+    .service_uuid_len = sizeof(scan_rsp_custom_uuid),
+    .p_service_uuid = scan_rsp_custom_uuid,
+    .flag = 0,
+};
+
+#else
+// Without Improv: original layout — name + custom UUID in primary adv
+
 static uint8_t adv_service_uuid[] = {
     0xE0, 0xFF,  // WIFI_BLE_SVC_UUID (0xFFE0) in little-endian
 };
@@ -166,18 +209,6 @@ static esp_ble_adv_data_t adv_data = {
     .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
 };
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
-// Scan response carries the Improv 128-bit service UUID (too large for primary adv packet)
-static uint8_t scan_rsp_service_uuid128[] = IMPROV_BLE_SVC_UUID_128;
-
-static esp_ble_adv_data_t scan_rsp_data = {
-    .set_scan_rsp = true,
-    .include_name = false,
-    .include_txpower = false,
-    .service_uuid_len = sizeof(scan_rsp_service_uuid128),
-    .p_service_uuid = scan_rsp_service_uuid128,
-    .flag = 0,
-};
 #endif
 
 static esp_ble_adv_params_t adv_params = {
@@ -232,6 +263,14 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                                  esp_ble_gatts_cb_param_t *param)
 {
+    // Filter: only process REG_EVT for our own app, and all other events for our gatts_if
+    if (event == ESP_GATTS_REG_EVT) {
+        if (param->reg.app_id != PROFILE_APP_IDX) return;
+    } else if (s_profile.gatts_if != ESP_GATT_IF_NONE &&
+               gatts_if != s_profile.gatts_if) {
+        return;
+    }
+
     switch (event) {
         case ESP_GATTS_REG_EVT:
             if (param->reg.status == ESP_GATT_OK) {
