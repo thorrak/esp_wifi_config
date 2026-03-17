@@ -302,14 +302,12 @@ void wifi_mgr_improv_handle_rpc(const uint8_t *data, size_t len,
                                 improv_response_cb_t response_cb, void *cb_ctx)
 {
     if (!data || len < 2) {
-        ESP_LOGW(TAG, "RPC: invalid packet (len=%d)", (int)len);
         wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
 
     uint8_t cmd_id = data[0];
     uint8_t data_len = data[1];
-    ESP_LOGI(TAG, "RPC: cmd=0x%02x data_len=%d total_len=%d", cmd_id, data_len, (int)len);
 
     if (2 + data_len > len) {
         wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);

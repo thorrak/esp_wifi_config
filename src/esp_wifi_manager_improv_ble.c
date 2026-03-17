@@ -168,10 +168,7 @@ static int improv_rpc_cmd_access(uint16_t conn, uint16_t attr,
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         uint16_t om_len = OS_MBUF_PKTLEN(ctxt->om);
-        ESP_LOGI(TAG, "RPC Command write, %d bytes", om_len);
-
         if (om_len == 0 || om_len > 512) {
-            ESP_LOGW(TAG, "RPC write rejected: invalid length %d", om_len);
             return BLE_ATT_ERR_UNLIKELY;
         }
 
@@ -198,7 +195,6 @@ static int improv_rpc_cmd_access(uint16_t conn, uint16_t attr,
         }
         return 0;
     }
-    ESP_LOGD(TAG, "RPC cmd access: unexpected op %d", ctxt->op);
     return BLE_ATT_ERR_UNLIKELY;
 }
 
