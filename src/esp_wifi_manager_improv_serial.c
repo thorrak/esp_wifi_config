@@ -65,10 +65,9 @@ static void serial_send_packet(uint8_t type, const uint8_t *data, size_t len)
         offset += len;
     }
 
-    // Checksum (sum of all bytes from type to end of data, inclusive)
+    // Checksum: sum of ALL preceding bytes (header + version + type + length + data)
     uint8_t checksum = 0;
-    // Sum from version byte onward (index HEADER_LEN to offset-1)
-    for (size_t i = IMPROV_SERIAL_HEADER_LEN; i < offset; i++) {
+    for (size_t i = 0; i < offset; i++) {
         checksum += buf[i];
     }
     buf[offset++] = checksum;
@@ -143,6 +142,11 @@ static void serial_rx_task(void *param)
                     header_idx++;
                     if (header_idx == IMPROV_SERIAL_HEADER_LEN) {
                         header_idx = 0;
+                        // Seed checksum with the header bytes we just matched
+                        checksum = 0;
+                        for (int i = 0; i < IMPROV_SERIAL_HEADER_LEN; i++) {
+                            checksum += IMPROV_SERIAL_HEADER[i];
+                        }
                         parse_state = RX_STATE_VERSION;
                     }
                 } else {
@@ -151,7 +155,7 @@ static void serial_rx_task(void *param)
                 break;
 
             case RX_STATE_VERSION:
-                checksum = byte;
+                checksum += byte;
                 if (byte != IMPROV_SERIAL_VERSION) {
                     ESP_LOGW(TAG, "Unsupported serial version: %d", byte);
                     parse_state = RX_STATE_HEADER;
@@ -284,9 +288,6 @@ esp_err_t wifi_mgr_improv_serial_start(void)
         ESP_LOGE(TAG, "Failed to create serial RX task");
         return ESP_ERR_NO_MEM;
     }
-
-    // Send initial state
-    serial_send_state();
 
     ESP_LOGI(TAG, "Improv Serial started");
     return ESP_OK;
