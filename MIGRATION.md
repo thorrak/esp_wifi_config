@@ -139,6 +139,29 @@ General rule: find-and-replace `WIFI_MGR_` with `WIFI_CFG_` in sdkconfig files a
 **Important:** After updating, run `idf.py fullclean` and re-run `idf.py menuconfig` to regenerate your sdkconfig with the new option names. Old `CONFIG_WIFI_MGR_*` entries in an existing sdkconfig will be silently ignored, reverting those settings to their defaults.
 
 
+## Changed Function Signatures
+
+### `wifi_cfg_deinit()` now requires a `bool deinit_wifi` parameter
+
+*This change was originally proposed in [tuanpmt/esp_wifi_manager#7](https://github.com/tuanpmt/esp_wifi_manager/pull/7) but was never merged upstream. If you are already using that patch, this change will be familiar.*
+
+The old `wifi_manager_deinit(void)` always tore down WiFi and destroyed the network interfaces, which meant calling deinit after provisioning would disconnect the WiFi session you just established. The new signature lets you choose:
+
+```c
+// Old
+wifi_manager_deinit();  // always stopped WiFi and destroyed netifs
+
+// New
+wifi_cfg_deinit(true);  // same as old behavior: stop WiFi, destroy netifs, free resources
+wifi_cfg_deinit(false); // tear down the manager (HTTP, BLE, mDNS, event handlers, task)
+                        // but keep WiFi connected and netifs alive
+```
+
+When `deinit_wifi` is `false`, the STA and AP network interfaces are preserved. You can reobtain their handles later via `esp_netif_get_handle_from_ifkey()` if needed.
+
+**Typical usage**: after provisioning completes and WiFi is connected, call `wifi_cfg_deinit(false)` to free the manager's resources while keeping your WiFi connection active.
+
+
 ## esp_bus Dependency
 
 The `esp_bus` component is also now maintained under the new owner.
