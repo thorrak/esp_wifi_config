@@ -1,4 +1,4 @@
-# ESP WiFi Manager BLE CLI Client
+# ESP WiFi Config BLE CLI Client
 
 Python command-line tool to configure ESP32 WiFi settings over Bluetooth Low Energy.
 

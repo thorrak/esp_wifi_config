@@ -1,10 +1,10 @@
-# ESP WiFi Manager - Basic Example
+# ESP WiFi Config - Basic Example
 
-This example demonstrates basic usage of the ESP WiFi Manager component.
+This example demonstrates basic usage of the ESP WiFi Config component.
 
 ## Features Demonstrated
 
-- Initialize WiFi Manager with default networks
+- Initialize WiFi Config with default networks
 - Enable HTTP REST API for remote configuration
 - Enable captive portal for initial WiFi setup
 - Subscribe to WiFi events (connected, disconnected, got IP)
@@ -96,9 +96,9 @@ curl http://192.168.1.xxx/api/wifi/status
 ## Expected Output
 
 ```
-I (xxx) wifi_example: Starting WiFi Manager example
-I (xxx) wifi_mgr: WiFi Manager initialized
-I (xxx) wifi_example: WiFi Manager initialized
+I (xxx) wifi_example: Starting WiFi Config example
+I (xxx) wifi_cfg: WiFi Config initialized
+I (xxx) wifi_example: WiFi Config initialized
 I (xxx) wifi_example: HTTP API available at http://<device-ip>/api/wifi/
 I (xxx) wifi_example: Waiting for WiFi connection...
 I (xxx) wifi_example: WiFi connected to MyWiFi (RSSI: -45 dBm, Channel: 6)

@@ -1,8 +1,8 @@
 CONFIG_IDF_TARGET="esp32s3"
 
-# Enable WiFi Manager Web UI with custom path
-CONFIG_WIFI_MGR_ENABLE_WEBUI=y
-CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH="/littlefs"
+# Enable WiFi Config Web UI with custom path
+CONFIG_WIFI_CFG_ENABLE_WEBUI=y
+CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH="/littlefs"
 
 # Partition table
 CONFIG_PARTITION_TABLE_CUSTOM=y

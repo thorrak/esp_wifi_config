@@ -1,13 +1,13 @@
 /**
- * @file esp_wifi_manager_ble_nimble.c
+ * @file esp_wifi_config_ble_nimble.c
  * @brief BLE backend using the NimBLE host stack
  */
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_WIFI_MGR_ENABLE_BLE) && defined(CONFIG_BT_NIMBLE_ENABLED)
+#if defined(CONFIG_WIFI_CFG_ENABLE_BLE) && defined(CONFIG_BT_NIMBLE_ENABLED)
 
-#include "esp_wifi_manager_ble_int.h"
+#include "esp_wifi_config_ble_int.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -25,7 +25,7 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-static const char *TAG = "wifi_mgr_ble_nb";
+static const char *TAG = "wifi_cfg_ble_nb";
 
 /** Stack size for the command-processing task (handles JSON + WiFi scan). */
 #define BLE_CMD_TASK_STACK_SIZE  4096
@@ -172,7 +172,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
-                wifi_mgr_ble_on_connect();
+                wifi_cfg_ble_on_connect();
             } else {
                 ESP_LOGE(TAG, "Connection failed, status %d", event->connect.status);
                 start_advertising();
@@ -182,7 +182,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
         case BLE_GAP_EVENT_DISCONNECT:
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             ESP_LOGI(TAG, "BLE client disconnected, reason %d", event->disconnect.reason);
-            wifi_mgr_ble_on_disconnect();
+            wifi_cfg_ble_on_disconnect();
             start_advertising();
             break;
 
@@ -194,7 +194,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == s_response_val_handle) {
                 bool enabled = event->subscribe.cur_notify;
-                wifi_mgr_ble_set_response_notify(enabled);
+                wifi_cfg_ble_set_response_notify(enabled);
                 ESP_LOGI(TAG, "Response notify %s", enabled ? "enabled" : "disabled");
             }
             break;
@@ -272,7 +272,7 @@ static void ble_cmd_task(void *param)
 {
     ble_cmd_msg_t msg;
     while (xQueueReceive(s_cmd_queue, &msg, portMAX_DELAY) == pdTRUE) {
-        wifi_mgr_ble_on_command(msg.data, msg.length);
+        wifi_cfg_ble_on_command(msg.data, msg.length);
         free(msg.data);
     }
     vTaskDelete(NULL);
@@ -288,7 +288,7 @@ static void nimble_host_task(void *param)
 // Backend Interface Implementation
 // =============================================================================
 
-esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t length)
+esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
         return ESP_ERR_INVALID_STATE;
@@ -308,7 +308,7 @@ esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t lengt
     return ESP_OK;
 }
 
-uint16_t wifi_mgr_ble_backend_get_mtu(void)
+uint16_t wifi_cfg_ble_backend_get_mtu(void)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
         return 0;
@@ -316,17 +316,17 @@ uint16_t wifi_mgr_ble_backend_get_mtu(void)
     return ble_att_mtu(s_conn_handle);
 }
 
-bool wifi_mgr_ble_backend_is_stack_running(void)
+bool wifi_cfg_ble_backend_is_stack_running(void)
 {
     return ble_hs_is_enabled();
 }
 
-esp_err_t wifi_mgr_ble_backend_init(const char *device_name)
+esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
 {
     strncpy(s_device_name, device_name, sizeof(s_device_name) - 1);
     s_device_name[sizeof(s_device_name) - 1] = '\0';
 
-    if (wifi_mgr_ble_backend_is_stack_running()) {
+    if (wifi_cfg_ble_backend_is_stack_running()) {
         // Stack already running — service-only mode
         s_ble_stack_owned = false;
         ESP_LOGI(TAG, "NimBLE stack already running, registering service only");
@@ -404,13 +404,13 @@ esp_err_t wifi_mgr_ble_backend_init(const char *device_name)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_ble_backend_start(void)
+esp_err_t wifi_cfg_ble_backend_start(void)
 {
     start_advertising();
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_ble_backend_stop(void)
+esp_err_t wifi_cfg_ble_backend_stop(void)
 {
     // Disconnect active client
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
@@ -425,7 +425,7 @@ esp_err_t wifi_mgr_ble_backend_stop(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_ble_backend_deinit(void)
+esp_err_t wifi_cfg_ble_backend_deinit(void)
 {
     // Disconnect active client
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
@@ -485,4 +485,4 @@ esp_err_t wifi_mgr_ble_backend_deinit(void)
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_MGR_ENABLE_BLE && CONFIG_BT_NIMBLE_ENABLED
+#endif // CONFIG_WIFI_CFG_ENABLE_BLE && CONFIG_BT_NIMBLE_ENABLED

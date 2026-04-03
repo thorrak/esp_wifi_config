@@ -1,10 +1,10 @@
 /**
- * @file esp_wifi_manager.h
- * @brief WiFi Manager - Multi-network support with auto retry and REST API
+ * @file esp_wifi_config.h
+ * @brief WiFi Config - Multi-network support with auto retry and REST API
  * 
  * @section intro Giới thiệu
  * 
- * ESP WiFi Manager cung cấp:
+ * ESP WiFi Config cung cấp:
  * - Multi-network: Lưu nhiều mạng WiFi với priority, tự động retry
  * - esp_bus integration: Actions và Events để tương tác
  * - HTTP REST API: Cấu hình từ xa qua web
@@ -16,11 +16,11 @@
  * 
  * @subsection basic Basic Setup
  * @code{.c}
- * #include "esp_wifi_manager.h"
+ * #include "esp_wifi_config.h"
  *
  * void app_main(void) {
  *     // Init với default networks
- *     wifi_manager_init(&(wifi_manager_config_t){
+ *     wifi_cfg_init(&(wifi_cfg_config_t){
  *         .default_networks = (wifi_network_t[]){
  *             {"MyWiFi", "password123", 10},      // priority 10
  *             {"BackupWiFi", "backup456", 5},     // priority 5 (fallback)
@@ -35,7 +35,7 @@
  *         .enable_ap = true,
  *     });
  *
- *     if (wifi_manager_wait_connected(30000) == ESP_OK) {
+ *     if (wifi_cfg_wait_connected(30000) == ESP_OK) {
  *         ESP_LOGI(TAG, "WiFi connected!");
  *     }
  * }
@@ -44,7 +44,7 @@
  * @subsection status Lấy trạng thái
  * @code{.c}
  * wifi_status_t status;
- * wifi_manager_get_status(&status);
+ * wifi_cfg_get_status(&status);
  * 
  * printf("State: %s\n", status.state == WIFI_STATE_CONNECTED ? "connected" : "disconnected");
  * printf("SSID: %s\n", status.ssid);
@@ -75,10 +75,10 @@
  * @subsection softap SoftAP Mode
  * @code{.c}
  * // Start AP với config mặc định
- * wifi_manager_start_ap(NULL);
+ * wifi_cfg_start_ap(NULL);
  * 
  * // Hoặc custom config
- * wifi_manager_start_ap(&(wifi_mgr_ap_config_t){
+ * wifi_cfg_start_ap(&(wifi_cfg_ap_config_t){
  *     .ssid = "MyDevice",
  *     .password = "12345678",
  *     .ip = "192.168.10.1",
@@ -86,19 +86,19 @@
  * 
  * // Lấy trạng thái AP
  * wifi_ap_status_t ap_status;
- * wifi_manager_get_ap_status(&ap_status);
+ * wifi_cfg_get_ap_status(&ap_status);
  * printf("AP: %s, Clients: %d\n", ap_status.ssid, ap_status.sta_count);
  * @endcode
  * 
  * @subsection vars Custom Variables
  * @code{.c}
  * // Set variable
- * wifi_manager_set_var("server_url", "https://api.example.com");
- * wifi_manager_set_var("device_id", "device-001");
+ * wifi_cfg_set_var("server_url", "https://api.example.com");
+ * wifi_cfg_set_var("device_id", "device-001");
  * 
  * // Get variable
  * char value[128];
- * wifi_manager_get_var("server_url", value, sizeof(value));
+ * wifi_cfg_get_var("server_url", value, sizeof(value));
  * 
  * // Subscribe variable changes
  * void on_var_changed(const char *event, const void *data, size_t len, void *ctx) {
@@ -133,14 +133,14 @@
  * 
  * @subsection shared Shared HTTP Server
  * @code{.c}
- * // WiFi Manager tạo httpd (auto when enable_ap=true)
- * wifi_manager_init(&(wifi_manager_config_t){
+ * // WiFi Config tạo httpd (auto when enable_ap=true)
+ * wifi_cfg_init(&(wifi_cfg_config_t){
  *     .provisioning_mode = WIFI_PROV_ON_FAILURE,
  *     .enable_ap = true,
  * });
  * 
  * // Components khác dùng chung
- * httpd_handle_t server = wifi_manager_get_httpd();
+ * httpd_handle_t server = wifi_cfg_get_httpd();
  * httpd_uri_t my_api = {
  *     .uri = "/api/mymodule/status",
  *     .method = HTTP_GET,
@@ -215,26 +215,26 @@ extern "C" {
 // Actions - System
 #define WIFI_ACTION_FACTORY_RESET   "factory_reset" ///< Factory reset (erase all NVS data)
 
-// Events - Connection (prefix WIFI_MGR để tránh conflict với ESP-IDF)
-#define WIFI_MGR_EVT_CONNECTED        "connected"     ///< Đã kết nối (data: wifi_connected_t)
-#define WIFI_MGR_EVT_DISCONNECTED     "disconnected"  ///< Mất kết nối (data: wifi_disconnected_t)
-#define WIFI_MGR_EVT_CONNECTING       "connecting"    ///< Đang kết nối (data: ssid string)
-#define WIFI_MGR_EVT_SCAN_DONE        "scan_done"     ///< Quét xong (data: uint16 count)
-#define WIFI_MGR_EVT_GOT_IP           "got_ip"        ///< Nhận IP (data: esp_netif_ip_info_t)
-#define WIFI_MGR_EVT_LOST_IP          "lost_ip"       ///< Mất IP
-#define WIFI_MGR_EVT_AP_START         "ap_start"      ///< AP bật
-#define WIFI_MGR_EVT_AP_STOP          "ap_stop"       ///< AP tắt
-#define WIFI_MGR_EVT_AP_STA_CONNECTED "ap_sta_connected" ///< Client kết nối AP
+// Events - Connection (prefix WIFI_CFG để tránh conflict với ESP-IDF)
+#define WIFI_CFG_EVT_CONNECTED        "connected"     ///< Đã kết nối (data: wifi_connected_t)
+#define WIFI_CFG_EVT_DISCONNECTED     "disconnected"  ///< Mất kết nối (data: wifi_disconnected_t)
+#define WIFI_CFG_EVT_CONNECTING       "connecting"    ///< Đang kết nối (data: ssid string)
+#define WIFI_CFG_EVT_SCAN_DONE        "scan_done"     ///< Quét xong (data: uint16 count)
+#define WIFI_CFG_EVT_GOT_IP           "got_ip"        ///< Nhận IP (data: esp_netif_ip_info_t)
+#define WIFI_CFG_EVT_LOST_IP          "lost_ip"       ///< Mất IP
+#define WIFI_CFG_EVT_AP_START         "ap_start"      ///< AP bật
+#define WIFI_CFG_EVT_AP_STOP          "ap_stop"       ///< AP tắt
+#define WIFI_CFG_EVT_AP_STA_CONNECTED "ap_sta_connected" ///< Client kết nối AP
 
 // Events - Config Changed
-#define WIFI_MGR_EVT_NETWORK_ADDED    "network_added"   ///< Mạng được thêm
-#define WIFI_MGR_EVT_NETWORK_UPDATED  "network_updated" ///< Mạng được cập nhật
-#define WIFI_MGR_EVT_NETWORK_REMOVED  "network_removed" ///< Mạng bị xóa
-#define WIFI_MGR_EVT_VAR_CHANGED      "var_changed"     ///< Variable thay đổi
+#define WIFI_CFG_EVT_NETWORK_ADDED    "network_added"   ///< Mạng được thêm
+#define WIFI_CFG_EVT_NETWORK_UPDATED  "network_updated" ///< Mạng được cập nhật
+#define WIFI_CFG_EVT_NETWORK_REMOVED  "network_removed" ///< Mạng bị xóa
+#define WIFI_CFG_EVT_VAR_CHANGED      "var_changed"     ///< Variable thay đổi
 
 // Events - Provisioning
-#define WIFI_MGR_EVT_PROVISIONING_STARTED  "provisioning_started"  ///< Provisioning interfaces started (AP/BLE)
-#define WIFI_MGR_EVT_PROVISIONING_STOPPED  "provisioning_stopped"  ///< Provisioning interfaces stopped
+#define WIFI_CFG_EVT_PROVISIONING_STARTED  "provisioning_started"  ///< Provisioning interfaces started (AP/BLE)
+#define WIFI_CFG_EVT_PROVISIONING_STOPPED  "provisioning_stopped"  ///< Provisioning interfaces stopped
 
 /**
  * @brief Helper macro tạo request pattern
@@ -316,7 +316,7 @@ typedef struct {
  * @brief SoftAP configuration
  * 
  * Cấu hình SoftAP mode bao gồm SSID, password, IP và DHCP range.
- * @note Đổi tên thành wifi_mgr_ap_config_t để tránh conflict với ESP-IDF
+ * @note Đổi tên thành wifi_cfg_ap_config_t để tránh conflict với ESP-IDF
  */
 typedef struct {
     char ssid[33];          ///< AP SSID
@@ -333,7 +333,7 @@ typedef struct {
     // DHCP range
     char dhcp_start[16];    ///< DHCP range start, default "192.168.4.2"
     char dhcp_end[16];      ///< DHCP range end, default "192.168.4.20"
-} wifi_mgr_ap_config_t;
+} wifi_cfg_ap_config_t;
 
 /**
  * @brief SoftAP status
@@ -433,7 +433,7 @@ typedef enum {
  * Return ESP_OK to continue to the handler, ESP_FAIL to reject (sends 403).
  * Only applies to /api/wifi/ endpoints, not static file serving.
  */
-typedef esp_err_t (*wifi_mgr_http_hook_t)(httpd_req_t *req, void *ctx);
+typedef esp_err_t (*wifi_cfg_http_hook_t)(httpd_req_t *req, void *ctx);
 
 /**
  * @brief HTTP interface configuration
@@ -446,9 +446,9 @@ typedef struct {
     bool enable_auth;           ///< Enable Basic Auth
     const char *auth_username;  ///< Auth username, default "admin"
     const char *auth_password;  ///< Auth password, default "admin"
-    wifi_mgr_http_hook_t pre_request_hook;  ///< Optional pre-request hook for API endpoints
+    wifi_cfg_http_hook_t pre_request_hook;  ///< Optional pre-request hook for API endpoints
     void *hook_ctx;             ///< Context passed to pre_request_hook
-} wifi_mgr_http_config_t;
+} wifi_cfg_http_config_t;
 
 /**
  * @brief mDNS configuration
@@ -459,7 +459,7 @@ typedef struct {
     bool enable;                ///< Enable mDNS
     const char *hostname;       ///< Hostname template, e.g., "esp32-{id}", default from Kconfig
     const char *instance_name;  ///< Instance name, default = hostname
-} wifi_mgr_mdns_config_t;
+} wifi_cfg_mdns_config_t;
 
 /**
  * @brief BLE configuration
@@ -469,7 +469,7 @@ typedef struct {
 typedef struct {
     bool enable;                ///< Enable BLE interface
     const char *device_name;    ///< BLE device name, e.g., "ESP32-WiFi-{id}", default from Kconfig
-} wifi_mgr_ble_config_t;
+} wifi_cfg_ble_config_t;
 
 /**
  * @brief Variable validation callback
@@ -477,12 +477,12 @@ typedef struct {
  * Called before writing a variable to NVS on PUT /api/wifi/vars/:key.
  * Return ESP_OK to accept, ESP_FAIL to reject (API returns 400 with "var_invalid").
  */
-typedef esp_err_t (*wifi_mgr_var_validator_t)(const char *key, const char *value, void *ctx);
+typedef esp_err_t (*wifi_cfg_var_validator_t)(const char *key, const char *value, void *ctx);
 
 /**
- * @brief Main WiFi Manager configuration
+ * @brief Main WiFi Config configuration
  * 
- * Cấu hình khởi tạo WiFi Manager. Tất cả fields đều optional.
+ * Cấu hình khởi tạo WiFi Config. Tất cả fields đều optional.
  * 
  * @note default_networks và default_vars là fallback khi NVS trống.
  *       Sau khi user thêm network/var qua API, data sẽ được lưu NVS
@@ -514,28 +514,28 @@ typedef struct {
     wifi_http_post_prov_mode_t http_post_prov_mode; ///< What to do with HTTP after provisioning stops
 
     // SoftAP config
-    wifi_mgr_ap_config_t default_ap;    ///< Default AP config
+    wifi_cfg_ap_config_t default_ap;    ///< Default AP config
     bool always_use_ap_defaults;        ///< Always use default_ap, ignore NVS-saved AP config
     bool enable_ap;                     ///< Enable Soft AP as a provisioning method
 
     // Callbacks
-    wifi_mgr_var_validator_t on_before_var_set;  ///< Optional variable validation callback
+    wifi_cfg_var_validator_t on_before_var_set;  ///< Optional variable validation callback
     void *var_validator_ctx;                      ///< Context passed to on_before_var_set
 
     // Interfaces
-    wifi_mgr_http_config_t http;        ///< HTTP REST API config
-    wifi_mgr_mdns_config_t mdns;        ///< mDNS config
-    wifi_mgr_ble_config_t ble;          ///< BLE GATT config
-} wifi_manager_config_t;
+    wifi_cfg_http_config_t http;        ///< HTTP REST API config
+    wifi_cfg_mdns_config_t mdns;        ///< mDNS config
+    wifi_cfg_ble_config_t ble;          ///< BLE GATT config
+} wifi_cfg_config_t;
 
 // =============================================================================
 // Public API
 // =============================================================================
 
 /**
- * @brief Initialize WiFi Manager
+ * @brief Initialize WiFi Config
  * 
- * Khởi tạo WiFi Manager với config. Sẽ tự động:
+ * Khởi tạo WiFi Config với config. Sẽ tự động:
  * - Load networks/vars từ NVS (hoặc dùng defaults)
  * - Khởi tạo WiFi station
  * - Bắt đầu auto-connect
@@ -545,7 +545,7 @@ typedef struct {
  * @return ESP_OK on success
  * 
  * @code{.c}
- * wifi_manager_init(&(wifi_manager_config_t){
+ * wifi_cfg_init(&(wifi_cfg_config_t){
  *     .default_networks = (wifi_network_t[]){
  *         {"MyWiFi", "password", 10},
  *     },
@@ -555,30 +555,30 @@ typedef struct {
  * });
  * @endcode
  */
-esp_err_t wifi_manager_init(const wifi_manager_config_t *config);
+esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config);
 
 /**
- * @brief Deinitialize WiFi Manager
+ * @brief Deinitialize WiFi Config
  * 
  * Stop the HTTP server, BLE, mDNS, and (optionally) WiFi interfaces. Free resources.
  * 
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_deinit(bool deinit_wifi);
+esp_err_t wifi_cfg_deinit(bool deinit_wifi);
 
 /**
  * @brief Check if WiFi is connected
  * 
  * @return true if connected with IP, false otherwise
  */
-bool wifi_manager_is_connected(void);
+bool wifi_cfg_is_connected(void);
 
 /**
  * @brief Get current WiFi state
  * 
  * @return Current state: WIFI_STATE_DISCONNECTED, WIFI_STATE_CONNECTING, WIFI_STATE_CONNECTED
  */
-wifi_state_t wifi_manager_get_state(void);
+wifi_state_t wifi_cfg_get_state(void);
 
 /**
  * @brief Wait for WiFi connection
@@ -589,14 +589,14 @@ wifi_state_t wifi_manager_get_state(void);
  * @return ESP_OK if connected, ESP_ERR_TIMEOUT if timeout
  * 
  * @code{.c}
- * if (wifi_manager_wait_connected(30000) == ESP_OK) {
+ * if (wifi_cfg_wait_connected(30000) == ESP_OK) {
  *     ESP_LOGI(TAG, "Connected!");
  * } else {
  *     ESP_LOGW(TAG, "Connection timeout");
  * }
  * @endcode
  */
-esp_err_t wifi_manager_wait_connected(uint32_t timeout_ms);
+esp_err_t wifi_cfg_wait_connected(uint32_t timeout_ms);
 
 /**
  * @brief Get full WiFi status
@@ -606,7 +606,7 @@ esp_err_t wifi_manager_wait_connected(uint32_t timeout_ms);
  * @param[out] status Output status structure
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_get_status(wifi_status_t *status);
+esp_err_t wifi_cfg_get_status(wifi_status_t *status);
 
 /**
  * @brief Get HTTP server handle
@@ -616,14 +616,14 @@ esp_err_t wifi_manager_get_status(wifi_status_t *status);
  * @return httpd_handle_t or NULL if HTTP not enabled
  * 
  * @code{.c}
- * httpd_handle_t server = wifi_manager_get_httpd();
+ * httpd_handle_t server = wifi_cfg_get_httpd();
  * if (server) {
  *     httpd_uri_t my_uri = { .uri = "/my/api", .method = HTTP_GET, .handler = my_handler };
  *     httpd_register_uri_handler(server, &my_uri);
  * }
  * @endcode
  */
-httpd_handle_t wifi_manager_get_httpd(void);
+httpd_handle_t wifi_cfg_get_httpd(void);
 
 /**
  * @brief Stop the HTTP server
@@ -635,7 +635,7 @@ httpd_handle_t wifi_manager_get_httpd(void);
  *
  * @return ESP_OK on success, ESP_ERR_INVALID_STATE if server cannot be stopped
  */
-esp_err_t wifi_manager_stop_http(void);
+esp_err_t wifi_cfg_stop_http(void);
 
 // =============================================================================
 // Network Management API
@@ -649,7 +649,7 @@ esp_err_t wifi_manager_stop_http(void);
  * @param network Network config
  * @return ESP_OK on success, ESP_ERR_INVALID_STATE if already exists, ESP_ERR_NO_MEM if full
  */
-esp_err_t wifi_manager_add_network(const wifi_network_t *network);
+esp_err_t wifi_cfg_add_network(const wifi_network_t *network);
 
 /**
  * @brief Update a network
@@ -659,7 +659,7 @@ esp_err_t wifi_manager_add_network(const wifi_network_t *network);
  * @param network Network config (SSID dùng để tìm)
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
  */
-esp_err_t wifi_manager_update_network(const wifi_network_t *network);
+esp_err_t wifi_cfg_update_network(const wifi_network_t *network);
 
 /**
  * @brief Remove a network by SSID
@@ -669,7 +669,7 @@ esp_err_t wifi_manager_update_network(const wifi_network_t *network);
  * @param ssid SSID to remove
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
  */
-esp_err_t wifi_manager_remove_network(const char *ssid);
+esp_err_t wifi_cfg_remove_network(const char *ssid);
 
 /**
  * @brief Get a network by SSID
@@ -678,7 +678,7 @@ esp_err_t wifi_manager_remove_network(const char *ssid);
  * @param[out] network Output network config
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
  */
-esp_err_t wifi_manager_get_network(const char *ssid, wifi_network_t *network);
+esp_err_t wifi_cfg_get_network(const char *ssid, wifi_network_t *network);
 
 /**
  * @brief Get all saved networks
@@ -688,7 +688,7 @@ esp_err_t wifi_manager_get_network(const char *ssid, wifi_network_t *network);
  * @param[out] count Output actual count
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_list_networks(wifi_network_t *networks, size_t max_count, size_t *count);
+esp_err_t wifi_cfg_list_networks(wifi_network_t *networks, size_t max_count, size_t *count);
 
 // =============================================================================
 // Variable Management API
@@ -704,7 +704,7 @@ esp_err_t wifi_manager_list_networks(wifi_network_t *networks, size_t max_count,
  * @param value Variable value (max 127 chars)
  * @return ESP_OK on success, ESP_ERR_NO_MEM if full
  */
-esp_err_t wifi_manager_set_var(const char *key, const char *value);
+esp_err_t wifi_cfg_set_var(const char *key, const char *value);
 
 /**
  * @brief Get a variable
@@ -714,7 +714,7 @@ esp_err_t wifi_manager_set_var(const char *key, const char *value);
  * @param max_len Buffer size
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
  */
-esp_err_t wifi_manager_get_var(const char *key, char *value, size_t max_len);
+esp_err_t wifi_cfg_get_var(const char *key, char *value, size_t max_len);
 
 /**
  * @brief Delete a variable
@@ -724,7 +724,7 @@ esp_err_t wifi_manager_get_var(const char *key, char *value, size_t max_len);
  * @param key Variable key
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
  */
-esp_err_t wifi_manager_del_var(const char *key);
+esp_err_t wifi_cfg_del_var(const char *key);
 
 // =============================================================================
 // SoftAP API
@@ -740,24 +740,24 @@ esp_err_t wifi_manager_del_var(const char *key);
  * 
  * @code{.c}
  * // Dùng config mặc định
- * wifi_manager_start_ap(NULL);
+ * wifi_cfg_start_ap(NULL);
  * 
  * // Hoặc custom config
- * wifi_manager_start_ap(&(wifi_mgr_ap_config_t){
+ * wifi_cfg_start_ap(&(wifi_cfg_ap_config_t){
  *     .ssid = "MyAP",
  *     .password = "12345678",
  *     .ip = "10.0.0.1",
  * });
  * @endcode
  */
-esp_err_t wifi_manager_start_ap(const wifi_mgr_ap_config_t *config);
+esp_err_t wifi_cfg_start_ap(const wifi_cfg_ap_config_t *config);
 
 /**
  * @brief Stop SoftAP
  * 
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_stop_ap(void);
+esp_err_t wifi_cfg_stop_ap(void);
 
 /**
  * @brief Get SoftAP status
@@ -765,7 +765,7 @@ esp_err_t wifi_manager_stop_ap(void);
  * @param[out] status Output status bao gồm danh sách clients
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_get_ap_status(wifi_ap_status_t *status);
+esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status);
 
 /**
  * @brief Set SoftAP config
@@ -775,7 +775,7 @@ esp_err_t wifi_manager_get_ap_status(wifi_ap_status_t *status);
  * @param config New AP config
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_set_ap_config(const wifi_mgr_ap_config_t *config);
+esp_err_t wifi_cfg_set_ap_config(const wifi_cfg_ap_config_t *config);
 
 /**
  * @brief Get SoftAP config
@@ -783,7 +783,7 @@ esp_err_t wifi_manager_set_ap_config(const wifi_mgr_ap_config_t *config);
  * @param[out] config Output config
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_get_ap_config(wifi_mgr_ap_config_t *config);
+esp_err_t wifi_cfg_get_ap_config(wifi_cfg_ap_config_t *config);
 
 // =============================================================================
 // Connection API
@@ -797,16 +797,16 @@ esp_err_t wifi_manager_get_ap_config(wifi_mgr_ap_config_t *config);
  * 
  * @code{.c}
  * // Auto-connect theo priority
- * wifi_manager_connect(NULL);
+ * wifi_cfg_connect(NULL);
  * 
  * // Kết nối mạng cụ thể
- * wifi_manager_connect("MyWiFi");
+ * wifi_cfg_connect("MyWiFi");
  * 
  * // Chờ kết nối
- * wifi_manager_wait_connected(10000);
+ * wifi_cfg_wait_connected(10000);
  * @endcode
  */
-esp_err_t wifi_manager_connect(const char *ssid);
+esp_err_t wifi_cfg_connect(const char *ssid);
 
 /**
  * @brief Disconnect from current network
@@ -815,7 +815,7 @@ esp_err_t wifi_manager_connect(const char *ssid);
  * 
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_disconnect(void);
+esp_err_t wifi_cfg_disconnect(void);
 
 /**
  * @brief Scan for available networks
@@ -827,7 +827,7 @@ esp_err_t wifi_manager_disconnect(void);
  * @param[out] count Output actual count
  * @return ESP_OK on success, ESP_ERR_TIMEOUT if timeout
  */
-esp_err_t wifi_manager_scan(wifi_scan_result_t *results, size_t max_count, size_t *count);
+esp_err_t wifi_cfg_scan(wifi_scan_result_t *results, size_t max_count, size_t *count);
 
 // =============================================================================
 // System API
@@ -837,11 +837,11 @@ esp_err_t wifi_manager_scan(wifi_scan_result_t *results, size_t max_count, size_
  * @brief Factory reset
  *
  * Xóa toàn bộ dữ liệu NVS: networks, variables, AP config, auth credentials.
- * Sau khi gọi, cần restart hoặc gọi wifi_manager_deinit() rồi init lại.
+ * Sau khi gọi, cần restart hoặc gọi wifi_cfg_deinit() rồi init lại.
  *
  * @return ESP_OK on success
  */
-esp_err_t wifi_manager_factory_reset(void);
+esp_err_t wifi_cfg_factory_reset(void);
 
 #ifdef __cplusplus
 }

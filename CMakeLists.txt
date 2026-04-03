@@ -1,12 +1,12 @@
 set(SRCS
-    "src/esp_wifi_manager.c"
-    "src/esp_wifi_manager_network.c"
-    "src/esp_wifi_manager_ap.c"
-    "src/esp_wifi_manager_bus.c"
-    "src/esp_wifi_manager_nvs.c"
-    "src/esp_wifi_manager_http.c"
-    "src/esp_wifi_manager_dns.c"
-    "src/esp_wifi_manager_mdns.c"
+    "src/esp_wifi_config.c"
+    "src/esp_wifi_config_network.c"
+    "src/esp_wifi_config_ap.c"
+    "src/esp_wifi_config_bus.c"
+    "src/esp_wifi_config_nvs.c"
+    "src/esp_wifi_config_http.c"
+    "src/esp_wifi_config_dns.c"
+    "src/esp_wifi_config_mdns.c"
 )
 
 set(PRIV_REQUIRES
@@ -18,14 +18,14 @@ set(PRIV_REQUIRES
 set(EMBED_FILES)
 
 # Add CLI if enabled
-if(CONFIG_WIFI_MGR_ENABLE_CLI)
-    list(APPEND SRCS "src/esp_wifi_manager_cli.c")
+if(CONFIG_WIFI_CFG_ENABLE_CLI)
+    list(APPEND SRCS "src/esp_wifi_config_cli.c")
     list(APPEND PRIV_REQUIRES console)
 endif()
 
 # Add Web UI if enabled
-if(CONFIG_WIFI_MGR_ENABLE_WEBUI)
-    list(APPEND SRCS "src/esp_wifi_manager_webui.c")
+if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
+    list(APPEND SRCS "src/esp_wifi_config_webui.c")
     # Embed gzipped frontend files
     set(EMBED_FILES
         "frontend/dist/index.html"
@@ -53,15 +53,15 @@ idf_component_register(
 
 # Add BLE support after component registration
 # This ensures Kconfig variables are properly resolved
-if(CONFIG_BT_ENABLED AND CONFIG_WIFI_MGR_ENABLE_BLE)
+if(CONFIG_BT_ENABLED AND CONFIG_WIFI_CFG_ENABLE_BLE)
     idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
     # Shared BLE layer (command routing, JSON protocol)
-    target_sources(${lib} PRIVATE "src/esp_wifi_manager_ble.c")
+    target_sources(${lib} PRIVATE "src/esp_wifi_config_ble.c")
     # Stack-specific backend
     if(CONFIG_BT_BLUEDROID_ENABLED)
-        target_sources(${lib} PRIVATE "src/esp_wifi_manager_ble_bluedroid.c")
+        target_sources(${lib} PRIVATE "src/esp_wifi_config_ble_bluedroid.c")
     elseif(CONFIG_BT_NIMBLE_ENABLED)
-        target_sources(${lib} PRIVATE "src/esp_wifi_manager_ble_nimble.c")
+        target_sources(${lib} PRIVATE "src/esp_wifi_config_ble_nimble.c")
     endif()
     idf_component_get_property(bt_lib bt COMPONENT_LIB)
     target_link_libraries(${lib} PRIVATE ${bt_lib})

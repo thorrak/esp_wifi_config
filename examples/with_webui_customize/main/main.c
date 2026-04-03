@@ -1,9 +1,9 @@
 /**
  * @file main.c
- * @brief ESP WiFi Manager - Customizable Web UI Example
+ * @brief ESP WiFi Config - Customizable Web UI Example
  *
  * This example demonstrates:
- * - WiFi Manager with customizable Web UI from LittleFS
+ * - WiFi Config with customizable Web UI from LittleFS
  * - Custom frontend files served from /littlefs/
  * - Fallback to embedded Web UI if files not found
  * - Copy frontend/ folder and build your own UI
@@ -16,7 +16,7 @@
 #include "esp_log.h"
 #include "esp_littlefs.h"
 #include "nvs_flash.h"
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 
 static const char *TAG = "wifi_webui_custom";
@@ -61,12 +61,12 @@ static esp_err_t init_littlefs(void)
  */
 static void on_wifi_event(const char *event, const void *data, size_t len, void *ctx)
 {
-    if (strcmp(event, WIFI_EVT(WIFI_MGR_EVT_CONNECTED)) == 0) {
+    if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_CONNECTED)) == 0) {
         const wifi_connected_t *info = (const wifi_connected_t *)data;
         ESP_LOGI(TAG, "Connected to %s", info->ssid);
-    } else if (strcmp(event, WIFI_EVT(WIFI_MGR_EVT_GOT_IP)) == 0) {
+    } else if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_GOT_IP)) == 0) {
         wifi_status_t status;
-        if (wifi_manager_get_status(&status) == ESP_OK) {
+        if (wifi_cfg_get_status(&status) == ESP_OK) {
             ESP_LOGI(TAG, "Got IP: %s", status.ip);
             ESP_LOGI(TAG, "Web UI: http://%s/", status.ip);
         }
@@ -84,7 +84,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, "  ESP WiFi Manager - Customizable Web UI");
+    ESP_LOGI(TAG, "  ESP WiFi Config - Customizable Web UI");
     ESP_LOGI(TAG, "==============================================");
 
     // Initialize LittleFS for custom frontend
@@ -94,11 +94,11 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bus_init());
 
     // Subscribe to WiFi events
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_wifi_event, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_event, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_event, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_event, NULL);
 
-    // Initialize WiFi Manager
-    wifi_manager_config_t config = {
+    // Initialize WiFi Config
+    wifi_cfg_config_t config = {
         .max_retry_per_network = 3,
         .retry_interval_ms = 5000,
         .auto_reconnect = true,
@@ -130,14 +130,14 @@ void app_main(void)
         },
     };
 
-    ret = wifi_manager_init(&config);
+    ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init WiFi Manager: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to init WiFi Config: %s", esp_err_to_name(ret));
         return;
     }
 
     ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "WiFi Manager with customizable Web UI");
+    ESP_LOGI(TAG, "WiFi Config with customizable Web UI");
     ESP_LOGI(TAG, "Custom files from: /littlefs/");
     ESP_LOGI(TAG, "  - /littlefs/index.html");
     ESP_LOGI(TAG, "  - /littlefs/assets/app.js.gz");
@@ -147,11 +147,11 @@ void app_main(void)
     ESP_LOGI(TAG, "");
 
     // Wait for connection
-    ret = wifi_manager_wait_connected(30000);
+    ret = wifi_cfg_wait_connected(30000);
 
     if (ret == ESP_OK) {
         wifi_status_t status;
-        wifi_manager_get_status(&status);
+        wifi_cfg_get_status(&status);
         ESP_LOGI(TAG, "Connected! Web UI at http://%s/", status.ip);
     } else {
         ESP_LOGW(TAG, "No saved networks. Connect to AP: ESP32-Custom-XXXXXX");

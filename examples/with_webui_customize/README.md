@@ -1,6 +1,6 @@
-# WiFi Manager - Customizable Web UI Example
+# WiFi Config - Customizable Web UI Example
 
-Example demonstrating WiFi Manager with customizable frontend from LittleFS.
+Example demonstrating WiFi Config with customizable frontend from LittleFS.
 
 ## Features
 
@@ -11,7 +11,7 @@ Example demonstrating WiFi Manager with customizable frontend from LittleFS.
 
 ## How It Works
 
-1. WiFi Manager first checks `/littlefs/` for frontend files
+1. WiFi Config first checks `/littlefs/` for frontend files
 2. If found, serves custom files from LittleFS
 3. If not found, falls back to embedded Web UI
 

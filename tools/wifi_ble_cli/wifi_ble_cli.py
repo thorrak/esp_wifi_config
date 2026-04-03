@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ESP WiFi Manager BLE CLI Client
+ESP WiFi Config BLE CLI Client
 
 A command-line tool to configure ESP32 WiFi settings over BLE.
 """
@@ -14,7 +14,7 @@ import click
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 
-# BLE UUIDs (must match esp_wifi_manager_ble.c)
+# BLE UUIDs (must match esp_wifi_config_ble.c)
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 CHAR_STATUS_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 CHAR_COMMAND_UUID = "0000ffe2-0000-1000-8000-00805f9b34fb"
@@ -39,7 +39,7 @@ def notification_handler(sender, data):
 
 
 async def find_device(name_prefix: str = "ESP32-WiFi") -> Optional[BLEDevice]:
-    """Scan for ESP WiFi Manager device."""
+    """Scan for ESP WiFi Config device."""
     click.echo(f"Scanning for BLE devices with prefix '{name_prefix}'...")
 
     devices = await BleakScanner.discover(timeout=10.0)
@@ -91,7 +91,7 @@ def print_json(data: dict):
 @click.option('--name', '-n', default='ESP32-WiFi', help='Device name prefix to scan for')
 @click.pass_context
 def cli(ctx, device, name):
-    """ESP WiFi Manager BLE CLI Client"""
+    """ESP WiFi Config BLE CLI Client"""
     ctx.ensure_object(dict)
     ctx.obj['device'] = device
     ctx.obj['name'] = name
@@ -418,7 +418,7 @@ def factory_reset(ctx):
 
 @cli.command('devices')
 def list_devices():
-    """Scan and list all ESP WiFi Manager BLE devices."""
+    """Scan and list all ESP WiFi Config BLE devices."""
     async def run():
         click.echo("Scanning for BLE devices...")
         devices = await BleakScanner.discover(timeout=10.0)
@@ -426,7 +426,7 @@ def list_devices():
         esp_devices = [d for d in devices if d.name and d.name.startswith("ESP32-WiFi")]
 
         if not esp_devices:
-            click.echo("No ESP WiFi Manager devices found")
+            click.echo("No ESP WiFi Config devices found")
             return
 
         click.echo(f"\nFound {len(esp_devices)} device(s):\n")

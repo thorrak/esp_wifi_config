@@ -1,6 +1,6 @@
-# ESP WiFi Manager - Web UI
+# ESP WiFi Config - Web UI
 
-Modern, responsive web interface for ESP WiFi Manager.
+Modern, responsive web interface for ESP WiFi Config.
 
 ## Quick Start
 

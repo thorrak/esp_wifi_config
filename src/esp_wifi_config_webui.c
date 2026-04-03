@@ -1,26 +1,26 @@
 /**
- * @file esp_wifi_manager_webui.c
- * @brief Embedded Web UI serving for WiFi Manager
+ * @file esp_wifi_config_webui.c
+ * @brief Embedded Web UI serving for WiFi Config
  */
 
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include <string.h>
 #include <sys/stat.h>
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_WEBUI
+#ifdef CONFIG_WIFI_CFG_ENABLE_WEBUI
 
-static const char *TAG = "wifi_mgr_webui";
+static const char *TAG = "wifi_cfg_webui";
 
 /**
  * @brief Get the filesystem base path for custom WebUI files
  *
- * Returns the CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH if set, NULL otherwise.
+ * Returns the CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH if set, NULL otherwise.
  */
 static const char *get_fs_base_path(void)
 {
-#ifdef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
-    const char *path = CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH;
+#ifdef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
+    const char *path = CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH;
     if (path && path[0]) {
         return path;
     }
@@ -101,7 +101,7 @@ static bool serve_from_filesystem(httpd_req_t *req, const char *filepath)
     return true;
 }
 
-#ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
+#ifndef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
 // Embedded files (linked via CMakeLists.txt EMBED_FILES)
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[] asm("_binary_index_html_end");
@@ -136,7 +136,7 @@ static bool serve_embedded(httpd_req_t *req, const char *filepath)
     }
     return false;
 }
-#endif // !CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
+#endif // !CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
 
 /**
  * @brief Unified handler for all Web UI static files
@@ -156,7 +156,7 @@ static esp_err_t handler_webui_static(httpd_req_t *req)
         return ESP_OK;
     }
 
-#ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
+#ifndef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
     if (serve_embedded(req, filepath)) {
         return ESP_OK;
     }
@@ -172,7 +172,7 @@ static esp_err_t handler_webui_static(httpd_req_t *req)
 /**
  * @brief Initialize Web UI handlers
  */
-esp_err_t wifi_mgr_webui_init(httpd_handle_t httpd)
+esp_err_t wifi_cfg_webui_init(httpd_handle_t httpd)
 {
     if (!httpd) {
         return ESP_ERR_INVALID_ARG;
@@ -195,14 +195,14 @@ esp_err_t wifi_mgr_webui_init(httpd_handle_t httpd)
     };
     httpd_register_uri_handler(httpd, &wildcard_uri);
 
-#ifndef CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH
+#ifndef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
     size_t total_size = (index_html_end - index_html_start) +
                         (app_js_gz_end - app_js_gz_start) +
                         (index_css_gz_end - index_css_gz_start);
     ESP_LOGI(TAG, "Web UI registered (embedded size: %zu bytes)", total_size);
 #else
     ESP_LOGI(TAG, "Web UI registered (serving from filesystem: %s)",
-             CONFIG_WIFI_MGR_WEBUI_CUSTOM_PATH);
+             CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH);
 #endif
 
     return ESP_OK;
@@ -210,10 +210,10 @@ esp_err_t wifi_mgr_webui_init(httpd_handle_t httpd)
 
 #else
 
-esp_err_t wifi_mgr_webui_init(httpd_handle_t httpd)
+esp_err_t wifi_cfg_webui_init(httpd_handle_t httpd)
 {
     (void)httpd;
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_MGR_ENABLE_WEBUI
+#endif // CONFIG_WIFI_CFG_ENABLE_WEBUI

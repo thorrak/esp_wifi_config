@@ -36,7 +36,7 @@ export function App() {
   return (
     <div class="app">
       <header class="header">
-        <h1>ESP WiFi Manager</h1>
+        <h1>ESP WiFi Config</h1>
       </header>
 
       <StatusCard status={status} loading={loading} />

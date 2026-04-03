@@ -1,13 +1,13 @@
 version: "1.1.0"
-description: WiFi Manager component with multi-network support, auto-reconnect, SoftAP captive portal, and REST API configuration
-url: https://github.com/tuanpmt/esp_wifi_manager
-repository: https://github.com/tuanpmt/esp_wifi_manager.git
-documentation: https://github.com/tuanpmt/esp_wifi_manager/tree/main/docs
-issues: https://github.com/tuanpmt/esp_wifi_manager/issues
+description: WiFi Config component with multi-network support, auto-reconnect, SoftAP captive portal, and REST API configuration
+url: https://github.com/thorrak/esp_wifi_config
+repository: https://github.com/thorrak/esp_wifi_config.git
+documentation: https://github.com/thorrak/esp_wifi_config/tree/main/docs
+issues: https://github.com/thorrak/esp_wifi_config/issues
 license: MIT
 
 maintainers:
-  - tuanpmt
+  - thorrak
 
 targets:
   - esp32
@@ -20,5 +20,5 @@ targets:
 dependencies:
   idf:
     version: ">=5.0.0"
-  tuanpmt/esp_bus: "^1.0.3"
+  thorrak/esp_bus: "^1.0.3"
   espressif/mdns: "^1.2"

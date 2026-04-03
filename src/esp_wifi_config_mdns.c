@@ -1,14 +1,14 @@
 /**
- * @file esp_wifi_manager_mdns.c
+ * @file esp_wifi_config_mdns.c
  * @brief mDNS service discovery with hostname template support
  */
 
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "mdns.h"
 #include "esp_log.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_mdns";
+static const char *TAG = "wifi_cfg_mdns";
 
 static bool mdns_initialized = false;
 static char mdns_hostname[64] = {0};
@@ -16,12 +16,12 @@ static char mdns_hostname[64] = {0};
 /**
  * @brief Initialize mDNS with template hostname
  */
-esp_err_t wifi_mgr_mdns_init(void)
+esp_err_t wifi_cfg_mdns_init(void)
 {
-    if (!g_wifi_mgr) return ESP_ERR_INVALID_STATE;
+    if (!g_wifi_cfg) return ESP_ERR_INVALID_STATE;
 
     // Check if mDNS is enabled
-    if (!g_wifi_mgr->config.mdns.enable) {
+    if (!g_wifi_cfg->config.mdns.enable) {
         return ESP_OK;
     }
 
@@ -37,17 +37,17 @@ esp_err_t wifi_mgr_mdns_init(void)
     }
 
     // Get hostname template (use config or default from Kconfig)
-    const char *hostname_tmpl = g_wifi_mgr->config.mdns.hostname;
+    const char *hostname_tmpl = g_wifi_cfg->config.mdns.hostname;
     if (!hostname_tmpl || !hostname_tmpl[0]) {
-#ifdef CONFIG_WIFI_MGR_MDNS_HOSTNAME
-        hostname_tmpl = CONFIG_WIFI_MGR_MDNS_HOSTNAME;
+#ifdef CONFIG_WIFI_CFG_MDNS_HOSTNAME
+        hostname_tmpl = CONFIG_WIFI_CFG_MDNS_HOSTNAME;
 #else
         hostname_tmpl = "esp32-{id}";
 #endif
     }
 
     // Expand template
-    wifi_mgr_expand_template(hostname_tmpl, mdns_hostname, sizeof(mdns_hostname));
+    wifi_cfg_expand_template(hostname_tmpl, mdns_hostname, sizeof(mdns_hostname));
 
     // Set hostname
     ret = mdns_hostname_set(mdns_hostname);
@@ -58,14 +58,14 @@ esp_err_t wifi_mgr_mdns_init(void)
     }
 
     // Set instance name
-    const char *instance = g_wifi_mgr->config.mdns.instance_name;
+    const char *instance = g_wifi_cfg->config.mdns.instance_name;
     if (!instance || !instance[0]) {
         instance = mdns_hostname;
     }
     mdns_instance_name_set(instance);
 
     // Add HTTP service if HTTP server is running
-    if (g_wifi_mgr->httpd) {
+    if (g_wifi_cfg->httpd) {
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     }
 
@@ -78,7 +78,7 @@ esp_err_t wifi_mgr_mdns_init(void)
 /**
  * @brief Deinitialize mDNS
  */
-esp_err_t wifi_mgr_mdns_deinit(void)
+esp_err_t wifi_cfg_mdns_deinit(void)
 {
     if (!mdns_initialized) {
         return ESP_OK;
@@ -95,7 +95,7 @@ esp_err_t wifi_mgr_mdns_deinit(void)
 /**
  * @brief Get mDNS hostname
  */
-const char *wifi_mgr_mdns_get_hostname(void)
+const char *wifi_cfg_mdns_get_hostname(void)
 {
     return mdns_initialized ? mdns_hostname : NULL;
 }

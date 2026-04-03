@@ -1,8 +1,8 @@
 /**
  * @file main.c
- * @brief ESP WiFi Manager - BLE Example
+ * @brief ESP WiFi Config - BLE Example
  *
- * This example demonstrates WiFi Manager with BLE GATT interface:
+ * This example demonstrates WiFi Config with BLE GATT interface:
  * - Configure WiFi networks via BLE from smartphone or Python CLI
  * - Enable HTTP REST API for web-based configuration
  * - Enable captive portal for initial setup
@@ -14,7 +14,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 
 static const char *TAG = "wifi_ble_example";
@@ -34,7 +34,7 @@ static void on_wifi_disconnected(const char *event, const void *data, size_t len
 static void on_wifi_got_ip(const char *event, const void *data, size_t len, void *ctx)
 {
     wifi_status_t status;
-    if (wifi_manager_get_status(&status) == ESP_OK) {
+    if (wifi_cfg_get_status(&status) == ESP_OK) {
         ESP_LOGI(TAG, "Got IP: %s", status.ip);
     }
 }
@@ -49,7 +49,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_LOGI(TAG, "Starting WiFi Manager with BLE example");
+    ESP_LOGI(TAG, "Starting WiFi Config with BLE example");
 
     // Initialize esp_bus
     ret = esp_bus_init();
@@ -59,12 +59,12 @@ void app_main(void)
     }
 
     // Subscribe to WiFi events
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_got_ip, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
 
-    // Initialize WiFi Manager with BLE
-    wifi_manager_config_t config = {
+    // Initialize WiFi Config with BLE
+    wifi_cfg_config_t config = {
         // Retry configuration
         .max_retry_per_network = 3,
         .retry_interval_ms = 5000,
@@ -102,13 +102,13 @@ void app_main(void)
         },
     };
 
-    ret = wifi_manager_init(&config);
+    ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize WiFi Manager: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to initialize WiFi Config: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "WiFi Manager initialized with BLE");
+    ESP_LOGI(TAG, "WiFi Config initialized with BLE");
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Configuration options:");
     ESP_LOGI(TAG, "  1. BLE: Use Python CLI or smartphone app");
@@ -121,7 +121,7 @@ void app_main(void)
 
     // Wait for connection
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    ret = wifi_manager_wait_connected(30000);
+    ret = wifi_cfg_wait_connected(30000);
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected successfully!");
@@ -131,9 +131,9 @@ void app_main(void)
 
     // Main loop
     while (1) {
-        if (wifi_manager_is_connected()) {
+        if (wifi_cfg_is_connected()) {
             wifi_status_t status;
-            if (wifi_manager_get_status(&status) == ESP_OK) {
+            if (wifi_cfg_get_status(&status) == ESP_OK) {
                 ESP_LOGI(TAG, "Connected: %s - Signal: %d%%", status.ssid, status.quality);
             }
         } else {

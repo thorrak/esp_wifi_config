@@ -1,6 +1,6 @@
 # Test HTTP Server
 
-Mock HTTP server that emulates the `esp_wifi_manager` REST API, allowing Web UI development without physical ESP32 hardware. All endpoints under `/api/wifi` are supported with in-memory state.
+Mock HTTP server that emulates the `esp_wifi_config` REST API, allowing Web UI development without physical ESP32 hardware. All endpoints under `/api/wifi` are supported with in-memory state.
 
 ## Setup
 

@@ -1,48 +1,48 @@
-menu "WiFi Manager"
+menu "WiFi Config"
 
-    config WIFI_MGR_MAX_NETWORKS
+    config WIFI_CFG_MAX_NETWORKS
         int "Maximum saved networks"
         default 5
         help
             Maximum number of WiFi networks that can be saved in NVS.
 
-    config WIFI_MGR_MAX_VARS
+    config WIFI_CFG_MAX_VARS
         int "Maximum custom variables"
         default 10
         help
             Maximum number of custom variables that can be saved.
 
-    config WIFI_MGR_DEFAULT_RETRY
+    config WIFI_CFG_DEFAULT_RETRY
         int "Default retry per network"
         default 3
         help
             Number of connection retries per network before trying the next one.
 
-    config WIFI_MGR_RETRY_INTERVAL_MS
+    config WIFI_CFG_RETRY_INTERVAL_MS
         int "Retry interval (ms)"
         default 5000
         help
             Interval between connection retries in milliseconds.
 
-    config WIFI_MGR_AP_SSID
+    config WIFI_CFG_AP_SSID
         string "Default AP SSID"
         default "ESP32-Config"
         help
             Default SSID for SoftAP mode.
 
-    config WIFI_MGR_AP_PASSWORD
+    config WIFI_CFG_AP_PASSWORD
         string "Default AP Password"
         default ""
         help
             Default password for SoftAP mode. Empty for open network.
 
-    config WIFI_MGR_AP_IP
+    config WIFI_CFG_AP_IP
         string "Default AP IP"
         default "192.168.4.1"
         help
             Default IP address for SoftAP mode.
 
-    config WIFI_MGR_MDNS_HOSTNAME
+    config WIFI_CFG_MDNS_HOSTNAME
         string "Default mDNS hostname"
         default "esp32-{id}"
         help
@@ -50,67 +50,67 @@ menu "WiFi Manager"
             will be replaced with last 3 bytes of MAC address.
             Example: "esp32-{id}" becomes "esp32-AABBCC"
 
-    config WIFI_MGR_MAX_SCAN_RESULTS
+    config WIFI_CFG_MAX_SCAN_RESULTS
         int "Maximum scan results returned"
         default 20
         help
             Maximum number of WiFi scan results returned by the scan API.
 
-    config WIFI_MGR_HTTP_MAX_CONTENT_LEN
+    config WIFI_CFG_HTTP_MAX_CONTENT_LEN
         int "HTTP max request body size"
         default 2048
         help
             Maximum allowed size (bytes) for HTTP request bodies (JSON payloads).
 
-    config WIFI_MGR_TASK_STACK_SIZE
+    config WIFI_CFG_TASK_STACK_SIZE
         int "Manager task stack size"
         default 4096
         help
-            Stack size (bytes) for the WiFi Manager FreeRTOS task.
+            Stack size (bytes) for the WiFi Config FreeRTOS task.
 
-    config WIFI_MGR_TASK_PRIORITY
+    config WIFI_CFG_TASK_PRIORITY
         int "Manager task priority"
         default 5
         help
-            FreeRTOS priority for the WiFi Manager task and DNS server task.
+            FreeRTOS priority for the WiFi Config task and DNS server task.
 
-    config WIFI_MGR_HTTP_MAX_URI_HANDLERS
+    config WIFI_CFG_HTTP_MAX_URI_HANDLERS
         int "Max HTTP URI handlers"
         default 32
         help
             Maximum number of URI handlers registered with the HTTP server.
             Default accounts for API(18) + WebUI(3) + Captive(8) + reserve.
 
-    config WIFI_MGR_ENABLE_CLI
+    config WIFI_CFG_ENABLE_CLI
         bool "Enable CLI interface"
         default n
         help
-            Enable command-line interface for WiFi Manager.
+            Enable command-line interface for WiFi Config.
             Requires ESP Console component.
 
             Commands: wifi_status, wifi_scan, wifi_list, wifi_add,
             wifi_del, wifi_connect, wifi_disconnect, wifi_ap_start,
             wifi_ap_stop, wifi_reset, wifi_var_get, wifi_var_set
 
-    config WIFI_MGR_ENABLE_WEBUI
+    config WIFI_CFG_ENABLE_WEBUI
         bool "Enable Web UI"
         default n
         help
-            Enable embedded Web UI for WiFi Manager.
+            Enable embedded Web UI for WiFi Config.
             Serves responsive web interface at root path (/).
             Files are compressed with gzip (~10KB total).
 
-    config WIFI_MGR_WEBUI_CUSTOM_PATH
+    config WIFI_CFG_WEBUI_CUSTOM_PATH
         string "Custom Web UI path (filesystem)"
         default ""
-        depends on WIFI_MGR_ENABLE_WEBUI
+        depends on WIFI_CFG_ENABLE_WEBUI
         help
             Optional path to custom Web UI files on LittleFS/SPIFFS.
             If set, files from this path will be served instead of
             embedded defaults. Leave empty to use embedded Web UI.
             Example: "/littlefs" or "/spiffs"
 
-    config WIFI_MGR_ENABLE_BLE
+    config WIFI_CFG_ENABLE_BLE
         bool "Enable BLE interface"
         default n
         depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
@@ -120,10 +120,10 @@ menu "WiFi Manager"
             Requires Bluetooth to be enabled in menuconfig.
             Works with both Bluedroid and NimBLE host stacks.
 
-    config WIFI_MGR_BLE_DEVICE_NAME
+    config WIFI_CFG_BLE_DEVICE_NAME
         string "BLE device name"
         default "ESP32-WiFi-{id}"
-        depends on WIFI_MGR_ENABLE_BLE
+        depends on WIFI_CFG_ENABLE_BLE
         help
             BLE advertising name. Supports {id} placeholder which
             will be replaced with last 3 bytes of MAC address.

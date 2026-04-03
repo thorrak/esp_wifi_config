@@ -1,16 +1,16 @@
 /**
- * @file esp_wifi_manager_ap.c
+ * @file esp_wifi_config_ap.c
  * @brief SoftAP and variable management
  */
 
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_bus.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "lwip/sockets.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_ap";
+static const char *TAG = "wifi_cfg_ap";
 
 /**
  * @brief Expand {id} placeholder with MAC address suffix
@@ -18,7 +18,7 @@ static const char *TAG = "wifi_mgr_ap";
  * @param output Output buffer
  * @param max_len Output buffer size
  */
-void wifi_mgr_expand_template(const char *tmpl, char *output, size_t max_len)
+void wifi_cfg_expand_template(const char *tmpl, char *output, size_t max_len)
 {
     const char *placeholder = strstr(tmpl, "{id}");
     if (!placeholder) {
@@ -44,18 +44,18 @@ void wifi_mgr_expand_template(const char *tmpl, char *output, size_t max_len)
 // SoftAP Management
 // =============================================================================
 
-esp_err_t wifi_manager_start_ap(const wifi_mgr_ap_config_t *config)
+esp_err_t wifi_cfg_start_ap(const wifi_cfg_ap_config_t *config)
 {
-    if (!g_wifi_mgr) return ESP_ERR_INVALID_STATE;
+    if (!g_wifi_cfg) return ESP_ERR_INVALID_STATE;
     
-    const wifi_mgr_ap_config_t *ap_cfg = config ? config : &g_wifi_mgr->ap_config;
+    const wifi_cfg_ap_config_t *ap_cfg = config ? config : &g_wifi_cfg->ap_config;
     
     // Mark as active immediately to prevent reconnect races
-    g_wifi_mgr->ap_active = true;
+    g_wifi_cfg->ap_active = true;
     
     // Expand SSID template (replace {id} with MAC suffix)
     char ssid_expanded[32];
-    wifi_mgr_expand_template(ap_cfg->ssid, ssid_expanded, sizeof(ssid_expanded));
+    wifi_cfg_expand_template(ap_cfg->ssid, ssid_expanded, sizeof(ssid_expanded));
     
     ESP_LOGI(TAG, "Starting AP: %s", ssid_expanded);
 
@@ -83,65 +83,65 @@ esp_err_t wifi_manager_start_ap(const wifi_mgr_ap_config_t *config)
     esp_wifi_set_config(WIFI_IF_AP, &wifi_cfg);
 
     // Start DNS server for captive portal
-    wifi_mgr_dns_start();
+    wifi_cfg_dns_start();
 
     // Configure static IP
     if (ap_cfg->ip[0]) {
-        esp_netif_dhcps_stop(g_wifi_mgr->ap_netif);
+        esp_netif_dhcps_stop(g_wifi_cfg->ap_netif);
         
         esp_netif_ip_info_t ip_info = {0};
         inet_pton(AF_INET, ap_cfg->ip, &ip_info.ip);
         inet_pton(AF_INET, ap_cfg->netmask[0] ? ap_cfg->netmask : "255.255.255.0", &ip_info.netmask);
         inet_pton(AF_INET, ap_cfg->gateway[0] ? ap_cfg->gateway : ap_cfg->ip, &ip_info.gw);
         
-        esp_netif_set_ip_info(g_wifi_mgr->ap_netif, &ip_info);
-        esp_netif_dhcps_start(g_wifi_mgr->ap_netif);
+        esp_netif_set_ip_info(g_wifi_cfg->ap_netif, &ip_info);
+        esp_netif_dhcps_start(g_wifi_cfg->ap_netif);
     }
 
     // Emit AP start event after config is fully applied, so listeners
     // see the correct SSID/IP. This avoids spurious events from
     // intermediate driver restarts (set_mode then set_config).
-    esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_AP_START, NULL, 0);
+    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_AP_START, NULL, 0);
 
     return ESP_OK;
 }
 
-esp_err_t wifi_manager_stop_ap(void)
+esp_err_t wifi_cfg_stop_ap(void)
 {
-    if (!g_wifi_mgr) return ESP_ERR_INVALID_STATE;
+    if (!g_wifi_cfg) return ESP_ERR_INVALID_STATE;
 
     ESP_LOGI(TAG, "Stopping AP");
 
     // Stop DNS server
-    wifi_mgr_dns_stop();
+    wifi_cfg_dns_stop();
 
-    g_wifi_mgr->ap_active = false;
+    g_wifi_cfg->ap_active = false;
     esp_wifi_set_mode(WIFI_MODE_STA);
 
-    esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_AP_STOP, NULL, 0);
+    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_AP_STOP, NULL, 0);
 
     return ESP_OK;
 }
 
 // Internal functions called from task
-void wifi_mgr_start_ap_mode(void)
+void wifi_cfg_start_ap_mode(void)
 {
-    wifi_manager_start_ap(NULL);
+    wifi_cfg_start_ap(NULL);
 }
 
-void wifi_mgr_stop_ap_mode(void)
+void wifi_cfg_stop_ap_mode(void)
 {
-    wifi_manager_stop_ap();
+    wifi_cfg_stop_ap();
 }
 
-esp_err_t wifi_manager_get_ap_status(wifi_ap_status_t *status)
+esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status)
 {
-    if (!g_wifi_mgr || !status) return ESP_ERR_INVALID_ARG;
+    if (!g_wifi_cfg || !status) return ESP_ERR_INVALID_ARG;
     
     memset(status, 0, sizeof(wifi_ap_status_t));
-    status->active = g_wifi_mgr->ap_active;
+    status->active = g_wifi_cfg->ap_active;
     
-    if (g_wifi_mgr->ap_active) {
+    if (g_wifi_cfg->ap_active) {
         wifi_config_t cfg;
         if (esp_wifi_get_config(WIFI_IF_AP, &cfg) == ESP_OK) {
             strncpy(status->ssid, (char *)cfg.ap.ssid, sizeof(status->ssid) - 1);
@@ -149,7 +149,7 @@ esp_err_t wifi_manager_get_ap_status(wifi_ap_status_t *status)
         }
         
         esp_netif_ip_info_t ip_info;
-        if (esp_netif_get_ip_info(g_wifi_mgr->ap_netif, &ip_info) == ESP_OK) {
+        if (esp_netif_get_ip_info(g_wifi_cfg->ap_netif, &ip_info) == ESP_OK) {
             snprintf(status->ip, sizeof(status->ip), IPSTR, IP2STR(&ip_info.ip));
         }
         
@@ -166,24 +166,24 @@ esp_err_t wifi_manager_get_ap_status(wifi_ap_status_t *status)
     return ESP_OK;
 }
 
-esp_err_t wifi_manager_set_ap_config(const wifi_mgr_ap_config_t *config)
+esp_err_t wifi_cfg_set_ap_config(const wifi_cfg_ap_config_t *config)
 {
-    if (!g_wifi_mgr || !config) return ESP_ERR_INVALID_ARG;
+    if (!g_wifi_cfg || !config) return ESP_ERR_INVALID_ARG;
     
-    memcpy(&g_wifi_mgr->ap_config, config, sizeof(wifi_mgr_ap_config_t));
-    wifi_mgr_nvs_save_ap_config(config);
+    memcpy(&g_wifi_cfg->ap_config, config, sizeof(wifi_cfg_ap_config_t));
+    wifi_cfg_nvs_save_ap_config(config);
     
-    if (g_wifi_mgr->ap_active) {
-        wifi_manager_start_ap(config);
+    if (g_wifi_cfg->ap_active) {
+        wifi_cfg_start_ap(config);
     }
     
     return ESP_OK;
 }
 
-esp_err_t wifi_manager_get_ap_config(wifi_mgr_ap_config_t *config)
+esp_err_t wifi_cfg_get_ap_config(wifi_cfg_ap_config_t *config)
 {
-    if (!g_wifi_mgr || !config) return ESP_ERR_INVALID_ARG;
-    memcpy(config, &g_wifi_mgr->ap_config, sizeof(wifi_mgr_ap_config_t));
+    if (!g_wifi_cfg || !config) return ESP_ERR_INVALID_ARG;
+    memcpy(config, &g_wifi_cfg->ap_config, sizeof(wifi_cfg_ap_config_t));
     return ESP_OK;
 }
 
@@ -191,98 +191,98 @@ esp_err_t wifi_manager_get_ap_config(wifi_mgr_ap_config_t *config)
 // Variable Management
 // =============================================================================
 
-esp_err_t wifi_manager_set_var(const char *key, const char *value)
+esp_err_t wifi_cfg_set_var(const char *key, const char *value)
 {
-    if (!g_wifi_mgr || !key || !value) return ESP_ERR_INVALID_ARG;
+    if (!g_wifi_cfg || !key || !value) return ESP_ERR_INVALID_ARG;
 
     // Run variable validation callback if configured
-    if (g_wifi_mgr->config.on_before_var_set) {
-        esp_err_t vret = g_wifi_mgr->config.on_before_var_set(key, value, g_wifi_mgr->config.var_validator_ctx);
+    if (g_wifi_cfg->config.on_before_var_set) {
+        esp_err_t vret = g_wifi_cfg->config.on_before_var_set(key, value, g_wifi_cfg->config.var_validator_ctx);
         if (vret != ESP_OK) {
             return ESP_ERR_INVALID_ARG;
         }
     }
 
-    wifi_mgr_lock();
+    wifi_cfg_lock();
     
-    for (size_t i = 0; i < g_wifi_mgr->var_count; i++) {
-        if (strcmp(g_wifi_mgr->vars[i].key, key) == 0) {
-            strncpy(g_wifi_mgr->vars[i].value, value, sizeof(g_wifi_mgr->vars[i].value) - 1);
-            wifi_mgr_nvs_save_vars(g_wifi_mgr->vars, g_wifi_mgr->var_count);
-            wifi_mgr_unlock();
+    for (size_t i = 0; i < g_wifi_cfg->var_count; i++) {
+        if (strcmp(g_wifi_cfg->vars[i].key, key) == 0) {
+            strncpy(g_wifi_cfg->vars[i].value, value, sizeof(g_wifi_cfg->vars[i].value) - 1);
+            wifi_cfg_nvs_save_vars(g_wifi_cfg->vars, g_wifi_cfg->var_count);
+            wifi_cfg_unlock();
             
             wifi_var_t var;
             strncpy(var.key, key, sizeof(var.key) - 1);
             strncpy(var.value, value, sizeof(var.value) - 1);
-            esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_VAR_CHANGED, &var, sizeof(var));
+            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_VAR_CHANGED, &var, sizeof(var));
             return ESP_OK;
         }
     }
     
-    if (g_wifi_mgr->var_count >= WIFI_MGR_MAX_VARS) {
-        wifi_mgr_unlock();
+    if (g_wifi_cfg->var_count >= WIFI_CFG_MAX_VARS) {
+        wifi_cfg_unlock();
         return ESP_ERR_NO_MEM;
     }
     
-    strncpy(g_wifi_mgr->vars[g_wifi_mgr->var_count].key, key, 
-            sizeof(g_wifi_mgr->vars[0].key) - 1);
-    strncpy(g_wifi_mgr->vars[g_wifi_mgr->var_count].value, value, 
-            sizeof(g_wifi_mgr->vars[0].value) - 1);
-    g_wifi_mgr->var_count++;
+    strncpy(g_wifi_cfg->vars[g_wifi_cfg->var_count].key, key, 
+            sizeof(g_wifi_cfg->vars[0].key) - 1);
+    strncpy(g_wifi_cfg->vars[g_wifi_cfg->var_count].value, value, 
+            sizeof(g_wifi_cfg->vars[0].value) - 1);
+    g_wifi_cfg->var_count++;
     
-    wifi_mgr_nvs_save_vars(g_wifi_mgr->vars, g_wifi_mgr->var_count);
-    wifi_mgr_unlock();
+    wifi_cfg_nvs_save_vars(g_wifi_cfg->vars, g_wifi_cfg->var_count);
+    wifi_cfg_unlock();
     
     wifi_var_t var = {0};
     strncpy(var.key, key, sizeof(var.key) - 1);
     strncpy(var.value, value, sizeof(var.value) - 1);
-    esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_VAR_CHANGED, &var, sizeof(var));
+    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_VAR_CHANGED, &var, sizeof(var));
     
     return ESP_OK;
 }
 
-esp_err_t wifi_manager_get_var(const char *key, char *value, size_t max_len)
+esp_err_t wifi_cfg_get_var(const char *key, char *value, size_t max_len)
 {
-    if (!g_wifi_mgr || !key || !value) return ESP_ERR_INVALID_ARG;
+    if (!g_wifi_cfg || !key || !value) return ESP_ERR_INVALID_ARG;
     
-    wifi_mgr_lock();
+    wifi_cfg_lock();
     
-    for (size_t i = 0; i < g_wifi_mgr->var_count; i++) {
-        if (strcmp(g_wifi_mgr->vars[i].key, key) == 0) {
-            strncpy(value, g_wifi_mgr->vars[i].value, max_len - 1);
+    for (size_t i = 0; i < g_wifi_cfg->var_count; i++) {
+        if (strcmp(g_wifi_cfg->vars[i].key, key) == 0) {
+            strncpy(value, g_wifi_cfg->vars[i].value, max_len - 1);
             value[max_len - 1] = '\0';
-            wifi_mgr_unlock();
+            wifi_cfg_unlock();
             return ESP_OK;
         }
     }
     
-    wifi_mgr_unlock();
+    wifi_cfg_unlock();
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t wifi_manager_del_var(const char *key)
+esp_err_t wifi_cfg_del_var(const char *key)
 {
-    if (!g_wifi_mgr || !key) return ESP_ERR_INVALID_ARG;
+    if (!g_wifi_cfg || !key) return ESP_ERR_INVALID_ARG;
     
-    wifi_mgr_lock();
+    wifi_cfg_lock();
     
-    for (size_t i = 0; i < g_wifi_mgr->var_count; i++) {
-        if (strcmp(g_wifi_mgr->vars[i].key, key) == 0) {
+    for (size_t i = 0; i < g_wifi_cfg->var_count; i++) {
+        if (strcmp(g_wifi_cfg->vars[i].key, key) == 0) {
             wifi_var_t var = {0};
             strncpy(var.key, key, sizeof(var.key) - 1);
             
-            for (size_t j = i; j < g_wifi_mgr->var_count - 1; j++) {
-                g_wifi_mgr->vars[j] = g_wifi_mgr->vars[j + 1];
+            for (size_t j = i; j < g_wifi_cfg->var_count - 1; j++) {
+                g_wifi_cfg->vars[j] = g_wifi_cfg->vars[j + 1];
             }
-            g_wifi_mgr->var_count--;
-            wifi_mgr_nvs_save_vars(g_wifi_mgr->vars, g_wifi_mgr->var_count);
-            wifi_mgr_unlock();
+            g_wifi_cfg->var_count--;
+            wifi_cfg_nvs_save_vars(g_wifi_cfg->vars, g_wifi_cfg->var_count);
+            wifi_cfg_unlock();
             
-            esp_bus_emit(WIFI_MODULE, WIFI_MGR_EVT_VAR_CHANGED, &var, sizeof(var));
+            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_VAR_CHANGED, &var, sizeof(var));
             return ESP_OK;
         }
     }
     
-    wifi_mgr_unlock();
+    wifi_cfg_unlock();
     return ESP_ERR_NOT_FOUND;
 }

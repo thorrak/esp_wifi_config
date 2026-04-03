@@ -1,13 +1,13 @@
 /**
- * @file esp_wifi_manager_ble_bluedroid.c
+ * @file esp_wifi_config_ble_bluedroid.c
  * @brief BLE backend using the Bluedroid host stack
  */
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_WIFI_MGR_ENABLE_BLE) && defined(CONFIG_BT_BLUEDROID_ENABLED)
+#if defined(CONFIG_WIFI_CFG_ENABLE_BLE) && defined(CONFIG_BT_BLUEDROID_ENABLED)
 
-#include "esp_wifi_manager_ble_int.h"
+#include "esp_wifi_config_ble_int.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -17,7 +17,7 @@
 #include "esp_bt_main.h"
 #include "esp_gatt_common_api.h"
 
-static const char *TAG = "wifi_mgr_ble_bd";
+static const char *TAG = "wifi_cfg_ble_bd";
 
 // =============================================================================
 // GATT Table
@@ -236,7 +236,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
             memcpy(s_profile.remote_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
             ESP_LOGI(TAG, "BLE client connected, conn_id %d", param->connect.conn_id);
 
-            wifi_mgr_ble_on_connect();
+            wifi_cfg_ble_on_connect();
 
             // Update connection params for better throughput
             esp_ble_conn_update_params_t conn_params = {0};
@@ -253,7 +253,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
             s_profile.mtu = 23;
             ESP_LOGI(TAG, "BLE client disconnected");
 
-            wifi_mgr_ble_on_disconnect();
+            wifi_cfg_ble_on_disconnect();
 
             // Restart advertising
             esp_ble_gap_start_advertising(&adv_params);
@@ -266,7 +266,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
                     if (param->write.len == 2) {
                         uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
                         bool enabled = (descr_value == 0x0001);
-                        wifi_mgr_ble_set_response_notify(enabled);
+                        wifi_cfg_ble_set_response_notify(enabled);
                         ESP_LOGI(TAG, "Response notify %s", enabled ? "enabled" : "disabled");
                     }
                 } else if (param->write.handle == wifi_handle_table[IDX_CHAR_STATUS_CCC]) {
@@ -278,7 +278,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
                 }
                 // Handle command write
                 else if (param->write.handle == wifi_handle_table[IDX_CHAR_COMMAND_VAL]) {
-                    wifi_mgr_ble_on_command(param->write.value, param->write.len);
+                    wifi_cfg_ble_on_command(param->write.value, param->write.len);
                 }
 
                 // Send response if needed
@@ -303,7 +303,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 // Backend Interface Implementation
 // =============================================================================
 
-esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t length)
+esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length)
 {
     if (s_profile.gatts_if == ESP_GATT_IF_NONE) {
         return ESP_ERR_INVALID_STATE;
@@ -315,22 +315,22 @@ esp_err_t wifi_mgr_ble_backend_notify_response(const uint8_t *data, size_t lengt
     return ESP_OK;
 }
 
-uint16_t wifi_mgr_ble_backend_get_mtu(void)
+uint16_t wifi_cfg_ble_backend_get_mtu(void)
 {
     return s_profile.connected ? s_profile.mtu : 0;
 }
 
-bool wifi_mgr_ble_backend_is_stack_running(void)
+bool wifi_cfg_ble_backend_is_stack_running(void)
 {
     return esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED;
 }
 
-esp_err_t wifi_mgr_ble_backend_init(const char *device_name)
+esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
 {
     strncpy(s_device_name, device_name, sizeof(s_device_name) - 1);
     s_device_name[sizeof(s_device_name) - 1] = '\0';
 
-    if (wifi_mgr_ble_backend_is_stack_running()) {
+    if (wifi_cfg_ble_backend_is_stack_running()) {
         // Stack already running — service-only mode
         s_ble_stack_owned = false;
         ESP_LOGI(TAG, "BLE stack already running, registering service only");
@@ -395,13 +395,13 @@ esp_err_t wifi_mgr_ble_backend_init(const char *device_name)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_ble_backend_start(void)
+esp_err_t wifi_cfg_ble_backend_start(void)
 {
     esp_ble_gap_start_advertising(&adv_params);
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_ble_backend_stop(void)
+esp_err_t wifi_cfg_ble_backend_stop(void)
 {
     // Disconnect active client
     if (s_profile.connected) {
@@ -413,7 +413,7 @@ esp_err_t wifi_mgr_ble_backend_stop(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_ble_backend_deinit(void)
+esp_err_t wifi_cfg_ble_backend_deinit(void)
 {
     // Disconnect active client
     if (s_profile.connected) {
@@ -444,4 +444,4 @@ esp_err_t wifi_mgr_ble_backend_deinit(void)
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_MGR_ENABLE_BLE && CONFIG_BT_BLUEDROID_ENABLED
+#endif // CONFIG_WIFI_CFG_ENABLE_BLE && CONFIG_BT_BLUEDROID_ENABLED

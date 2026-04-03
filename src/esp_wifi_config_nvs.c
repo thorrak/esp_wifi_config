@@ -1,13 +1,13 @@
 /**
- * @file esp_wifi_manager_nvs.c
- * @brief NVS storage for WiFi Manager
+ * @file esp_wifi_config_nvs.c
+ * @brief NVS storage for WiFi Config
  */
 
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_nvs";
+static const char *TAG = "wifi_cfg_nvs";
 
 // =============================================================================
 // NVS Keys
@@ -25,7 +25,7 @@ static const char *TAG = "wifi_mgr_nvs";
 // Init
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_init(void)
+esp_err_t wifi_cfg_nvs_init(void)
 {
     // NVS có thể đã được init bởi component khác
     esp_err_t ret = nvs_flash_init();
@@ -45,12 +45,12 @@ esp_err_t wifi_mgr_nvs_init(void)
 // Networks
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_load_networks(wifi_network_t *networks, size_t max_count, size_t *count)
+esp_err_t wifi_cfg_nvs_load_networks(wifi_network_t *networks, size_t max_count, size_t *count)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READONLY, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READONLY, &handle);
     if (ret == ESP_ERR_NVS_NOT_FOUND) {
         *count = 0;
         return ESP_OK;
@@ -82,12 +82,12 @@ esp_err_t wifi_mgr_nvs_load_networks(wifi_network_t *networks, size_t max_count,
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_nvs_save_networks(const wifi_network_t *networks, size_t count)
+esp_err_t wifi_cfg_nvs_save_networks(const wifi_network_t *networks, size_t count)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (ret != ESP_OK) return ret;
     
     // Save count
@@ -114,12 +114,12 @@ cleanup:
 // Variables
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_load_vars(wifi_var_t *vars, size_t max_count, size_t *count)
+esp_err_t wifi_cfg_nvs_load_vars(wifi_var_t *vars, size_t max_count, size_t *count)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READONLY, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READONLY, &handle);
     if (ret == ESP_ERR_NVS_NOT_FOUND) {
         *count = 0;
         return ESP_OK;
@@ -151,12 +151,12 @@ esp_err_t wifi_mgr_nvs_load_vars(wifi_var_t *vars, size_t max_count, size_t *cou
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_nvs_save_vars(const wifi_var_t *vars, size_t count)
+esp_err_t wifi_cfg_nvs_save_vars(const wifi_var_t *vars, size_t count)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (ret != ESP_OK) return ret;
     
     ret = nvs_set_u8(handle, NVS_KEY_VAR_COUNT, (uint8_t)count);
@@ -181,33 +181,33 @@ cleanup:
 // AP Config
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_load_ap_config(wifi_mgr_ap_config_t *config)
+esp_err_t wifi_cfg_nvs_load_ap_config(wifi_cfg_ap_config_t *config)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READONLY, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READONLY, &handle);
     if (ret == ESP_ERR_NVS_NOT_FOUND) {
         return ESP_ERR_NOT_FOUND;
     }
     if (ret != ESP_OK) return ret;
     
-    size_t len = sizeof(wifi_mgr_ap_config_t);
+    size_t len = sizeof(wifi_cfg_ap_config_t);
     ret = nvs_get_blob(handle, NVS_KEY_AP_CONFIG, config, &len);
     
     nvs_close(handle);
     return ret;
 }
 
-esp_err_t wifi_mgr_nvs_save_ap_config(const wifi_mgr_ap_config_t *config)
+esp_err_t wifi_cfg_nvs_save_ap_config(const wifi_cfg_ap_config_t *config)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (ret != ESP_OK) return ret;
     
-    ret = nvs_set_blob(handle, NVS_KEY_AP_CONFIG, config, sizeof(wifi_mgr_ap_config_t));
+    ret = nvs_set_blob(handle, NVS_KEY_AP_CONFIG, config, sizeof(wifi_cfg_ap_config_t));
     if (ret == ESP_OK) {
         ret = nvs_commit(handle);
     }
@@ -221,12 +221,12 @@ esp_err_t wifi_mgr_nvs_save_ap_config(const wifi_mgr_ap_config_t *config)
 // Auth Credentials
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_load_auth(char *username, size_t ulen, char *password, size_t plen)
+esp_err_t wifi_cfg_nvs_load_auth(char *username, size_t ulen, char *password, size_t plen)
 {
     nvs_handle_t handle;
     esp_err_t ret;
     
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READONLY, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READONLY, &handle);
     if (ret == ESP_ERR_NVS_NOT_FOUND) {
         return ESP_ERR_NOT_FOUND;
     }
@@ -246,12 +246,12 @@ esp_err_t wifi_mgr_nvs_load_auth(char *username, size_t ulen, char *password, si
     return ret;
 }
 
-esp_err_t wifi_mgr_nvs_save_auth(const char *username, const char *password)
+esp_err_t wifi_cfg_nvs_save_auth(const char *username, const char *password)
 {
     nvs_handle_t handle;
     esp_err_t ret;
 
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (ret != ESP_OK) return ret;
 
     if (username) {
@@ -275,12 +275,12 @@ cleanup:
 // Factory Reset
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_factory_reset(void)
+esp_err_t wifi_cfg_nvs_factory_reset(void)
 {
     nvs_handle_t handle;
     esp_err_t ret;
 
-    ret = nvs_open(WIFI_MGR_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    ret = nvs_open(WIFI_CFG_NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (ret != ESP_OK) return ret;
 
     ret = nvs_erase_all(handle);

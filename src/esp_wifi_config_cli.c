@@ -1,15 +1,15 @@
 /**
- * @file esp_wifi_manager_cli.c
- * @brief CLI interface for WiFi Manager
+ * @file esp_wifi_config_cli.c
+ * @brief CLI interface for WiFi Config
  */
 
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_console.h"
 #include "argtable3/argtable3.h"
 #include "esp_log.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_cli";
+static const char *TAG = "wifi_cfg_cli";
 
 // =============================================================================
 // Command Handlers
@@ -18,7 +18,7 @@ static const char *TAG = "wifi_mgr_cli";
 static int cmd_wifi_status(int argc, char **argv)
 {
     wifi_status_t status;
-    esp_err_t ret = wifi_manager_get_status(&status);
+    esp_err_t ret = wifi_cfg_get_status(&status);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -43,11 +43,11 @@ static int cmd_wifi_status(int argc, char **argv)
 
 static int cmd_wifi_scan(int argc, char **argv)
 {
-    wifi_scan_result_t results[WIFI_MGR_MAX_SCAN_RESULTS];
+    wifi_scan_result_t results[WIFI_CFG_MAX_SCAN_RESULTS];
     size_t count = 0;
 
     printf("Scanning...\n");
-    esp_err_t ret = wifi_manager_scan(results, WIFI_MGR_MAX_SCAN_RESULTS, &count);
+    esp_err_t ret = wifi_cfg_scan(results, WIFI_CFG_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -76,10 +76,10 @@ static int cmd_wifi_scan(int argc, char **argv)
 
 static int cmd_wifi_list(int argc, char **argv)
 {
-    wifi_network_t networks[WIFI_MGR_MAX_NETWORKS];
+    wifi_network_t networks[WIFI_CFG_MAX_NETWORKS];
     size_t count = 0;
 
-    esp_err_t ret = wifi_manager_list_networks(networks, WIFI_MGR_MAX_NETWORKS, &count);
+    esp_err_t ret = wifi_cfg_list_networks(networks, WIFI_CFG_MAX_NETWORKS, &count);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -123,7 +123,7 @@ static int cmd_wifi_add(int argc, char **argv)
     }
     net.priority = wifi_add_args.priority->count > 0 ? wifi_add_args.priority->ival[0] : 10;
 
-    esp_err_t ret = wifi_manager_add_network(&net);
+    esp_err_t ret = wifi_cfg_add_network(&net);
     if (ret == ESP_ERR_INVALID_STATE) {
         printf("Network already exists\n");
         return 1;
@@ -151,7 +151,7 @@ static int cmd_wifi_del(int argc, char **argv)
         return 1;
     }
 
-    esp_err_t ret = wifi_manager_remove_network(wifi_del_args.ssid->sval[0]);
+    esp_err_t ret = wifi_cfg_remove_network(wifi_del_args.ssid->sval[0]);
     if (ret == ESP_ERR_NOT_FOUND) {
         printf("Network not found\n");
         return 1;
@@ -180,7 +180,7 @@ static int cmd_wifi_connect(int argc, char **argv)
     }
 
     const char *ssid = wifi_connect_args.ssid->count > 0 ? wifi_connect_args.ssid->sval[0] : NULL;
-    esp_err_t ret = wifi_manager_connect(ssid);
+    esp_err_t ret = wifi_cfg_connect(ssid);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -192,7 +192,7 @@ static int cmd_wifi_connect(int argc, char **argv)
 
 static int cmd_wifi_disconnect(int argc, char **argv)
 {
-    esp_err_t ret = wifi_manager_disconnect();
+    esp_err_t ret = wifi_cfg_disconnect();
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -204,7 +204,7 @@ static int cmd_wifi_disconnect(int argc, char **argv)
 
 static int cmd_wifi_ap_start(int argc, char **argv)
 {
-    esp_err_t ret = wifi_manager_start_ap(NULL);
+    esp_err_t ret = wifi_cfg_start_ap(NULL);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -216,7 +216,7 @@ static int cmd_wifi_ap_start(int argc, char **argv)
 
 static int cmd_wifi_ap_stop(int argc, char **argv)
 {
-    esp_err_t ret = wifi_manager_stop_ap();
+    esp_err_t ret = wifi_cfg_stop_ap();
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -228,7 +228,7 @@ static int cmd_wifi_ap_stop(int argc, char **argv)
 
 static int cmd_wifi_reset(int argc, char **argv)
 {
-    esp_err_t ret = wifi_manager_factory_reset();
+    esp_err_t ret = wifi_cfg_factory_reset();
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
         return 1;
@@ -253,7 +253,7 @@ static int cmd_wifi_var_get(int argc, char **argv)
     }
 
     char value[128];
-    esp_err_t ret = wifi_manager_get_var(wifi_var_get_args.key->sval[0], value, sizeof(value));
+    esp_err_t ret = wifi_cfg_get_var(wifi_var_get_args.key->sval[0], value, sizeof(value));
     if (ret == ESP_ERR_NOT_FOUND) {
         printf("Variable not found\n");
         return 1;
@@ -282,7 +282,7 @@ static int cmd_wifi_var_set(int argc, char **argv)
         return 1;
     }
 
-    esp_err_t ret = wifi_manager_set_var(wifi_var_set_args.key->sval[0],
+    esp_err_t ret = wifi_cfg_set_var(wifi_var_set_args.key->sval[0],
                                           wifi_var_set_args.value->sval[0]);
     if (ret != ESP_OK) {
         printf("Error: %s\n", esp_err_to_name(ret));
@@ -297,7 +297,7 @@ static int cmd_wifi_var_set(int argc, char **argv)
 // Init
 // =============================================================================
 
-esp_err_t wifi_mgr_cli_init(void)
+esp_err_t wifi_cfg_cli_init(void)
 {
     ESP_LOGI(TAG, "Registering CLI commands");
 

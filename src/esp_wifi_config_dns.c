@@ -1,15 +1,15 @@
 /**
- * @file esp_wifi_manager_dns.c
+ * @file esp_wifi_config_dns.c
  * @brief Captive Portal DNS Server - redirects all DNS queries to AP IP
  */
 
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_dns";
+static const char *TAG = "wifi_cfg_dns";
 
 #define DNS_PORT 53
 #define DNS_MAX_PACKET_SIZE 512
@@ -142,8 +142,8 @@ static void dns_server_task(void *arg)
         // Get AP IP address
         uint32_t ap_ip = 0;
         esp_netif_ip_info_t ip_info;
-        if (g_wifi_mgr && g_wifi_mgr->ap_netif &&
-            esp_netif_get_ip_info(g_wifi_mgr->ap_netif, &ip_info) == ESP_OK) {
+        if (g_wifi_cfg && g_wifi_cfg->ap_netif &&
+            esp_netif_get_ip_info(g_wifi_cfg->ap_netif, &ip_info) == ESP_OK) {
             ap_ip = ip_info.ip.addr;
         }
 
@@ -163,7 +163,7 @@ static void dns_server_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t wifi_mgr_dns_start(void)
+esp_err_t wifi_cfg_dns_start(void)
 {
     if (dns_running) {
         return ESP_OK;
@@ -201,7 +201,7 @@ esp_err_t wifi_mgr_dns_start(void)
     dns_running = true;
 
     // Create DNS server task
-    BaseType_t ret = xTaskCreate(dns_server_task, "dns_srv", WIFI_MGR_TASK_STACK_SIZE, NULL, WIFI_MGR_TASK_PRIORITY, &dns_task_handle);
+    BaseType_t ret = xTaskCreate(dns_server_task, "dns_srv", WIFI_CFG_TASK_STACK_SIZE, NULL, WIFI_CFG_TASK_PRIORITY, &dns_task_handle);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create DNS task");
         dns_running = false;
@@ -214,7 +214,7 @@ esp_err_t wifi_mgr_dns_start(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_dns_stop(void)
+esp_err_t wifi_cfg_dns_stop(void)
 {
     if (!dns_running) {
         return ESP_OK;

@@ -1,7 +1,7 @@
 {
   "name": "esp-wifi-manager-ui",
   "version": "1.0.0",
-  "description": "Modern Web UI for ESP WiFi Manager",
+  "description": "Modern Web UI for ESP WiFi Config",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

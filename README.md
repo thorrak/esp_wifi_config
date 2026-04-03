@@ -1,9 +1,9 @@
-# ESP WiFi Manager
+# ESP WiFi Config
 
-[![Component Registry](https://components.espressif.com/components/tuanpmt/esp_wifi_manager/badge.svg)](https://components.espressif.com/components/tuanpmt/esp_wifi_manager)
+[![Component Registry](https://components.espressif.com/components/thorrak/esp_wifi_config/badge.svg)](https://components.espressif.com/components/thorrak/esp_wifi_config)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-WiFi Manager component for ESP-IDF with multi-network support, auto-reconnect, SoftAP captive portal, Web UI, CLI, BLE, and REST API.
+WiFi Config component for ESP-IDF with multi-network support, auto-reconnect, SoftAP captive portal, Web UI, CLI, BLE, and REST API.
 
 ## Features
 
@@ -24,7 +24,7 @@ WiFi Manager component for ESP-IDF with multi-network support, auto-reconnect, S
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                        ESP_WIFI_MANAGER                              │
+│                        ESP_WIFI_CONFIG                              │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  WiFi Core                    │  NVS Storage                   │  │
 │  │  ─────────                    │  ───────────                   │  │
@@ -45,7 +45,7 @@ WiFi Manager component for ESP-IDF with multi-network support, auto-reconnect, S
 │  │                              │                                │  │
 │  │                              ▼                                │  │
 │  │                 ┌─────────────────────────┐                   │  │
-│  │                 │  WiFi Manager Core API  │                   │  │
+│  │                 │  WiFi Config Core API  │                   │  │
 │  │                 └─────────────────────────┘                   │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -65,7 +65,7 @@ Add to your project's `idf_component.yml`:
 
 ```yaml
 dependencies:
-  tuanpmt/esp_wifi_manager: "*"
+  thorrak/esp_wifi_config: "*"
 ```
 
 ### Manual Installation
@@ -74,13 +74,13 @@ Clone into your project's `components/` directory:
 
 ```bash
 cd components
-git clone https://github.com/tuanpmt/esp_wifi_manager.git
+git clone https://github.com/thorrak/esp_wifi_config.git
 ```
 
 ## Quick Start
 
 ```c
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 #include "nvs_flash.h"
 
@@ -89,15 +89,15 @@ void app_main(void)
     // Initialize NVS (required)
     nvs_flash_init();
 
-    // Initialize esp_bus (required before wifi_manager_init)
+    // Initialize esp_bus (required before wifi_cfg_init)
     esp_bus_init();
 
     // Subscribe to WiFi events (optional)
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_connected_cb, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_got_ip_cb, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_connected_cb, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip_cb, NULL);
 
-    // Initialize WiFi Manager
-    wifi_manager_init(&(wifi_manager_config_t){
+    // Initialize WiFi Config
+    wifi_cfg_init(&(wifi_cfg_config_t){
         .default_networks = (wifi_network_t[]){
             {"HomeWifi", "password123", 10},   // priority 10 (highest)
             {"OfficeWifi", "office456", 5},    // priority 5 (fallback)
@@ -112,7 +112,7 @@ void app_main(void)
     });
 
     // Wait for connection (30 second timeout)
-    if (wifi_manager_wait_connected(30000) == ESP_OK) {
+    if (wifi_cfg_wait_connected(30000) == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected!");
     }
 }
@@ -132,28 +132,28 @@ void app_main(void)
 
 ### Kconfig Options
 
-Configure via `idf.py menuconfig` → WiFi Manager:
+Configure via `idf.py menuconfig` → WiFi Config:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `WIFI_MGR_MAX_NETWORKS` | 5 | Maximum saved networks |
-| `WIFI_MGR_MAX_VARS` | 10 | Maximum custom variables |
-| `WIFI_MGR_DEFAULT_RETRY` | 3 | Retries per network |
-| `WIFI_MGR_RETRY_INTERVAL_MS` | 5000 | Base retry interval (ms) |
-| `WIFI_MGR_AP_SSID` | "ESP32-Config" | Default AP SSID |
-| `WIFI_MGR_AP_PASSWORD` | "" | Default AP password |
-| `WIFI_MGR_AP_IP` | "192.168.4.1" | Default AP IP |
-| `WIFI_MGR_MDNS_HOSTNAME` | "esp32-{id}" | mDNS hostname template |
-| `WIFI_MGR_ENABLE_CLI` | n | Enable CLI interface |
-| `WIFI_MGR_ENABLE_WEBUI` | n | Enable embedded Web UI |
-| `WIFI_MGR_WEBUI_CUSTOM_PATH` | "" | Custom Web UI path (LittleFS/SPIFFS) |
-| `WIFI_MGR_ENABLE_BLE` | n | Enable BLE GATT interface |
-| `WIFI_MGR_BLE_DEVICE_NAME` | "ESP32-WiFi-{id}" | BLE device name (supports {id}) |
+| `WIFI_CFG_MAX_NETWORKS` | 5 | Maximum saved networks |
+| `WIFI_CFG_MAX_VARS` | 10 | Maximum custom variables |
+| `WIFI_CFG_DEFAULT_RETRY` | 3 | Retries per network |
+| `WIFI_CFG_RETRY_INTERVAL_MS` | 5000 | Base retry interval (ms) |
+| `WIFI_CFG_AP_SSID` | "ESP32-Config" | Default AP SSID |
+| `WIFI_CFG_AP_PASSWORD` | "" | Default AP password |
+| `WIFI_CFG_AP_IP` | "192.168.4.1" | Default AP IP |
+| `WIFI_CFG_MDNS_HOSTNAME` | "esp32-{id}" | mDNS hostname template |
+| `WIFI_CFG_ENABLE_CLI` | n | Enable CLI interface |
+| `WIFI_CFG_ENABLE_WEBUI` | n | Enable embedded Web UI |
+| `WIFI_CFG_WEBUI_CUSTOM_PATH` | "" | Custom Web UI path (LittleFS/SPIFFS) |
+| `WIFI_CFG_ENABLE_BLE` | n | Enable BLE GATT interface |
+| `WIFI_CFG_BLE_DEVICE_NAME` | "ESP32-WiFi-{id}" | BLE device name (supports {id}) |
 
 ### Runtime Configuration
 
 ```c
-wifi_manager_config_t config = {
+wifi_cfg_config_t config = {
     // Default networks (fallback if NVS empty)
     .default_networks = networks,
     .default_network_count = 2,
@@ -205,26 +205,26 @@ wifi_manager_config_t config = {
         .hostname = "esp32-{id}",
     },
 
-    // BLE GATT (requires CONFIG_WIFI_MGR_ENABLE_BLE=y)
+    // BLE GATT (requires CONFIG_WIFI_CFG_ENABLE_BLE=y)
     .ble = {
         .enable = true,
         .device_name = "ESP32-WiFi-{id}",  // NULL uses Kconfig default
     },
 };
 
-wifi_manager_init(&config);
+wifi_cfg_init(&config);
 ```
 
 ### Provisioning Modes
 
-The `provisioning_mode` field controls when the WiFi Manager automatically starts provisioning interfaces (AP and/or BLE):
+The `provisioning_mode` field controls when the WiFi Config automatically starts provisioning interfaces (AP and/or BLE):
 
 | Mode | Behavior |
 |------|----------|
 | `WIFI_PROV_ALWAYS` | AP/BLE start at init and remain active, even after STA connects |
 | `WIFI_PROV_ON_FAILURE` | Start provisioning when no networks are saved or all saved networks fail to connect |
 | `WIFI_PROV_WHEN_UNPROVISIONED` | Start provisioning only if no networks exist in NVS |
-| `WIFI_PROV_MANUAL` | Never auto-start provisioning; the application calls `wifi_manager_start_ap()` explicitly (e.g., on button press) |
+| `WIFI_PROV_MANUAL` | Never auto-start provisioning; the application calls `wifi_cfg_start_ap()` explicitly (e.g., on button press) |
 
 ### Post-Connect Behavior
 
@@ -243,42 +243,42 @@ The `provisioning_mode` field controls when the WiFi Manager automatically start
 
 ```c
 // Initialization
-esp_err_t wifi_manager_init(const wifi_manager_config_t *config);
-esp_err_t wifi_manager_deinit(void);
+esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config);
+esp_err_t wifi_cfg_deinit(void);
 
 // Status
-bool wifi_manager_is_connected(void);
-wifi_state_t wifi_manager_get_state(void);
-esp_err_t wifi_manager_get_status(wifi_status_t *status);
-esp_err_t wifi_manager_wait_connected(uint32_t timeout_ms);
+bool wifi_cfg_is_connected(void);
+wifi_state_t wifi_cfg_get_state(void);
+esp_err_t wifi_cfg_get_status(wifi_status_t *status);
+esp_err_t wifi_cfg_wait_connected(uint32_t timeout_ms);
 
 // Connection
-esp_err_t wifi_manager_connect(const char *ssid);  // NULL for auto-connect
-esp_err_t wifi_manager_disconnect(void);
-esp_err_t wifi_manager_scan(wifi_scan_result_t *results, size_t max, size_t *count);
+esp_err_t wifi_cfg_connect(const char *ssid);  // NULL for auto-connect
+esp_err_t wifi_cfg_disconnect(void);
+esp_err_t wifi_cfg_scan(wifi_scan_result_t *results, size_t max, size_t *count);
 
 // Network management
-esp_err_t wifi_manager_add_network(const wifi_network_t *network);
-esp_err_t wifi_manager_update_network(const wifi_network_t *network);
-esp_err_t wifi_manager_remove_network(const char *ssid);
-esp_err_t wifi_manager_list_networks(wifi_network_t *networks, size_t max, size_t *count);
+esp_err_t wifi_cfg_add_network(const wifi_network_t *network);
+esp_err_t wifi_cfg_update_network(const wifi_network_t *network);
+esp_err_t wifi_cfg_remove_network(const char *ssid);
+esp_err_t wifi_cfg_list_networks(wifi_network_t *networks, size_t max, size_t *count);
 
 // SoftAP
-esp_err_t wifi_manager_start_ap(const wifi_mgr_ap_config_t *config);
-esp_err_t wifi_manager_stop_ap(void);
-esp_err_t wifi_manager_get_ap_status(wifi_ap_status_t *status);
+esp_err_t wifi_cfg_start_ap(const wifi_cfg_ap_config_t *config);
+esp_err_t wifi_cfg_stop_ap(void);
+esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status);
 
 // Custom variables
-esp_err_t wifi_manager_set_var(const char *key, const char *value);
-esp_err_t wifi_manager_get_var(const char *key, char *value, size_t max_len);
-esp_err_t wifi_manager_del_var(const char *key);
+esp_err_t wifi_cfg_set_var(const char *key, const char *value);
+esp_err_t wifi_cfg_get_var(const char *key, char *value, size_t max_len);
+esp_err_t wifi_cfg_del_var(const char *key);
 
 // Factory reset
-esp_err_t wifi_manager_factory_reset(void);
+esp_err_t wifi_cfg_factory_reset(void);
 
 // HTTP server management
-httpd_handle_t wifi_manager_get_httpd(void);
-esp_err_t wifi_manager_stop_http(void);  // Stop HTTP server (if library-owned and provisioning not active)
+httpd_handle_t wifi_cfg_get_httpd(void);
+esp_err_t wifi_cfg_stop_http(void);  // Stop HTTP server (if library-owned and provisioning not active)
 ```
 
 ## esp_bus Integration
@@ -291,19 +291,19 @@ void on_connected(const char *event, const void *data, size_t len, void *ctx) {
     ESP_LOGI(TAG, "Connected to %s, RSSI: %d", info->ssid, info->rssi);
 }
 
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_connected, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_disconnected, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_got_ip, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_SCAN_DONE), on_scan_done, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_NETWORK_ADDED), on_network_added, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_VAR_CHANGED), on_var_changed, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_PROVISIONING_STARTED), on_prov_started, NULL);
-esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_PROVISIONING_STOPPED), on_prov_stopped, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_connected, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_disconnected, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_SCAN_DONE), on_scan_done, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_NETWORK_ADDED), on_network_added, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_VAR_CHANGED), on_var_changed, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_PROVISIONING_STARTED), on_prov_started, NULL);
+esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_PROVISIONING_STOPPED), on_prov_stopped, NULL);
 ```
 
 ## CLI Commands
 
-Enable with `CONFIG_WIFI_MGR_ENABLE_CLI=y`:
+Enable with `CONFIG_WIFI_CFG_ENABLE_CLI=y`:
 
 | Command | Description |
 |---------|-------------|
@@ -322,7 +322,7 @@ Enable with `CONFIG_WIFI_MGR_ENABLE_CLI=y`:
 
 ## BLE GATT Interface
 
-Enable with `CONFIG_WIFI_MGR_ENABLE_BLE=y`. Both Bluedroid and NimBLE host stacks are supported. Requires Bluetooth enabled in sdkconfig:
+Enable with `CONFIG_WIFI_CFG_ENABLE_BLE=y`. Both Bluedroid and NimBLE host stacks are supported. Requires Bluetooth enabled in sdkconfig:
 
 **Bluedroid** (~100KB flash / ~40KB RAM):
 
@@ -340,7 +340,7 @@ CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
 ```
 
 
-The device advertises the WiFi Service UUID (`0xFFE0`), allowing clients to scan and filter by service UUID — the standard BLE discovery pattern. The device name (configurable via `CONFIG_WIFI_MGR_BLE_DEVICE_NAME`) is also included in the advertising data for further filtering.
+The device advertises the WiFi Service UUID (`0xFFE0`), allowing clients to scan and filter by service UUID — the standard BLE discovery pattern. The device name (configurable via `CONFIG_WIFI_CFG_BLE_DEVICE_NAME`) is also included in the advertising data for further filtering.
 
 ### Stack Ownership & Deinitialization
 
@@ -351,21 +351,21 @@ The BLE interface supports two modes of operation depending on whether the appli
 | **Owns the stack** (default) | Initializes BLE host stack + registers GATT service | Tears down everything (service, advertising, host stack, controller) | App doesn't use BLE for anything else |
 | **Service only** | Detects host stack already running, registers GATT service only | Unregisters service and stops advertising, leaves host stack running | App manages the BLE lifecycle |
 
-The mode is detected automatically: if the BLE host stack is already initialized when `wifi_manager_init()` is called, the WiFi Manager registers only its GATT service and leaves the stack alone on deinit. This mirrors the HTTP interface's shared server pattern — if you pass an existing `httpd_handle_t`, the HTTP handlers are unregistered on deinit without stopping the server.
+The mode is detected automatically: if the BLE host stack is already initialized when `wifi_cfg_init()` is called, the WiFi Config registers only its GATT service and leaves the stack alone on deinit. This mirrors the HTTP interface's shared server pattern — if you pass an existing `httpd_handle_t`, the HTTP handlers are unregistered on deinit without stopping the server.
 
 **NimBLE:**
 
 ```c
-// App-owned BLE stack: init NimBLE before WiFi Manager
+// App-owned BLE stack: init NimBLE before WiFi Config
 nimble_port_init();
 nimble_port_freertos_init(nimble_host_task);
 
-wifi_manager_init(&(wifi_manager_config_t){
+wifi_cfg_init(&(wifi_cfg_config_t){
     .ble = { .enable = true },
 });
 
-// Later: WiFi Manager removes its GATT service but NimBLE keeps running
-wifi_manager_deinit();
+// Later: WiFi Config removes its GATT service but NimBLE keeps running
+wifi_cfg_deinit();
 
 // App can continue using BLE for its own services
 ```
@@ -373,19 +373,19 @@ wifi_manager_deinit();
 **Bluedroid:**
 
 ```c
-// App-owned BLE stack: init Bluedroid before WiFi Manager
+// App-owned BLE stack: init Bluedroid before WiFi Config
 esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 esp_bt_controller_init(&bt_cfg);
 esp_bt_controller_enable(ESP_BT_MODE_BLE);
 esp_bluedroid_init();
 esp_bluedroid_enable();
 
-wifi_manager_init(&(wifi_manager_config_t){
+wifi_cfg_init(&(wifi_cfg_config_t){
     .ble = { .enable = true },
 });
 
-// Later: WiFi Manager unregisters its GATT app but Bluedroid keeps running
-wifi_manager_deinit();
+// Later: WiFi Config unregisters its GATT app but Bluedroid keeps running
+wifi_cfg_deinit();
 
 // App can continue using BLE for its own services
 ```
@@ -739,7 +739,7 @@ The provisioning configuration has been redesigned. The old boolean fields have 
 
 **Before (v1.x):**
 ```c
-wifi_manager_init(&(wifi_manager_config_t){
+wifi_cfg_init(&(wifi_cfg_config_t){
     .enable_captive_portal = true,
     .stop_ap_on_connect = true,
     .http = { .enable = true },
@@ -748,7 +748,7 @@ wifi_manager_init(&(wifi_manager_config_t){
 
 **After (v2.x):**
 ```c
-wifi_manager_init(&(wifi_manager_config_t){
+wifi_cfg_init(&(wifi_cfg_config_t){
     .provisioning_mode = WIFI_PROV_ON_FAILURE,
     .stop_provisioning_on_connect = true,
     .provisioning_teardown_delay_ms = 5000,
@@ -759,9 +759,13 @@ wifi_manager_init(&(wifi_manager_config_t){
 ## Dependencies
 
 - ESP-IDF >= 5.0.0
-- [esp_bus](https://components.espressif.com/components/tuanpmt/esp_bus) - Event bus component
+- [esp_bus](https://components.espressif.com/components/thorrak/esp_bus) - Event bus component
 - cJSON - JSON parsing (included in ESP-IDF)
 - mbedTLS - Base64 for Basic Auth (included in ESP-IDF)
+
+## Acknowledgments
+
+This project is based on the original [esp_wifi_manager](https://github.com/tuanpmt/esp_wifi_manager) by [tuanpmt](https://github.com/tuanpmt). We are grateful for his foundational work that made this project possible.
 
 ## License
 

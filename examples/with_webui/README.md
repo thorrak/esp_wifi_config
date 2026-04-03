@@ -1,6 +1,6 @@
-# WiFi Manager - Web UI Example
+# WiFi Config - Web UI Example
 
-Example demonstrating WiFi Manager with embedded Web UI.
+Example demonstrating WiFi Config with embedded Web UI.
 
 ## Features
 
@@ -50,7 +50,7 @@ Access the Web UI at:
 
 ```
 +----------------------------------+
-|  ESP WiFi Manager                |
+|  ESP WiFi Config                |
 +----------------------------------+
 |  [Status]                        |
 |  Connected to: MyWiFi            |

@@ -1,4 +1,4 @@
 CONFIG_IDF_TARGET="esp32s3"
 
-# Enable WiFi Manager Web UI
-CONFIG_WIFI_MGR_ENABLE_WEBUI=y
+# Enable WiFi Config Web UI
+CONFIG_WIFI_CFG_ENABLE_WEBUI=y

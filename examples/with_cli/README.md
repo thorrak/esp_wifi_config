@@ -1,11 +1,11 @@
-# WiFi Manager - CLI Example
+# WiFi Config - CLI Example
 
-Example demonstrating WiFi Manager with CLI interface.
+Example demonstrating WiFi Config with CLI interface.
 
 ## Features
 
 - Interactive CLI via ESP Console REPL
-- All WiFi Manager commands available
+- All WiFi Config commands available
 - USB Serial JTAG console (ESP32-S3)
 
 ## Build & Flash

@@ -1,10 +1,10 @@
 /**
  * @file main.c
- * @brief ESP WiFi Manager - BLE Soft Deinit Example (NimBLE)
+ * @brief ESP WiFi Config - BLE Soft Deinit Example (NimBLE)
  *
  * Demonstrates the "service-only" BLE mode where the application owns the
- * NimBLE stack and the WiFi Manager only registers/unregisters its GATT
- * service. After WiFi provisioning completes, the WiFi Manager's BLE service
+ * NimBLE stack and the WiFi Config only registers/unregisters its GATT
+ * service. After WiFi provisioning completes, the WiFi Config's BLE service
  * is removed but the NimBLE stack keeps running so the application can use
  * BLE for its own purposes.
  *
@@ -14,10 +14,10 @@
  *
  * Flow:
  *   1. App initializes NimBLE stack
- *   2. wifi_manager_init() detects NimBLE already running, registers GATT
+ *   2. wifi_cfg_init() detects NimBLE already running, registers GATT
  *      service only (service-only mode)
  *   3. User provisions WiFi via BLE
- *   4. Once connected, wifi_manager_deinit() removes the WiFi Manager GATT
+ *   4. Once connected, wifi_cfg_deinit() removes the WiFi Config GATT
  *      service but leaves NimBLE running
  *   5a. (GATT mode) App registers its own GATT service and advertises
  *   5b. (Scan mode) App starts a BLE scan and logs discovered devices
@@ -34,7 +34,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 
 #include "nimble/nimble_port.h"
@@ -87,7 +87,7 @@ static const struct ble_gatt_svc_def s_app_gatt_svcs[] = {
 };
 
 // ============================================================================
-// App BLE advertising (after WiFi Manager deinit)
+// App BLE advertising (after WiFi Config deinit)
 // ============================================================================
 
 static char s_app_device_name[32] = "ESP32-App";
@@ -116,7 +116,7 @@ static void app_start_advertising(void)
 
 static esp_err_t app_register_gatt_services(void)
 {
-    // After wifi_manager_deinit(), the GATT table has been committed with only
+    // After wifi_cfg_deinit(), the GATT table has been committed with only
     // mandatory GAP/GATT services. To add new services we must reset and
     // re-register everything (mandatory + app) then commit.
     ble_gatts_reset();
@@ -221,7 +221,7 @@ static void ble_on_sync(void)
 {
     ble_hs_util_ensure_addr(0);
     ESP_LOGI(TAG, "NimBLE host synced");
-    // Don't start advertising here — WiFi Manager will handle it during
+    // Don't start advertising here — WiFi Config will handle it during
     // provisioning, and the app will start its own advertising after deinit.
 }
 
@@ -231,7 +231,7 @@ static void ble_on_reset(int reason)
 }
 
 // ============================================================================
-// WiFi Manager event callbacks
+// WiFi Config event callbacks
 // ============================================================================
 
 static void on_wifi_connected(const char *event, const void *data, size_t len, void *ctx)
@@ -249,7 +249,7 @@ static void on_wifi_disconnected(const char *event, const void *data, size_t len
 static void on_wifi_got_ip(const char *event, const void *data, size_t len, void *ctx)
 {
     wifi_status_t status;
-    if (wifi_manager_get_status(&status) == ESP_OK) {
+    if (wifi_cfg_get_status(&status) == ESP_OK) {
         ESP_LOGI(TAG, "Got IP: %s", status.ip);
     }
 }
@@ -288,8 +288,8 @@ void app_main(void)
     nimble_port_freertos_init(nimble_host_task);
     ESP_LOGI(TAG, "NimBLE stack running");
 
-    // ── Step 2: Initialize esp_bus + WiFi Manager ──
-    ESP_LOGI(TAG, "Step 2: Initializing WiFi Manager (service-only BLE mode)");
+    // ── Step 2: Initialize esp_bus + WiFi Config ──
+    ESP_LOGI(TAG, "Step 2: Initializing WiFi Config (service-only BLE mode)");
 
     ret = esp_bus_init();
     if (ret != ESP_OK) {
@@ -297,11 +297,11 @@ void app_main(void)
         return;
     }
 
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_got_ip, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
 
-    wifi_manager_config_t config = {
+    wifi_cfg_config_t config = {
         .max_retry_per_network = 3,
         .retry_interval_ms = 5000,
         .auto_reconnect = true,
@@ -329,38 +329,38 @@ void app_main(void)
             .enable_auth = false,
         },
 
-        // WiFi Manager will detect NimBLE already running and use service-only mode
+        // WiFi Config will detect NimBLE already running and use service-only mode
         .ble = {
             .enable = true,
             .device_name = NULL,
         },
     };
 
-    ret = wifi_manager_init(&config);
+    ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize WiFi Manager: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to initialize WiFi Config: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "WiFi Manager initialized (BLE service-only mode)");
+    ESP_LOGI(TAG, "WiFi Config initialized (BLE service-only mode)");
     ESP_LOGI(TAG, "Use BLE or captive portal to configure WiFi...");
 
     // ── Step 3: Wait for WiFi provisioning ──
     ESP_LOGI(TAG, "Step 3: Waiting for WiFi connection...");
-    ret = wifi_manager_wait_connected(60000);
+    ret = wifi_cfg_wait_connected(60000);
 
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "No WiFi connection after 60s — keeping WiFi Manager active");
+        ESP_LOGW(TAG, "No WiFi connection after 60s — keeping WiFi Config active");
         // In a real app you might loop or retry. For this example, we proceed
         // with deinit to demonstrate the BLE handoff regardless.
     } else {
         ESP_LOGI(TAG, "WiFi connected!");
     }
 
-    // ── Step 4: Deinit WiFi Manager (soft BLE teardown) ──
-    ESP_LOGI(TAG, "Step 4: Deinitializing WiFi Manager (BLE service removed, stack stays)");
-    wifi_manager_deinit();
-    ESP_LOGI(TAG, "WiFi Manager deinitialized — NimBLE stack still running");
+    // ── Step 4: Deinit WiFi Config (soft BLE teardown) ──
+    ESP_LOGI(TAG, "Step 4: Deinitializing WiFi Config (BLE service removed, stack stays)");
+    wifi_cfg_deinit();
+    ESP_LOGI(TAG, "WiFi Config deinitialized — NimBLE stack still running");
 
     // ── Step 5: App takes over BLE ──
 #if EXAMPLE_MODE == MODE_GATT_SERVICE
@@ -376,12 +376,12 @@ void app_main(void)
 
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "App is now advertising its own BLE service (0xAA00).");
-    ESP_LOGI(TAG, "The WiFi Manager's 0xFFE0 service is gone.");
+    ESP_LOGI(TAG, "The WiFi Config's 0xFFE0 service is gone.");
 
     while (1) {
-        if (wifi_manager_is_connected()) {
+        if (wifi_cfg_is_connected()) {
             wifi_status_t status;
-            if (wifi_manager_get_status(&status) == ESP_OK) {
+            if (wifi_cfg_get_status(&status) == ESP_OK) {
                 ESP_LOGI(TAG, "WiFi: %s (%d%%) | BLE: app service active",
                          status.ssid, status.quality);
             }
@@ -401,9 +401,9 @@ void app_main(void)
         // Wait for scan to complete, then pause before the next round
         vTaskDelay(pdMS_TO_TICKS(SCAN_DURATION_MS + 5000));
 
-        if (wifi_manager_is_connected()) {
+        if (wifi_cfg_is_connected()) {
             wifi_status_t status;
-            if (wifi_manager_get_status(&status) == ESP_OK) {
+            if (wifi_cfg_get_status(&status) == ESP_OK) {
                 ESP_LOGI(TAG, "WiFi: %s (%d%%) | Restarting scan...",
                          status.ssid, status.quality);
             }

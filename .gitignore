@@ -135,6 +135,7 @@ sdkconfig.old
 managed_components/
 ref/
 CLAUDE.md
+.claude/
 docs/dev/*
 
 # Frontend build output - ignore all except embedded files

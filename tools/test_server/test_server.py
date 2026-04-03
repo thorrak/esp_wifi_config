@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mock HTTP server emulating esp_wifi_manager API endpoints.
+Mock HTTP server emulating esp_wifi_config API endpoints.
 
 Usage:
     python3 tools/test_server/test_server.py [--port 8080] [--no-aps] [--no-vars]
@@ -416,7 +416,7 @@ def post_factory_reset():
 def main():
     global cli_args, start_time
 
-    parser = argparse.ArgumentParser(description="ESP WiFi Manager mock HTTP server")
+    parser = argparse.ArgumentParser(description="ESP WiFi Config mock HTTP server")
     parser.add_argument("--port", type=int, default=8080, help="Listen port (default: 8080)")
     parser.add_argument("--no-aps", action="store_true", help="Start with empty scan results")
     parser.add_argument("--no-vars", action="store_true", help="Start with no preconfigured variables")
@@ -430,7 +430,7 @@ def main():
     var_count = len(state["vars"])
 
     print("=" * 50)
-    print("  ESP WiFi Manager — Mock HTTP Server")
+    print("  ESP WiFi Config — Mock HTTP Server")
     print("=" * 50)
     print(f"  Port:       {cli_args.port}")
     if cli_args.config:

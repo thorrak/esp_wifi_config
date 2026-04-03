@@ -1,9 +1,9 @@
 /**
  * @file main.c
- * @brief ESP WiFi Manager - CLI Example
+ * @brief ESP WiFi Config - CLI Example
  *
  * This example demonstrates:
- * - WiFi Manager with CLI interface enabled
+ * - WiFi Config with CLI interface enabled
  * - Using ESP Console REPL for interactive commands
  * - Available commands: wifi_status, wifi_scan, wifi_list, wifi_add, wifi_del,
  *   wifi_connect, wifi_disconnect, wifi_ap_start, wifi_ap_stop, wifi_reset,
@@ -19,7 +19,7 @@
 #include "nvs_flash.h"
 #include "esp_console.h"
 #include "esp_vfs_dev.h"
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 
 static const char *TAG = "wifi_cli_example";
@@ -54,15 +54,15 @@ static void init_console(void)
  */
 static void on_wifi_event(const char *event, const void *data, size_t len, void *ctx)
 {
-    if (strcmp(event, WIFI_EVT(WIFI_MGR_EVT_CONNECTED)) == 0) {
+    if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_CONNECTED)) == 0) {
         const wifi_connected_t *info = (const wifi_connected_t *)data;
         ESP_LOGI(TAG, "Connected to %s", info->ssid);
-    } else if (strcmp(event, WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED)) == 0) {
+    } else if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED)) == 0) {
         const wifi_disconnected_t *info = (const wifi_disconnected_t *)data;
         ESP_LOGW(TAG, "Disconnected from %s (reason: %d)", info->ssid, info->reason);
-    } else if (strcmp(event, WIFI_EVT(WIFI_MGR_EVT_GOT_IP)) == 0) {
+    } else if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_GOT_IP)) == 0) {
         wifi_status_t status;
-        if (wifi_manager_get_status(&status) == ESP_OK) {
+        if (wifi_cfg_get_status(&status) == ESP_OK) {
             ESP_LOGI(TAG, "Got IP: %s", status.ip);
         }
     }
@@ -79,19 +79,19 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, "  ESP WiFi Manager - CLI Example");
+    ESP_LOGI(TAG, "  ESP WiFi Config - CLI Example");
     ESP_LOGI(TAG, "==============================================");
 
     // Initialize esp_bus
     ESP_ERROR_CHECK(esp_bus_init());
 
     // Subscribe to WiFi events
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_wifi_event, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_event, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_event, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_event, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_event, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_event, NULL);
 
-    // Initialize WiFi Manager with CLI enabled
-    wifi_manager_config_t config = {
+    // Initialize WiFi Config with CLI enabled
+    wifi_cfg_config_t config = {
         .max_retry_per_network = 3,
         .retry_interval_ms = 5000,
         .auto_reconnect = true,
@@ -116,12 +116,12 @@ void app_main(void)
             .api_base_path = "/api/wifi",
         },
 
-        // CLI is auto-enabled via CONFIG_WIFI_MGR_ENABLE_CLI
+        // CLI is auto-enabled via CONFIG_WIFI_CFG_ENABLE_CLI
     };
 
-    ret = wifi_manager_init(&config);
+    ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init WiFi Manager: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to init WiFi Config: %s", esp_err_to_name(ret));
         return;
     }
 

@@ -1,8 +1,8 @@
 /**
  * @file main.c
- * @brief ESP WiFi Manager - Basic Example
+ * @brief ESP WiFi Config - Basic Example
  *
- * This example demonstrates basic usage of the WiFi Manager component:
+ * This example demonstrates basic usage of the WiFi Config component:
  * - Initialize with default networks
  * - Enable HTTP REST API for configuration
  * - Provisioning mode: AP starts when no networks or all connections fail
@@ -15,7 +15,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 
 static const char *TAG = "wifi_example";
@@ -48,7 +48,7 @@ static void on_wifi_got_ip(const char *event, const void *data, size_t len, void
 
     // Get full status
     wifi_status_t status;
-    if (wifi_manager_get_status(&status) == ESP_OK) {
+    if (wifi_cfg_get_status(&status) == ESP_OK) {
         ESP_LOGI(TAG, "IP: %s", status.ip);
         ESP_LOGI(TAG, "Gateway: %s", status.gateway);
         ESP_LOGI(TAG, "Netmask: %s", status.netmask);
@@ -77,23 +77,23 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_LOGI(TAG, "Starting WiFi Manager example");
+    ESP_LOGI(TAG, "Starting WiFi Config example");
 
-    // Initialize esp_bus first (required by wifi_manager)
+    // Initialize esp_bus first (required by wifi_cfg)
     ret = esp_bus_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize esp_bus: %s", esp_err_to_name(ret));
         return;
     }
 
-    // Subscribe to WiFi events (before wifi_manager_init to catch early events)
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_got_ip, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_VAR_CHANGED), on_var_changed, NULL);
+    // Subscribe to WiFi events (before wifi_cfg_init to catch early events)
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_VAR_CHANGED), on_var_changed, NULL);
 
-    // Initialize WiFi Manager
-    wifi_manager_config_t config = {
+    // Initialize WiFi Config
+    wifi_cfg_config_t config = {
         // Default networks (used if NVS is empty)
         // You can also configure networks via REST API or captive portal
         .default_networks = (wifi_network_t[]){
@@ -140,24 +140,24 @@ void app_main(void)
         },
     };
 
-    ret = wifi_manager_init(&config);
+    ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize WiFi Manager: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to initialize WiFi Config: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "WiFi Manager initialized");
+    ESP_LOGI(TAG, "WiFi Config initialized");
     ESP_LOGI(TAG, "HTTP API available at http://<device-ip>/api/wifi/");
 
     // Wait for connection with timeout
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    ret = wifi_manager_wait_connected(30000);  // 30 second timeout
+    ret = wifi_cfg_wait_connected(30000);  // 30 second timeout
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected successfully!");
 
         // Get HTTP server handle to add custom endpoints
-        httpd_handle_t httpd = wifi_manager_get_httpd();
+        httpd_handle_t httpd = wifi_cfg_get_httpd();
         if (httpd) {
             ESP_LOGI(TAG, "HTTP server handle available for custom endpoints");
             // You can register additional endpoints here:
@@ -173,9 +173,9 @@ void app_main(void)
     // Main loop - your application code here
     while (1) {
         // Check connection status periodically
-        if (wifi_manager_is_connected()) {
+        if (wifi_cfg_is_connected()) {
             wifi_status_t status;
-            if (wifi_manager_get_status(&status) == ESP_OK) {
+            if (wifi_cfg_get_status(&status) == ESP_OK) {
                 ESP_LOGI(TAG, "Connected to %s - Signal: %d%% - Uptime: %lu ms",
                          status.ssid, status.quality, (unsigned long)status.uptime_ms);
             }

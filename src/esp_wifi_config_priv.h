@@ -1,11 +1,11 @@
 /**
- * @file esp_wifi_manager_priv.h
- * @brief Private header for WiFi Manager internal use
+ * @file esp_wifi_config_priv.h
+ * @brief Private header for WiFi Config internal use
  */
 
 #pragma once
 
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -27,56 +27,56 @@ extern "C" {
 // =============================================================================
 
 
-#ifndef CONFIG_WIFI_MGR_MAX_NETWORKS
-#define CONFIG_WIFI_MGR_MAX_NETWORKS 5
+#ifndef CONFIG_WIFI_CFG_MAX_NETWORKS
+#define CONFIG_WIFI_CFG_MAX_NETWORKS 5
 #endif
 
-#ifndef CONFIG_WIFI_MGR_MAX_VARS
-#define CONFIG_WIFI_MGR_MAX_VARS 10
+#ifndef CONFIG_WIFI_CFG_MAX_VARS
+#define CONFIG_WIFI_CFG_MAX_VARS 10
 #endif
 
-#ifndef CONFIG_WIFI_MGR_DEFAULT_RETRY
-#define CONFIG_WIFI_MGR_DEFAULT_RETRY 3
+#ifndef CONFIG_WIFI_CFG_DEFAULT_RETRY
+#define CONFIG_WIFI_CFG_DEFAULT_RETRY 3
 #endif
 
-#ifndef CONFIG_WIFI_MGR_RETRY_INTERVAL_MS
-#define CONFIG_WIFI_MGR_RETRY_INTERVAL_MS 5000
+#ifndef CONFIG_WIFI_CFG_RETRY_INTERVAL_MS
+#define CONFIG_WIFI_CFG_RETRY_INTERVAL_MS 5000
 #endif
 
-#ifndef CONFIG_WIFI_MGR_AP_SSID
-#define CONFIG_WIFI_MGR_AP_SSID "ESP32-Config"
+#ifndef CONFIG_WIFI_CFG_AP_SSID
+#define CONFIG_WIFI_CFG_AP_SSID "ESP32-Config"
 #endif
 
-#ifndef CONFIG_WIFI_MGR_AP_PASSWORD
-#define CONFIG_WIFI_MGR_AP_PASSWORD ""
+#ifndef CONFIG_WIFI_CFG_AP_PASSWORD
+#define CONFIG_WIFI_CFG_AP_PASSWORD ""
 #endif
 
-#ifndef CONFIG_WIFI_MGR_AP_IP
-#define CONFIG_WIFI_MGR_AP_IP "192.168.4.1"
+#ifndef CONFIG_WIFI_CFG_AP_IP
+#define CONFIG_WIFI_CFG_AP_IP "192.168.4.1"
 #endif
 
-#ifndef CONFIG_WIFI_MGR_BLE_DEVICE_NAME
-#define CONFIG_WIFI_MGR_BLE_DEVICE_NAME "ESP32-WiFi-{id}"
+#ifndef CONFIG_WIFI_CFG_BLE_DEVICE_NAME
+#define CONFIG_WIFI_CFG_BLE_DEVICE_NAME "ESP32-WiFi-{id}"
 #endif
 
-#ifndef CONFIG_WIFI_MGR_MAX_SCAN_RESULTS
-#define CONFIG_WIFI_MGR_MAX_SCAN_RESULTS 20
+#ifndef CONFIG_WIFI_CFG_MAX_SCAN_RESULTS
+#define CONFIG_WIFI_CFG_MAX_SCAN_RESULTS 20
 #endif
 
-#ifndef CONFIG_WIFI_MGR_HTTP_MAX_CONTENT_LEN
-#define CONFIG_WIFI_MGR_HTTP_MAX_CONTENT_LEN 2048
+#ifndef CONFIG_WIFI_CFG_HTTP_MAX_CONTENT_LEN
+#define CONFIG_WIFI_CFG_HTTP_MAX_CONTENT_LEN 2048
 #endif
 
-#ifndef CONFIG_WIFI_MGR_TASK_STACK_SIZE
-#define CONFIG_WIFI_MGR_TASK_STACK_SIZE 4096
+#ifndef CONFIG_WIFI_CFG_TASK_STACK_SIZE
+#define CONFIG_WIFI_CFG_TASK_STACK_SIZE 4096
 #endif
 
-#ifndef CONFIG_WIFI_MGR_TASK_PRIORITY
-#define CONFIG_WIFI_MGR_TASK_PRIORITY 5
+#ifndef CONFIG_WIFI_CFG_TASK_PRIORITY
+#define CONFIG_WIFI_CFG_TASK_PRIORITY 5
 #endif
 
-#ifndef CONFIG_WIFI_MGR_HTTP_MAX_URI_HANDLERS
-#define CONFIG_WIFI_MGR_HTTP_MAX_URI_HANDLERS 32
+#ifndef CONFIG_WIFI_CFG_HTTP_MAX_URI_HANDLERS
+#define CONFIG_WIFI_CFG_HTTP_MAX_URI_HANDLERS 32
 #endif
 
 
@@ -84,15 +84,15 @@ extern "C" {
 // Constants
 // =============================================================================
 
-#define WIFI_MGR_NVS_NAMESPACE      "wifi_mgr"
-#define WIFI_MGR_MAX_NETWORKS       CONFIG_WIFI_MGR_MAX_NETWORKS
-#define WIFI_MGR_MAX_VARS           CONFIG_WIFI_MGR_MAX_VARS
-#define WIFI_MGR_MAX_SCAN_RESULTS   CONFIG_WIFI_MGR_MAX_SCAN_RESULTS
-#define WIFI_MGR_HTTP_MAX_CONTENT   CONFIG_WIFI_MGR_HTTP_MAX_CONTENT_LEN
-#define WIFI_MGR_TASK_STACK_SIZE    CONFIG_WIFI_MGR_TASK_STACK_SIZE
-#define WIFI_MGR_TASK_PRIORITY      CONFIG_WIFI_MGR_TASK_PRIORITY
-#define WIFI_MGR_HTTP_MAX_HANDLERS  CONFIG_WIFI_MGR_HTTP_MAX_URI_HANDLERS
-#define WIFI_MGR_QUEUE_SIZE         10
+#define WIFI_CFG_NVS_NAMESPACE      "wifi_cfg"
+#define WIFI_CFG_MAX_NETWORKS       CONFIG_WIFI_CFG_MAX_NETWORKS
+#define WIFI_CFG_MAX_VARS           CONFIG_WIFI_CFG_MAX_VARS
+#define WIFI_CFG_MAX_SCAN_RESULTS   CONFIG_WIFI_CFG_MAX_SCAN_RESULTS
+#define WIFI_CFG_HTTP_MAX_CONTENT   CONFIG_WIFI_CFG_HTTP_MAX_CONTENT_LEN
+#define WIFI_CFG_TASK_STACK_SIZE    CONFIG_WIFI_CFG_TASK_STACK_SIZE
+#define WIFI_CFG_TASK_PRIORITY      CONFIG_WIFI_CFG_TASK_PRIORITY
+#define WIFI_CFG_HTTP_MAX_HANDLERS  CONFIG_WIFI_CFG_HTTP_MAX_URI_HANDLERS
+#define WIFI_CFG_QUEUE_SIZE         10
 
 // Event bits (for sync waits)
 #define WIFI_CONNECTED_BIT          BIT0
@@ -121,10 +121,10 @@ typedef enum {
     WM_INT_EVT_TEARDOWN_TIMER,      // Provisioning teardown delay expired
     WM_INT_EVT_START_PROVISIONING,  // Start provisioning from reconnect exhaustion
     WM_INT_EVT_STOP,                // Stop task
-} wifi_mgr_internal_evt_t;
+} wifi_cfg_internal_evt_t;
 
 typedef struct {
-    wifi_mgr_internal_evt_t type;
+    wifi_cfg_internal_evt_t type;
     union {
         struct {
             char ssid[32];
@@ -143,7 +143,7 @@ typedef struct {
         } connect_req;
         uint8_t mac[6];
     } data;
-} wifi_mgr_event_t;
+} wifi_cfg_event_t;
 
 // =============================================================================
 // Internal Context
@@ -170,14 +170,14 @@ typedef struct {
     bool provisioning_handlers_registered;   // Track provisioning-specific endpoints
 
     // Config
-    wifi_manager_config_t config;
+    wifi_cfg_config_t config;
     
     // Saved data
-    wifi_network_t networks[WIFI_MGR_MAX_NETWORKS];
+    wifi_network_t networks[WIFI_CFG_MAX_NETWORKS];
     size_t network_count;
-    wifi_var_t vars[WIFI_MGR_MAX_VARS];
+    wifi_var_t vars[WIFI_CFG_MAX_VARS];
     size_t var_count;
-    wifi_mgr_ap_config_t ap_config;
+    wifi_cfg_ap_config_t ap_config;
     
     // Auth credentials (from NVS)
     char auth_username[32];
@@ -208,129 +208,129 @@ typedef struct {
     wifi_scan_result_t *scan_results;
     size_t scan_count;
     
-} wifi_mgr_ctx_t;
+} wifi_cfg_ctx_t;
 
 // Global context
-extern wifi_mgr_ctx_t *g_wifi_mgr;
+extern wifi_cfg_ctx_t *g_wifi_cfg;
 
 // =============================================================================
-// NVS Functions (esp_wifi_manager_nvs.c)
+// NVS Functions (esp_wifi_config_nvs.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_nvs_init(void);
-esp_err_t wifi_mgr_nvs_load_networks(wifi_network_t *networks, size_t max_count, size_t *count);
-esp_err_t wifi_mgr_nvs_save_networks(const wifi_network_t *networks, size_t count);
-esp_err_t wifi_mgr_nvs_load_vars(wifi_var_t *vars, size_t max_count, size_t *count);
-esp_err_t wifi_mgr_nvs_save_vars(const wifi_var_t *vars, size_t count);
-esp_err_t wifi_mgr_nvs_load_ap_config(wifi_mgr_ap_config_t *config);
-esp_err_t wifi_mgr_nvs_save_ap_config(const wifi_mgr_ap_config_t *config);
-esp_err_t wifi_mgr_nvs_load_auth(char *username, size_t ulen, char *password, size_t plen);
-esp_err_t wifi_mgr_nvs_save_auth(const char *username, const char *password);
-esp_err_t wifi_mgr_nvs_factory_reset(void);
+esp_err_t wifi_cfg_nvs_init(void);
+esp_err_t wifi_cfg_nvs_load_networks(wifi_network_t *networks, size_t max_count, size_t *count);
+esp_err_t wifi_cfg_nvs_save_networks(const wifi_network_t *networks, size_t count);
+esp_err_t wifi_cfg_nvs_load_vars(wifi_var_t *vars, size_t max_count, size_t *count);
+esp_err_t wifi_cfg_nvs_save_vars(const wifi_var_t *vars, size_t count);
+esp_err_t wifi_cfg_nvs_load_ap_config(wifi_cfg_ap_config_t *config);
+esp_err_t wifi_cfg_nvs_save_ap_config(const wifi_cfg_ap_config_t *config);
+esp_err_t wifi_cfg_nvs_load_auth(char *username, size_t ulen, char *password, size_t plen);
+esp_err_t wifi_cfg_nvs_save_auth(const char *username, const char *password);
+esp_err_t wifi_cfg_nvs_factory_reset(void);
 
 // =============================================================================
-// HTTP Functions (esp_wifi_manager_http.c)
+// HTTP Functions (esp_wifi_config_http.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_http_init(void);
-esp_err_t wifi_mgr_http_unregister_handlers(void);
-esp_err_t wifi_mgr_http_deinit(void);
+esp_err_t wifi_cfg_http_init(void);
+esp_err_t wifi_cfg_http_unregister_handlers(void);
+esp_err_t wifi_cfg_http_deinit(void);
 
 // =============================================================================
 // Internal Functions
 // =============================================================================
 
 // Send event to task queue (from event handlers or other contexts)
-void wifi_mgr_send_event(wifi_mgr_internal_evt_t type);
-void wifi_mgr_send_event_data(const wifi_mgr_event_t *event);
+void wifi_cfg_send_event(wifi_cfg_internal_evt_t type);
+void wifi_cfg_send_event_data(const wifi_cfg_event_t *event);
 
 // Start connect sequence (non-blocking, called from task)
-void wifi_mgr_start_connect_sequence(void);
+void wifi_cfg_start_connect_sequence(void);
 
 // AP mode control (called from task)
-void wifi_mgr_start_ap_mode(void);
-void wifi_mgr_stop_ap_mode(void);
+void wifi_cfg_start_ap_mode(void);
+void wifi_cfg_stop_ap_mode(void);
 
 // =============================================================================
 // Provisioning Orchestration
 // =============================================================================
 
 // Start all enabled provisioning interfaces (AP + BLE) per config
-void wifi_mgr_start_provisioning(void);
+void wifi_cfg_start_provisioning(void);
 
 // Stop all provisioning interfaces, transition HTTP per post-prov mode
-void wifi_mgr_stop_provisioning(void);
+void wifi_cfg_stop_provisioning(void);
 
 // =============================================================================
 // BLE Start/Stop (advertising control without full init/deinit)
 // =============================================================================
 
-esp_err_t wifi_mgr_ble_start(void);
-esp_err_t wifi_mgr_ble_stop(void);
+esp_err_t wifi_cfg_ble_start(void);
+esp_err_t wifi_cfg_ble_stop(void);
 
 // =============================================================================
 // HTTP Handler Registration
 // =============================================================================
 
 // Register/unregister API handlers (scan, networks, connect, etc.)
-esp_err_t wifi_mgr_http_register_api_handlers(void);
+esp_err_t wifi_cfg_http_register_api_handlers(void);
 
 // Register/unregister only the provisioning-specific HTTP handlers
 // (captive portal detection, simple page, WebUI routes)
-esp_err_t wifi_mgr_http_register_provisioning_handlers(void);
-esp_err_t wifi_mgr_http_unregister_provisioning_handlers(void);
+esp_err_t wifi_cfg_http_register_provisioning_handlers(void);
+esp_err_t wifi_cfg_http_unregister_provisioning_handlers(void);
 
 // Transition HTTP to post-provisioning mode
-void wifi_mgr_http_transition_post_prov(wifi_http_post_prov_mode_t mode);
+void wifi_cfg_http_transition_post_prov(wifi_http_post_prov_mode_t mode);
 
 // =============================================================================
-// esp_bus Handler (esp_wifi_manager_bus.c)
+// esp_bus Handler (esp_wifi_config_bus.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_bus_handler(const char *action,
+esp_err_t wifi_cfg_bus_handler(const char *action,
                                const void *req_data, size_t req_len,
                                void *res_buf, size_t res_buf_size, size_t *res_len,
                                void *ctx);
 
 // =============================================================================
-// DNS Server (esp_wifi_manager_dns.c) - Captive Portal
+// DNS Server (esp_wifi_config_dns.c) - Captive Portal
 // =============================================================================
 
-esp_err_t wifi_mgr_dns_start(void);
-esp_err_t wifi_mgr_dns_stop(void);
+esp_err_t wifi_cfg_dns_start(void);
+esp_err_t wifi_cfg_dns_stop(void);
 
 // =============================================================================
-// AP Functions (esp_wifi_manager_ap.c)
+// AP Functions (esp_wifi_config_ap.c)
 // =============================================================================
 
-void wifi_mgr_expand_template(const char *tmpl, char *output, size_t max_len);
+void wifi_cfg_expand_template(const char *tmpl, char *output, size_t max_len);
 
 // =============================================================================
-// mDNS Functions (esp_wifi_manager_mdns.c)
+// mDNS Functions (esp_wifi_config_mdns.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_mdns_init(void);
-esp_err_t wifi_mgr_mdns_deinit(void);
-const char *wifi_mgr_mdns_get_hostname(void);
+esp_err_t wifi_cfg_mdns_init(void);
+esp_err_t wifi_cfg_mdns_deinit(void);
+const char *wifi_cfg_mdns_get_hostname(void);
 
 // =============================================================================
-// CLI Functions (esp_wifi_manager_cli.c)
+// CLI Functions (esp_wifi_config_cli.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_cli_init(void);
+esp_err_t wifi_cfg_cli_init(void);
 
 // =============================================================================
-// Web UI Functions (esp_wifi_manager_webui.c)
+// Web UI Functions (esp_wifi_config_webui.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_webui_init(httpd_handle_t httpd);
+esp_err_t wifi_cfg_webui_init(httpd_handle_t httpd);
 
 // =============================================================================
-// BLE Functions (esp_wifi_manager_ble.c)
+// BLE Functions (esp_wifi_config_ble.c)
 // =============================================================================
 
-esp_err_t wifi_mgr_ble_init(void);
-esp_err_t wifi_mgr_ble_deinit(void);
+esp_err_t wifi_cfg_ble_init(void);
+esp_err_t wifi_cfg_ble_deinit(void);
 
 // =============================================================================
 // Utility Functions
@@ -344,15 +344,15 @@ static inline uint8_t rssi_to_quality(int8_t rssi) {
 }
 
 // Lock/unlock context
-static inline void wifi_mgr_lock(void) {
-    if (g_wifi_mgr && g_wifi_mgr->mutex) {
-        xSemaphoreTake(g_wifi_mgr->mutex, portMAX_DELAY);
+static inline void wifi_cfg_lock(void) {
+    if (g_wifi_cfg && g_wifi_cfg->mutex) {
+        xSemaphoreTake(g_wifi_cfg->mutex, portMAX_DELAY);
     }
 }
 
-static inline void wifi_mgr_unlock(void) {
-    if (g_wifi_mgr && g_wifi_mgr->mutex) {
-        xSemaphoreGive(g_wifi_mgr->mutex);
+static inline void wifi_cfg_unlock(void) {
+    if (g_wifi_cfg && g_wifi_cfg->mutex) {
+        xSemaphoreGive(g_wifi_cfg->mutex);
     }
 }
 
