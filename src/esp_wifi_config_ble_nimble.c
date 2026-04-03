@@ -12,6 +12,7 @@
 #include "esp_wifi_config_improv.h"
 #endif
 #include "esp_log.h"
+#include "esp_bt.h"
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -394,7 +395,10 @@ uint16_t wifi_cfg_ble_backend_get_mtu(void)
 
 bool wifi_cfg_ble_backend_is_stack_running(void)
 {
-    return ble_hs_is_enabled();
+    // Cannot call ble_hs_is_enabled() before nimble_port_init() — the NimBLE
+    // host data structures aren't allocated yet and the access will fault.
+    // Check the BT controller status instead, which is always safe to query.
+    return esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
 }
 
 esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
