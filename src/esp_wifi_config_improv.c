@@ -496,9 +496,21 @@ esp_err_t wifi_cfg_improv_stop(void)
 
 // Stub implementations when Improv is disabled
 #include <esp_err.h>
+#include "esp_wifi_config_improv.h"
+
 esp_err_t wifi_cfg_improv_init(void)  { return ESP_OK; }
 esp_err_t wifi_cfg_improv_deinit(void) { return ESP_OK; }
 esp_err_t wifi_cfg_improv_start(void)  { return ESP_OK; }
 esp_err_t wifi_cfg_improv_stop(void)   { return ESP_OK; }
+improv_state_t wifi_cfg_improv_get_state(void) { return IMPROV_STATE_AUTHORIZED; }
+improv_error_t wifi_cfg_improv_get_error(void) { return IMPROV_ERROR_NONE; }
+uint8_t wifi_cfg_improv_get_capabilities(void) { return 0; }
+void wifi_cfg_improv_set_state(improv_state_t state) { (void)state; }
+void wifi_cfg_improv_set_error(improv_error_t error) { (void)error; }
+void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx) { (void)cb; (void)ctx; }
+void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
+                                improv_response_cb_t response_cb, void *cb_ctx) {
+    (void)data; (void)len; (void)response_cb; (void)cb_ctx;
+}
 
 #endif // CONFIG_WIFI_CFG_ENABLE_IMPROV

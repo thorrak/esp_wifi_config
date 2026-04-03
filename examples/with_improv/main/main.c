@@ -21,7 +21,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "esp_wifi_manager.h"
+#include "esp_wifi_config.h"
 #include "esp_bus.h"
 
 static const char *TAG = "wifi_improv_example";
