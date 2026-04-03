@@ -18,7 +18,7 @@
 #if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV) && defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
 
 #include "esp_wifi_config_improv.h"
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include <string.h>
 

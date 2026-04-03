@@ -173,7 +173,7 @@ typedef void (*improv_state_change_cb_t)(improv_state_t state, improv_error_t er
 void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx);
 
 // =============================================================================
-// Improv Init / Deinit (called from esp_wifi_manager.c)
+// Improv Init / Deinit (called from esp_wifi_config.c)
 // =============================================================================
 
 /**

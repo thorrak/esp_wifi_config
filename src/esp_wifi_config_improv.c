@@ -11,7 +11,7 @@
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
 
 #include "esp_wifi_config_improv.h"
-#include "esp_wifi_manager_priv.h"
+#include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include "esp_chip_info.h"
 #include "esp_bus.h"
@@ -211,7 +211,7 @@ static void handle_get_device_info(improv_response_cb_t cb, void *ctx)
 {
     ESP_LOGI(TAG, "RPC: Get Device Info");
 
-    const char *fw_name = "esp_wifi_manager";
+    const char *fw_name = "esp_wifi_config";
     const char *fw_version = "1.0.0";
     const char *chip_variant = "ESP32";
     const char *device_name = "";
