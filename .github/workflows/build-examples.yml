@@ -1,0 +1,42 @@
+name: Build Examples
+
+on:
+  push:
+    branches: [main, feat/gh_actions]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - basic
+          - with_ble
+          - with_ble_deinit
+          - with_cli
+          - with_webui
+          - with_webui_customize
+        idf_target:
+          - esp32
+          - esp32s3
+        idf_version:
+          - "v5.3"
+          - "v5.4"
+
+    container:
+      image: espressif/idf:${{ matrix.idf_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.example }} for ${{ matrix.idf_target }}
+        working-directory: examples/${{ matrix.example }}
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py set-target ${{ matrix.idf_target }}
+          idf.py build
