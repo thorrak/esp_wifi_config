@@ -495,6 +495,7 @@ esp_err_t wifi_cfg_improv_stop(void)
 #else // CONFIG_WIFI_CFG_ENABLE_IMPROV
 
 // Stub implementations when Improv is disabled
+#include <esp_err.h>
 esp_err_t wifi_cfg_improv_init(void)  { return ESP_OK; }
 esp_err_t wifi_cfg_improv_deinit(void) { return ESP_OK; }
 esp_err_t wifi_cfg_improv_start(void)  { return ESP_OK; }
