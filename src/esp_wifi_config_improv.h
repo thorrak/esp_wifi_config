@@ -1,5 +1,5 @@
 /**
- * @file esp_wifi_manager_improv.h
+ * @file esp_wifi_config_improv.h
  * @brief Improv WiFi protocol core — internal header
  *
  * Defines Improv protocol constants, BLE UUIDs, packet types,

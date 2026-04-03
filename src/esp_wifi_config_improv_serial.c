@@ -1,5 +1,5 @@
 /**
- * @file esp_wifi_manager_improv_serial.c
+ * @file esp_wifi_config_improv_serial.c
  * @brief Improv WiFi Serial transport — UART framing and I/O
  *
  * Implements the Improv Serial protocol framing:
@@ -12,7 +12,7 @@
 
 #if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV) && defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
 
-#include "esp_wifi_manager_improv.h"
+#include "esp_wifi_config_improv.h"
 #include "esp_wifi_manager_priv.h"
 #include "esp_log.h"
 #include "driver/uart.h"

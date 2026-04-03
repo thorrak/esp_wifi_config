@@ -1,5 +1,5 @@
 /**
- * @file esp_wifi_manager_improv.c
+ * @file esp_wifi_config_improv.c
  * @brief Improv WiFi protocol core — state machine, RPC handlers, event listener
  *
  * Transport-agnostic. Serial and BLE transports feed raw bytes in;
@@ -10,7 +10,7 @@
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
 
-#include "esp_wifi_manager_improv.h"
+#include "esp_wifi_config_improv.h"
 #include "esp_wifi_manager_priv.h"
 #include "esp_log.h"
 #include "esp_chip_info.h"

@@ -1,5 +1,5 @@
 /**
- * @file esp_wifi_manager_improv_ble.c
+ * @file esp_wifi_config_improv_ble.c
  * @brief Improv WiFi BLE transport — GATT service definition and characteristic handlers
  *
  * Provides the Improv BLE GATT service (UUID 00467768-6228-2272-4663-277478268000)
@@ -17,7 +17,7 @@
 
 #if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV) && defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
 
-#include "esp_wifi_manager_improv.h"
+#include "esp_wifi_config_improv.h"
 #include "esp_wifi_manager_priv.h"
 #include "esp_log.h"
 #include <string.h>
