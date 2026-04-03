@@ -348,6 +348,12 @@ static void ble_on_sync(void)
         return;
     }
 
+    // Clear any stale bonds left in NVS from a previous flash.  Without
+    // this, a client that bonded before a reflash can trigger an LL-level
+    // encryption timeout (reason 0x208) because the device still has the
+    // old peer record but the keys no longer match.
+    ble_store_clear();
+
     start_advertising();
 }
 
@@ -435,6 +441,13 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     // Configure host callbacks
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.reset_cb = ble_on_reset;
+
+    // Disable bonding — this is a provisioning device that doesn't need
+    // persistent security.  Prevents clients from caching keys that go
+    // stale after a reflash (which causes reconnection failures).
+    ble_hs_cfg.sm_bonding = 0;
+    ble_hs_cfg.sm_our_key_dist = 0;
+    ble_hs_cfg.sm_their_key_dist = 0;
 
     // Set preferred MTU
     int mtu_rc = ble_att_set_preferred_mtu(517);

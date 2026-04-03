@@ -254,6 +254,22 @@ static void handle_get_device_info(improv_response_cb_t cb, void *ctx)
     send_rpc_result(IMPROV_RPC_GET_DEVICE_INFO, payload, poff, cb, ctx);
 }
 
+static const char *auth_mode_str(wifi_auth_mode_t auth)
+{
+    switch (auth) {
+        case WIFI_AUTH_OPEN:            return "NO";
+        case WIFI_AUTH_WEP:             return "WEP";
+        case WIFI_AUTH_WPA_PSK:         return "WPA";
+        case WIFI_AUTH_WPA2_PSK:        return "WPA2";
+        case WIFI_AUTH_WPA_WPA2_PSK:    return "WPA/WPA2";
+        case WIFI_AUTH_WPA3_PSK:        return "WPA3";
+        case WIFI_AUTH_WPA2_WPA3_PSK:   return "WPA2/WPA3";
+        case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2 EAP";
+        case WIFI_AUTH_WAPI_PSK:        return "WAPI";
+        default:                        return "WPA2";
+    }
+}
+
 static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
 {
     ESP_LOGI(TAG, "RPC: Get WiFi Networks (scan)");
@@ -272,38 +288,29 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
         return;
     }
 
-    // Send each network as a separate RPC result
-    // Format per result: [ssid, rssi_str, auth_bool_str]
+    // Per the Improv spec, scan results are ONE RPC response containing
+    // a multiple of 3 strings: [SSID, RSSI, auth] for each network.
+    // Max payload is 255 bytes (data_len is uint8_t).
+    uint8_t payload[255];
+    size_t poff = 0;
+
     for (size_t i = 0; i < count; i++) {
-        uint8_t payload[128];
-        size_t poff = 0;
-
-        append_tlv_string(payload, sizeof(payload), &poff, results[i].ssid);
-
         char rssi_str[8];
         snprintf(rssi_str, sizeof(rssi_str), "%d", results[i].rssi);
+        const char *auth_str = auth_mode_str(results[i].auth);
+
+        // Check if this network fits in the remaining space
+        size_t needed = 1 + strlen(results[i].ssid)
+                      + 1 + strlen(rssi_str)
+                      + 1 + strlen(auth_str);
+        if (poff + needed > sizeof(payload)) break;
+
+        append_tlv_string(payload, sizeof(payload), &poff, results[i].ssid);
         append_tlv_string(payload, sizeof(payload), &poff, rssi_str);
-
-        const char *auth_str;
-        switch (results[i].auth) {
-            case WIFI_AUTH_OPEN:         auth_str = "NO";       break;
-            case WIFI_AUTH_WEP:          auth_str = "WEP";      break;
-            case WIFI_AUTH_WPA_PSK:      auth_str = "WPA";      break;
-            case WIFI_AUTH_WPA2_PSK:     auth_str = "WPA2";     break;
-            case WIFI_AUTH_WPA_WPA2_PSK: auth_str = "WPA/WPA2"; break;
-            case WIFI_AUTH_WPA3_PSK:     auth_str = "WPA3";     break;
-            case WIFI_AUTH_WPA2_WPA3_PSK:auth_str = "WPA2/WPA3";break;
-            case WIFI_AUTH_WPA2_ENTERPRISE: auth_str = "WPA2 EAP"; break;
-            case WIFI_AUTH_WAPI_PSK:     auth_str = "WAPI";     break;
-            default:                     auth_str = "WPA2";     break;
-        }
         append_tlv_string(payload, sizeof(payload), &poff, auth_str);
-
-        send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
     }
 
-    // Empty result to signal end of list
-    send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, NULL, 0, cb, ctx);
+    send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
 
     free(results);
 }

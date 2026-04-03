@@ -522,11 +522,21 @@ static void bd_notify_rpc_result(const uint8_t *data, size_t len)
 
 static void ble_response_cb(uint8_t type, const uint8_t *data, size_t len, void *ctx)
 {
-    // For BLE, RPC results go to the RPC Result characteristic
+    // Improv BLE spec requires an LSB checksum as the final byte of the
+    // RPC result.  The protocol core doesn't add one (serial has its own
+    // transport-level checksum), so we append it here.
+    uint8_t buf[512];
+    if (len + 1 > sizeof(buf)) return;
+
+    memcpy(buf, data, len);
+    uint8_t checksum = 0;
+    for (size_t i = 0; i < len; i++) checksum += data[i];
+    buf[len] = checksum;
+
 #if defined(CONFIG_BT_NIMBLE_ENABLED)
-    nimble_notify_rpc_result(data, len);
+    nimble_notify_rpc_result(buf, len + 1);
 #elif defined(CONFIG_BT_BLUEDROID_ENABLED)
-    bd_notify_rpc_result(data, len);
+    bd_notify_rpc_result(buf, len + 1);
 #endif
 }
 
