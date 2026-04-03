@@ -237,9 +237,20 @@ static void nimble_notify_error(void)
 
 static void nimble_notify_rpc_result(const uint8_t *data, size_t len)
 {
-    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGW(TAG, "RPC result notify skipped — no connection");
+        return;
+    }
+    uint16_t mtu = ble_att_mtu(s_conn_handle);
+    ESP_LOGI(TAG, "Sending RPC result: %zu bytes (MTU=%d, max_notify=%d)",
+             len, mtu, mtu - 3);
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
-    if (om) ble_gatts_notify_custom(s_conn_handle, s_rpc_result_val_handle, om);
+    if (om) {
+        int rc = ble_gatts_notify_custom(s_conn_handle, s_rpc_result_val_handle, om);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "RPC result notify failed, rc=%d", rc);
+        }
+    }
 }
 
 // Connection tracking (called from the NimBLE backend's GAP handler)

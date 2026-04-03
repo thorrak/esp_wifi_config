@@ -169,6 +169,18 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
 // GAP Event Handler
 // =============================================================================
 
+static int mtu_exchange_cb(uint16_t conn_handle,
+                           const struct ble_gatt_error *error, uint16_t mtu,
+                           void *arg)
+{
+    if (error->status == 0) {
+        ESP_LOGI(TAG, "MTU exchange complete, mtu=%d", mtu);
+    } else {
+        ESP_LOGW(TAG, "MTU exchange failed, status=%d", error->status);
+    }
+    return 0;
+}
+
 static int gap_event_handler(struct ble_gap_event *event, void *arg)
 {
     switch (event->type) {
@@ -176,6 +188,11 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
+
+                // Initiate MTU exchange so notifications (e.g. scan results)
+                // are not limited to the default 20-byte ATT payload.
+                ble_gattc_exchange_mtu(s_conn_handle, mtu_exchange_cb, NULL);
+
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
                 extern void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle);
@@ -189,7 +206,8 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
 
         case BLE_GAP_EVENT_DISCONNECT:
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            ESP_LOGI(TAG, "BLE client disconnected, reason %d", event->disconnect.reason);
+            ESP_LOGI(TAG, "BLE client disconnected, reason %d (0x%03x)",
+                     event->disconnect.reason, event->disconnect.reason);
             wifi_cfg_ble_on_disconnect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
             extern void wifi_cfg_improv_ble_on_disconnect_nimble(void);
@@ -213,6 +231,17 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
 
         case BLE_GAP_EVENT_MTU:
             ESP_LOGI(TAG, "MTU changed to %d", event->mtu.value);
+            break;
+
+        case BLE_GAP_EVENT_ENC_CHANGE:
+            ESP_LOGI(TAG, "Encryption change, status=%d", event->enc_change.status);
+            if (event->enc_change.status != 0) {
+                ESP_LOGW(TAG, "Encryption failed — deleting stale bond");
+                struct ble_gap_conn_desc desc;
+                if (ble_gap_conn_find(event->enc_change.conn_handle, &desc) == 0) {
+                    ble_store_util_delete_peer(&desc.peer_id_addr);
+                }
+            }
             break;
 
         case BLE_GAP_EVENT_REPEAT_PAIRING: {

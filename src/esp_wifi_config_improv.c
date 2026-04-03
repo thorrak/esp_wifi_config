@@ -283,10 +283,12 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
     size_t count = 0;
     esp_err_t ret = wifi_cfg_scan(results, WIFI_CFG_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi scan failed: %s", esp_err_to_name(ret));
         free(results);
         wifi_cfg_improv_set_error(IMPROV_ERROR_UNKNOWN);
         return;
     }
+    ESP_LOGI(TAG, "Scan found %zu networks", count);
 
     // Per the Improv spec, scan results are ONE RPC response containing
     // a multiple of 3 strings: [SSID, RSSI, auth] for each network.
