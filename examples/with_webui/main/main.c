@@ -6,7 +6,6 @@
  * - WiFi Config with embedded Web UI
  * - Modern responsive interface accessible at device IP
  * - Captive portal for initial setup
- * - mDNS for easy access (esp32-xxx.local)
  */
 
 #include <stdio.h>
@@ -36,9 +35,6 @@ static void on_wifi_event(const char *event, const void *data, size_t len, void 
         if (wifi_cfg_get_status(&status) == ESP_OK) {
             ESP_LOGI(TAG, "Got IP: %s", status.ip);
             ESP_LOGI(TAG, "Web UI: http://%s/", status.ip);
-            if (status.hostname[0]) {
-                ESP_LOGI(TAG, "mDNS: http://%s.local/", status.hostname);
-            }
         }
     }
 }
@@ -92,13 +88,6 @@ void app_main(void)
             .api_base_path = "/api/wifi",
         },
 
-        // mDNS for easy access
-        .mdns = {
-            .enable = true,
-            .hostname = "esp32-{id}",
-            .instance_name = "ESP32 WiFi Config",
-        },
-
         // Web UI is auto-enabled via CONFIG_WIFI_CFG_ENABLE_WEBUI
     };
 
@@ -120,9 +109,6 @@ void app_main(void)
         wifi_cfg_get_status(&status);
         ESP_LOGI(TAG, "Connected! Access Web UI at:");
         ESP_LOGI(TAG, "  http://%s/", status.ip);
-        if (status.hostname[0]) {
-            ESP_LOGI(TAG, "  http://%s.local/", status.hostname);
-        }
     } else {
         ESP_LOGW(TAG, "No saved networks. Starting AP mode...");
         ESP_LOGI(TAG, "");

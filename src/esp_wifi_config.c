@@ -459,7 +459,6 @@ esp_err_t wifi_cfg_deinit(bool deinit_wifi)
     // Reset provisioning state
     g_wifi_cfg->provisioning_active = false;
     g_wifi_cfg->reconnect_attempt_count = 0;
-    wifi_cfg_mdns_deinit();
     wifi_cfg_http_deinit();
     esp_bus_unreg(WIFI_MODULE);
     
@@ -735,9 +734,6 @@ static void wifi_cfg_task(void *arg)
                     g_wifi_cfg->state = WIFI_STATE_CONNECTED;
                     xEventGroupSetBits(g_wifi_cfg->event_group, WIFI_CONNECTED_BIT);
                     xEventGroupClearBits(g_wifi_cfg->event_group, WIFI_FAIL_BIT);
-
-                    // Initialize mDNS if enabled
-                    wifi_cfg_mdns_init();
 
                     // Emit esp_bus events
                     wifi_connected_t conn = {0};

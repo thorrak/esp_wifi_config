@@ -6,7 +6,6 @@ set(SRCS
     "src/esp_wifi_config_nvs.c"
     "src/esp_wifi_config_http.c"
     "src/esp_wifi_config_dns.c"
-    "src/esp_wifi_config_mdns.c"
 )
 
 set(PRIV_REQUIRES
@@ -46,7 +45,6 @@ idf_component_register(
         nvs_flash
         esp_http_server
         esp_event
-        mdns
     PRIV_REQUIRES ${PRIV_REQUIRES}
     EMBED_FILES ${EMBED_FILES}
 )

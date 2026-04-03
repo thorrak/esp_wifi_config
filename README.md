@@ -15,7 +15,6 @@ WiFi Config component for ESP-IDF with multi-network support, auto-reconnect, So
 - **BLE GATT**: Configure WiFi via Bluetooth Low Energy (smartphone or Python CLI)
 - **REST API**: HTTP endpoints for remote configuration with CORS support
 - **Basic Auth**: Optional authentication for HTTP endpoints
-- **mDNS**: Access device via hostname (e.g., `esp32-abc123.local`)
 - **Custom variables**: Key-value storage for application settings
 - **NVS persistence**: Networks, variables, and AP config stored in flash
 - **esp_bus integration**: Event-driven architecture with actions and events
@@ -36,12 +35,12 @@ WiFi Config component for ESP-IDF with multi-network support, auto-reconnect, So
 │                                                                      │
 │  ┌─────────────── Configuration Interfaces ───────────────────────┐  │
 │  │                                                                │  │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐       │  │
-│  │  │ Web UI │ │  HTTP  │ │  CLI   │ │  BLE   │ │  mDNS  │       │  │
-│  │  │(Preact)│ │  API   │ │(Console│ │  GATT  │ │        │       │  │
-│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘       │  │
-│  │       │          │          │          │          │           │  │
-│  │       └──────────┴──────────┴──────────┴──────────┘           │  │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                  │  │
+│  │  │ Web UI │ │  HTTP  │ │  CLI   │ │  BLE   │                  │  │
+│  │  │(Preact)│ │  API   │ │(Console│ │  GATT  │                  │  │
+│  │  └────────┘ └────────┘ └────────┘ └────────┘                  │  │
+│  │       │          │          │          │                      │  │
+│  │       └──────────┴──────────┴──────────┘                      │  │
 │  │                              │                                │  │
 │  │                              ▼                                │  │
 │  │                 ┌─────────────────────────┐                   │  │
@@ -143,7 +142,6 @@ Configure via `idf.py menuconfig` → WiFi Config:
 | `WIFI_CFG_AP_SSID` | "ESP32-Config" | Default AP SSID |
 | `WIFI_CFG_AP_PASSWORD` | "" | Default AP password |
 | `WIFI_CFG_AP_IP` | "192.168.4.1" | Default AP IP |
-| `WIFI_CFG_MDNS_HOSTNAME` | "esp32-{id}" | mDNS hostname template |
 | `WIFI_CFG_ENABLE_CLI` | n | Enable CLI interface |
 | `WIFI_CFG_ENABLE_WEBUI` | n | Enable embedded Web UI |
 | `WIFI_CFG_WEBUI_CUSTOM_PATH` | "" | Custom Web UI path (LittleFS/SPIFFS) |
@@ -197,12 +195,6 @@ wifi_cfg_config_t config = {
         .enable_auth = true,
         .auth_username = "admin",
         .auth_password = "secret",
-    },
-
-    // mDNS (supports {id} placeholder)
-    .mdns = {
-        .enable = true,
-        .hostname = "esp32-{id}",
     },
 
     // BLE GATT (requires CONFIG_WIFI_CFG_ENABLE_BLE=y)

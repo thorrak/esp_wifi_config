@@ -306,14 +306,6 @@ esp_err_t wifi_cfg_dns_stop(void);
 void wifi_cfg_expand_template(const char *tmpl, char *output, size_t max_len);
 
 // =============================================================================
-// mDNS Functions (esp_wifi_config_mdns.c)
-// =============================================================================
-
-esp_err_t wifi_cfg_mdns_init(void);
-esp_err_t wifi_cfg_mdns_deinit(void);
-const char *wifi_cfg_mdns_get_hostname(void);
-
-// =============================================================================
 // CLI Functions (esp_wifi_config_cli.c)
 // =============================================================================
 
