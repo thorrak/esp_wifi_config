@@ -129,33 +129,33 @@ typedef void (*improv_response_cb_t)(uint8_t type, const uint8_t *data, size_t l
  * @param response_cb Callback to send response
  * @param cb_ctx      Opaque context passed to response_cb
  */
-void wifi_mgr_improv_handle_rpc(const uint8_t *data, size_t len,
+void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
                                 improv_response_cb_t response_cb, void *cb_ctx);
 
 /**
  * @brief Get the current Improv state.
  */
-improv_state_t wifi_mgr_improv_get_state(void);
+improv_state_t wifi_cfg_improv_get_state(void);
 
 /**
  * @brief Get the current Improv error code.
  */
-improv_error_t wifi_mgr_improv_get_error(void);
+improv_error_t wifi_cfg_improv_get_error(void);
 
 /**
  * @brief Get the Improv capability bitmask.
  */
-uint8_t wifi_mgr_improv_get_capabilities(void);
+uint8_t wifi_cfg_improv_get_capabilities(void);
 
 /**
  * @brief Set the Improv state (called by event listeners on connect/fail).
  */
-void wifi_mgr_improv_set_state(improv_state_t state);
+void wifi_cfg_improv_set_state(improv_state_t state);
 
 /**
  * @brief Set the Improv error code.
  */
-void wifi_mgr_improv_set_error(improv_error_t error);
+void wifi_cfg_improv_set_error(improv_error_t error);
 
 /**
  * @brief State-change callback type.
@@ -170,7 +170,7 @@ typedef void (*improv_state_change_cb_t)(improv_state_t state, improv_error_t er
  *
  * Multiple observers can be registered (one per transport). Max 2.
  */
-void wifi_mgr_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx);
+void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx);
 
 // =============================================================================
 // Improv Init / Deinit (called from esp_wifi_manager.c)
@@ -179,39 +179,39 @@ void wifi_mgr_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx);
 /**
  * @brief Initialize the Improv protocol core and enabled transports.
  */
-esp_err_t wifi_mgr_improv_init(void);
+esp_err_t wifi_cfg_improv_init(void);
 
 /**
  * @brief Deinitialize the Improv protocol core and transports.
  */
-esp_err_t wifi_mgr_improv_deinit(void);
+esp_err_t wifi_cfg_improv_deinit(void);
 
 /**
  * @brief Start Improv provisioning (begin advertising / listening).
  */
-esp_err_t wifi_mgr_improv_start(void);
+esp_err_t wifi_cfg_improv_start(void);
 
 /**
  * @brief Stop Improv provisioning.
  */
-esp_err_t wifi_mgr_improv_stop(void);
+esp_err_t wifi_cfg_improv_stop(void);
 
 // =============================================================================
 // Transport Init/Deinit (implemented in improv_serial.c / improv_ble.c)
 // =============================================================================
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
-esp_err_t wifi_mgr_improv_serial_init(void);
-esp_err_t wifi_mgr_improv_serial_deinit(void);
-esp_err_t wifi_mgr_improv_serial_start(void);
-esp_err_t wifi_mgr_improv_serial_stop(void);
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
+esp_err_t wifi_cfg_improv_serial_init(void);
+esp_err_t wifi_cfg_improv_serial_deinit(void);
+esp_err_t wifi_cfg_improv_serial_start(void);
+esp_err_t wifi_cfg_improv_serial_stop(void);
 #endif
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
-esp_err_t wifi_mgr_improv_ble_init(void);
-esp_err_t wifi_mgr_improv_ble_deinit(void);
-esp_err_t wifi_mgr_improv_ble_start(void);
-esp_err_t wifi_mgr_improv_ble_stop(void);
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+esp_err_t wifi_cfg_improv_ble_init(void);
+esp_err_t wifi_cfg_improv_ble_deinit(void);
+esp_err_t wifi_cfg_improv_ble_start(void);
+esp_err_t wifi_cfg_improv_ble_stop(void);
 #endif
 
 #ifdef __cplusplus

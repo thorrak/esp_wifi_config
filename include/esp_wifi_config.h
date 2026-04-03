@@ -466,7 +466,7 @@ typedef struct {
  * Called when an Improv client sends the Identify RPC command.
  * Typically used to flash an LED or beep a buzzer to identify the device.
  */
-typedef void (*wifi_mgr_improv_identify_cb_t)(void);
+typedef void (*wifi_cfg_improv_identify_cb_t)(void);
 
 /**
  * @brief Improv WiFi configuration
@@ -483,8 +483,8 @@ typedef struct {
     const char *firmware_name;                ///< Reported in Device Info RPC
     const char *firmware_version;             ///< Reported in Device Info RPC
     const char *device_name;                  ///< Reported device name
-    wifi_mgr_improv_identify_cb_t on_identify; ///< Optional identify callback
-} wifi_mgr_improv_config_t;
+    wifi_cfg_improv_identify_cb_t on_identify; ///< Optional identify callback
+} wifi_cfg_improv_config_t;
 
 /**
  * @brief Variable validation callback

@@ -10,7 +10,7 @@
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_WIFI_MGR_ENABLE_IMPROV) && defined(CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL)
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV) && defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
 
 #include "esp_wifi_manager_improv.h"
 #include "esp_wifi_manager_priv.h"
@@ -20,7 +20,7 @@
 #include "freertos/task.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_improv_ser";
+static const char *TAG = "wifi_cfg_improv_ser";
 
 #define IMPROV_SERIAL_BUF_SIZE  256
 #define IMPROV_SERIAL_RX_BUF    512
@@ -77,13 +77,13 @@ static void serial_send_packet(uint8_t type, const uint8_t *data, size_t len)
 
 static void serial_send_state(void)
 {
-    uint8_t state = wifi_mgr_improv_get_state();
+    uint8_t state = wifi_cfg_improv_get_state();
     serial_send_packet(IMPROV_SERIAL_TYPE_CURRENT_STATE, &state, 1);
 }
 
 static void serial_send_error(void)
 {
-    uint8_t error = wifi_mgr_improv_get_error();
+    uint8_t error = wifi_cfg_improv_get_error();
     serial_send_packet(IMPROV_SERIAL_TYPE_ERROR_STATE, &error, 1);
 }
 
@@ -199,7 +199,7 @@ static void serial_rx_task(void *param)
                     // Valid packet received
                     switch (pkt_type) {
                         case IMPROV_SERIAL_TYPE_RPC_COMMAND:
-                            wifi_mgr_improv_handle_rpc(rx_buf, pkt_len,
+                            wifi_cfg_improv_handle_rpc(rx_buf, pkt_len,
                                                        serial_response_cb, NULL);
                             break;
 
@@ -225,10 +225,10 @@ static void serial_rx_task(void *param)
 // Transport API
 // =============================================================================
 
-esp_err_t wifi_mgr_improv_serial_init(void)
+esp_err_t wifi_cfg_improv_serial_init(void)
 {
-    int uart_num = CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM;
-    int baud = CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD;
+    int uart_num = CONFIG_WIFI_CFG_IMPROV_SERIAL_UART_NUM;
+    int baud = CONFIG_WIFI_CFG_IMPROV_SERIAL_BAUD;
 
     if (g_wifi_mgr) {
         if (g_wifi_mgr->config.improv.serial_uart_num > 0) {
@@ -262,20 +262,20 @@ esp_err_t wifi_mgr_improv_serial_init(void)
     s_uart_num = uart_num;
 
     // Register state-change callback
-    wifi_mgr_improv_register_state_cb(serial_state_change_cb, NULL);
+    wifi_cfg_improv_register_state_cb(serial_state_change_cb, NULL);
 
     ESP_LOGI(TAG, "Improv Serial initialized on UART%d @ %d baud", uart_num, baud);
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_serial_deinit(void)
+esp_err_t wifi_cfg_improv_serial_deinit(void)
 {
-    wifi_mgr_improv_serial_stop();
+    wifi_cfg_improv_serial_stop();
     s_uart_num = -1;
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_serial_start(void)
+esp_err_t wifi_cfg_improv_serial_start(void)
 {
     if (s_running || s_uart_num < 0) return ESP_ERR_INVALID_STATE;
 
@@ -293,7 +293,7 @@ esp_err_t wifi_mgr_improv_serial_start(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_serial_stop(void)
+esp_err_t wifi_cfg_improv_serial_stop(void)
 {
     if (!s_running) return ESP_OK;
 
@@ -309,4 +309,4 @@ esp_err_t wifi_mgr_improv_serial_stop(void)
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_MGR_ENABLE_IMPROV && CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
+#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV && CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL

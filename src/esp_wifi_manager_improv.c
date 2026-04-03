@@ -8,7 +8,7 @@
 
 #include "sdkconfig.h"
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
 
 #include "esp_wifi_manager_improv.h"
 #include "esp_wifi_manager_priv.h"
@@ -17,7 +17,7 @@
 #include "esp_bus.h"
 #include <string.h>
 
-static const char *TAG = "wifi_mgr_improv";
+static const char *TAG = "wifi_cfg_improv";
 
 // =============================================================================
 // State
@@ -62,17 +62,17 @@ static bool append_tlv_string(uint8_t *buf, size_t buf_size, size_t *offset,
 // State Management
 // =============================================================================
 
-improv_state_t wifi_mgr_improv_get_state(void)
+improv_state_t wifi_cfg_improv_get_state(void)
 {
     return s_state;
 }
 
-improv_error_t wifi_mgr_improv_get_error(void)
+improv_error_t wifi_cfg_improv_get_error(void)
 {
     return s_error;
 }
 
-uint8_t wifi_mgr_improv_get_capabilities(void)
+uint8_t wifi_cfg_improv_get_capabilities(void)
 {
     // Report IDENTIFY capability if user provided a callback
     if (g_wifi_mgr && g_wifi_mgr->config.improv.on_identify) {
@@ -81,7 +81,7 @@ uint8_t wifi_mgr_improv_get_capabilities(void)
     return 0;
 }
 
-void wifi_mgr_improv_set_state(improv_state_t state)
+void wifi_cfg_improv_set_state(improv_state_t state)
 {
     if (s_state == state) return;
     s_state = state;
@@ -94,7 +94,7 @@ void wifi_mgr_improv_set_state(improv_state_t state)
     }
 }
 
-void wifi_mgr_improv_set_error(improv_error_t error)
+void wifi_cfg_improv_set_error(improv_error_t error)
 {
     s_error = error;
     for (int i = 0; i < s_state_cb_count; i++) {
@@ -104,7 +104,7 @@ void wifi_mgr_improv_set_error(improv_error_t error)
     }
 }
 
-void wifi_mgr_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx)
+void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx)
 {
     if (s_state_cb_count < MAX_STATE_CBS) {
         s_state_cbs[s_state_cb_count].cb = cb;
@@ -144,14 +144,14 @@ static void handle_send_wifi_settings(const uint8_t *data, size_t len,
 {
     // Parse: [ssid_len, ssid..., password_len, password...]
     if (len < 1) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
 
     size_t offset = 0;
     uint8_t ssid_len = data[offset++];
     if (offset + ssid_len > len) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
     char ssid[33] = {0};
@@ -159,12 +159,12 @@ static void handle_send_wifi_settings(const uint8_t *data, size_t len,
     offset += ssid_len;
 
     if (offset >= len) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
     uint8_t pass_len = data[offset++];
     if (offset + pass_len > len) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
     char password[64] = {0};
@@ -173,8 +173,8 @@ static void handle_send_wifi_settings(const uint8_t *data, size_t len,
     ESP_LOGI(TAG, "RPC: Send WiFi Settings, SSID=%s", ssid);
 
     // Transition to PROVISIONING
-    wifi_mgr_improv_set_error(IMPROV_ERROR_NONE);
-    wifi_mgr_improv_set_state(IMPROV_STATE_PROVISIONING);
+    wifi_cfg_improv_set_error(IMPROV_ERROR_NONE);
+    wifi_cfg_improv_set_state(IMPROV_STATE_PROVISIONING);
 
     // Store the response callback for async delivery on connect/fail
     s_pending_wifi_cb = cb;
@@ -258,7 +258,7 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
 
     wifi_scan_result_t *results = malloc(WIFI_MGR_MAX_SCAN_RESULTS * sizeof(wifi_scan_result_t));
     if (!results) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_UNKNOWN);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_UNKNOWN);
         return;
     }
 
@@ -266,7 +266,7 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
     esp_err_t ret = wifi_manager_scan(results, WIFI_MGR_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
         free(results);
-        wifi_mgr_improv_set_error(IMPROV_ERROR_UNKNOWN);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_UNKNOWN);
         return;
     }
 
@@ -298,11 +298,11 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
 // Main RPC Dispatcher
 // =============================================================================
 
-void wifi_mgr_improv_handle_rpc(const uint8_t *data, size_t len,
+void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
                                 improv_response_cb_t response_cb, void *cb_ctx)
 {
     if (!data || len < 2) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
 
@@ -310,14 +310,14 @@ void wifi_mgr_improv_handle_rpc(const uint8_t *data, size_t len,
     uint8_t data_len = data[1];
 
     if (2 + data_len > len) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
         return;
     }
 
     const uint8_t *cmd_data = data + 2;
 
     // Clear previous error
-    wifi_mgr_improv_set_error(IMPROV_ERROR_NONE);
+    wifi_cfg_improv_set_error(IMPROV_ERROR_NONE);
 
     switch (cmd_id) {
         case IMPROV_RPC_SEND_WIFI_SETTINGS:
@@ -338,7 +338,7 @@ void wifi_mgr_improv_handle_rpc(const uint8_t *data, size_t len,
 
         default:
             ESP_LOGW(TAG, "Unknown RPC command: 0x%02x", cmd_id);
-            wifi_mgr_improv_set_error(IMPROV_ERROR_UNKNOWN_RPC);
+            wifi_cfg_improv_set_error(IMPROV_ERROR_UNKNOWN_RPC);
             break;
     }
 }
@@ -350,7 +350,7 @@ void wifi_mgr_improv_handle_rpc(const uint8_t *data, size_t len,
 static void on_wifi_connected(const char *event, const void *data, size_t len, void *ctx)
 {
     if (s_state == IMPROV_STATE_PROVISIONING) {
-        wifi_mgr_improv_set_state(IMPROV_STATE_PROVISIONED);
+        wifi_cfg_improv_set_state(IMPROV_STATE_PROVISIONED);
 
         // Send deferred RPC result with redirect URL
         if (s_pending_wifi_cb) {
@@ -375,8 +375,8 @@ static void on_wifi_connected(const char *event, const void *data, size_t len, v
 static void on_wifi_disconnected(const char *event, const void *data, size_t len, void *ctx)
 {
     if (s_state == IMPROV_STATE_PROVISIONING) {
-        wifi_mgr_improv_set_error(IMPROV_ERROR_UNABLE_TO_CONNECT);
-        wifi_mgr_improv_set_state(IMPROV_STATE_AUTHORIZED);
+        wifi_cfg_improv_set_error(IMPROV_ERROR_UNABLE_TO_CONNECT);
+        wifi_cfg_improv_set_state(IMPROV_STATE_AUTHORIZED);
 
         // Clear pending callback — the client gets the error via state notifications
         s_pending_wifi_cb = NULL;
@@ -388,7 +388,7 @@ static void on_wifi_disconnected(const char *event, const void *data, size_t len
 // Init / Deinit / Start / Stop
 // =============================================================================
 
-esp_err_t wifi_mgr_improv_init(void)
+esp_err_t wifi_cfg_improv_init(void)
 {
     ESP_LOGI(TAG, "Initializing Improv WiFi");
 
@@ -400,18 +400,18 @@ esp_err_t wifi_mgr_improv_init(void)
     s_sub_connected = esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_connected, NULL);
     s_sub_disconnected = esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
     if (g_wifi_mgr->config.improv.enable_serial) {
-        esp_err_t ret = wifi_mgr_improv_serial_init();
+        esp_err_t ret = wifi_cfg_improv_serial_init();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Improv Serial init failed: %s", esp_err_to_name(ret));
         }
     }
 #endif
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
     if (g_wifi_mgr->config.improv.enable_ble) {
-        esp_err_t ret = wifi_mgr_improv_ble_init();
+        esp_err_t ret = wifi_cfg_improv_ble_init();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Improv BLE init failed: %s", esp_err_to_name(ret));
         }
@@ -421,7 +421,7 @@ esp_err_t wifi_mgr_improv_init(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_deinit(void)
+esp_err_t wifi_cfg_improv_deinit(void)
 {
     ESP_LOGI(TAG, "Deinitializing Improv WiFi");
 
@@ -434,19 +434,19 @@ esp_err_t wifi_mgr_improv_deinit(void)
         s_sub_disconnected = -1;
     }
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
-    wifi_mgr_improv_serial_deinit();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
+    wifi_cfg_improv_serial_deinit();
 #endif
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
-    wifi_mgr_improv_ble_deinit();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+    wifi_cfg_improv_ble_deinit();
 #endif
 
     s_state_cb_count = 0;
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_start(void)
+esp_err_t wifi_cfg_improv_start(void)
 {
     ESP_LOGI(TAG, "Starting Improv provisioning");
 
@@ -454,16 +454,16 @@ esp_err_t wifi_mgr_improv_start(void)
     s_state = IMPROV_STATE_AUTHORIZED;
     s_error = IMPROV_ERROR_NONE;
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
     if (g_wifi_mgr->config.improv.enable_serial) {
-        wifi_mgr_improv_serial_start();
+        wifi_cfg_improv_serial_start();
         g_wifi_mgr->improv_serial_active = true;
     }
 #endif
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
     if (g_wifi_mgr->config.improv.enable_ble) {
-        wifi_mgr_improv_ble_start();
+        wifi_cfg_improv_ble_start();
         g_wifi_mgr->improv_ble_active = true;
     }
 #endif
@@ -471,20 +471,20 @@ esp_err_t wifi_mgr_improv_start(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_stop(void)
+esp_err_t wifi_cfg_improv_stop(void)
 {
     ESP_LOGI(TAG, "Stopping Improv provisioning");
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
     if (g_wifi_mgr->improv_serial_active) {
-        wifi_mgr_improv_serial_stop();
+        wifi_cfg_improv_serial_stop();
         g_wifi_mgr->improv_serial_active = false;
     }
 #endif
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
     if (g_wifi_mgr->improv_ble_active) {
-        wifi_mgr_improv_ble_stop();
+        wifi_cfg_improv_ble_stop();
         g_wifi_mgr->improv_ble_active = false;
     }
 #endif
@@ -492,12 +492,12 @@ esp_err_t wifi_mgr_improv_stop(void)
     return ESP_OK;
 }
 
-#else // CONFIG_WIFI_MGR_ENABLE_IMPROV
+#else // CONFIG_WIFI_CFG_ENABLE_IMPROV
 
 // Stub implementations when Improv is disabled
-esp_err_t wifi_mgr_improv_init(void)  { return ESP_OK; }
-esp_err_t wifi_mgr_improv_deinit(void) { return ESP_OK; }
-esp_err_t wifi_mgr_improv_start(void)  { return ESP_OK; }
-esp_err_t wifi_mgr_improv_stop(void)   { return ESP_OK; }
+esp_err_t wifi_cfg_improv_init(void)  { return ESP_OK; }
+esp_err_t wifi_cfg_improv_deinit(void) { return ESP_OK; }
+esp_err_t wifi_cfg_improv_start(void)  { return ESP_OK; }
+esp_err_t wifi_cfg_improv_stop(void)   { return ESP_OK; }
 
-#endif // CONFIG_WIFI_MGR_ENABLE_IMPROV
+#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV

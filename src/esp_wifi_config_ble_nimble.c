@@ -234,7 +234,7 @@ static void start_advertising(void)
 
     int rc;
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
     // Improv spec: Service UUID + Service Data MUST be in primary adv (not scan response).
     // NimBLE's ble_hs_adv_fields doesn't support service data, so use raw bytes.
 
@@ -259,8 +259,8 @@ static void start_advertising(void)
     adv_buf[pos++] = 0x16;  // AD type: Service Data - 16 bit UUID
     adv_buf[pos++] = 0x77;  // UUID16 0x4677 in little-endian
     adv_buf[pos++] = 0x46;
-    adv_buf[pos++] = wifi_mgr_improv_get_state();
-    adv_buf[pos++] = wifi_mgr_improv_get_capabilities();
+    adv_buf[pos++] = wifi_cfg_improv_get_state();
+    adv_buf[pos++] = wifi_cfg_improv_get_capabilities();
     adv_buf[pos++] = 0x00;  // Reserved
     adv_buf[pos++] = 0x00;
     adv_buf[pos++] = 0x00;
@@ -447,18 +447,18 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         return ESP_FAIL;
     }
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
     // Register Improv GATT service alongside custom service.
     // NOTE: NimBLE requires all services to be registered before ble_gatts_start().
     // In "service-only" mode (stack already running), this may fail if ble_gatts_start()
     // was already called. In that case, Improv BLE will not be available, and the user
     // must ensure BLE init happens before the host stack is fully started.
-    extern const struct ble_gatt_svc_def wifi_mgr_improv_nimble_svcs[];
-    rc = ble_gatts_count_cfg(wifi_mgr_improv_nimble_svcs);
+    extern const struct ble_gatt_svc_def wifi_cfg_improv_nimble_svcs[];
+    rc = ble_gatts_count_cfg(wifi_cfg_improv_nimble_svcs);
     if (rc != 0) {
         ESP_LOGW(TAG, "Improv ble_gatts_count_cfg failed, rc=%d (stack already started?)", rc);
     } else {
-        rc = ble_gatts_add_svcs(wifi_mgr_improv_nimble_svcs);
+        rc = ble_gatts_add_svcs(wifi_cfg_improv_nimble_svcs);
         if (rc != 0) {
             ESP_LOGW(TAG, "Improv ble_gatts_add_svcs failed, rc=%d (stack already started?)", rc);
         } else {

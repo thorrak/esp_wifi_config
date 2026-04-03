@@ -103,8 +103,8 @@ void wifi_cfg_start_provisioning(void)
 #endif
 
     // Start Improv if enabled
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV
-    wifi_mgr_improv_start();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+    wifi_cfg_improv_start();
 #endif
 
     // Register HTTP handlers for provisioning (both are idempotent)
@@ -137,8 +137,8 @@ void wifi_cfg_stop_provisioning(void)
 #endif
 
     // Stop Improv if active
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV
-    wifi_mgr_improv_stop();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+    wifi_cfg_improv_stop();
 #endif
 
     // Transition HTTP per post-prov mode

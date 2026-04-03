@@ -210,7 +210,7 @@ wifi_cfg_config_t config = {
         .device_name = "ESP32-WiFi-{id}",  // NULL uses Kconfig default
     },
 
-    // Improv WiFi (requires CONFIG_WIFI_MGR_ENABLE_IMPROV=y)
+    // Improv WiFi (requires CONFIG_WIFI_CFG_ENABLE_IMPROV=y)
     .improv = {
         .enable_ble = true,                    // Web Bluetooth provisioning
         .enable_serial = false,                // Web Serial provisioning
@@ -570,15 +570,15 @@ In `sdkconfig.defaults` (or via `idf.py menuconfig` → WiFi Manager → Improv 
 
 ```kconfig
 # Master switch
-CONFIG_WIFI_MGR_ENABLE_IMPROV=y
+CONFIG_WIFI_CFG_ENABLE_IMPROV=y
 
 # BLE transport (requires Bluetooth enabled)
-CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE=y
+CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
 
 # Serial transport (optional)
-CONFIG_WIFI_MGR_ENABLE_IMPROV_SERIAL=y
-CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM=0
-CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD=115200
+CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y
+CONFIG_WIFI_CFG_IMPROV_SERIAL_UART_NUM=0
+CONFIG_WIFI_CFG_IMPROV_SERIAL_BAUD=115200
 ```
 
 ### Configuration

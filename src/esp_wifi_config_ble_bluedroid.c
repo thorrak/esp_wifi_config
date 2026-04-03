@@ -146,7 +146,7 @@ static bool s_ble_stack_owned = false;
 // GAP Event Handler
 // =============================================================================
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
 // When Improv is enabled:
 //   Primary adv: Improv 128-bit UUID + service data (state + caps) — spec requires these
 //                MUST NOT be in scan response.
@@ -224,14 +224,14 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 {
     switch (event) {
         case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
             esp_ble_gap_config_adv_data(&scan_rsp_data);
 #else
             esp_ble_gap_start_advertising(&adv_params);
 #endif
             break;
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
         case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
             esp_ble_gap_start_advertising(&adv_params);
             break;
@@ -369,7 +369,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 // GATTS Dispatcher (fans out to custom + Improv handlers)
 // =============================================================================
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
 extern void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                                      esp_ble_gatts_cb_param_t *param);
 #endif
@@ -380,7 +380,7 @@ static void gatts_dispatch_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gat
     // Always call the custom BLE handler
     gatts_event_handler(event, gatts_if, param);
 
-#ifdef CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
     // Also call the Improv handler — it filters by its own gatts_if/app_id
     improv_bd_gatts_handler(event, gatts_if, param);
 #endif

@@ -15,7 +15,7 @@
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_WIFI_MGR_ENABLE_IMPROV) && defined(CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE)
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV) && defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
 
 #include "esp_wifi_manager_improv.h"
 #include "esp_wifi_manager_priv.h"
@@ -26,7 +26,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 
-static const char *TAG = "wifi_mgr_improv_ble";
+static const char *TAG = "wifi_cfg_improv_ble";
 
 // =============================================================================
 // Command queue (process RPC off the BLE stack context)
@@ -97,7 +97,7 @@ static int improv_capabilities_access(uint16_t conn, uint16_t attr,
                                       struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 // GATT service definition (exported for NimBLE backend to merge)
-const struct ble_gatt_svc_def wifi_mgr_improv_nimble_svcs[] = {
+const struct ble_gatt_svc_def wifi_cfg_improv_nimble_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &s_improv_svc_uuid.u,
@@ -145,7 +145,7 @@ static int improv_state_access(uint16_t conn, uint16_t attr,
                                struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t state = wifi_mgr_improv_get_state();
+        uint8_t state = wifi_cfg_improv_get_state();
         os_mbuf_append(ctxt->om, &state, 1);
         return 0;
     }
@@ -156,7 +156,7 @@ static int improv_error_access(uint16_t conn, uint16_t attr,
                                struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t error = wifi_mgr_improv_get_error();
+        uint8_t error = wifi_cfg_improv_get_error();
         os_mbuf_append(ctxt->om, &error, 1);
         return 0;
     }
@@ -211,7 +211,7 @@ static int improv_capabilities_access(uint16_t conn, uint16_t attr,
                                       struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t caps = wifi_mgr_improv_get_capabilities();
+        uint8_t caps = wifi_cfg_improv_get_capabilities();
         os_mbuf_append(ctxt->om, &caps, 1);
         return 0;
     }
@@ -222,7 +222,7 @@ static int improv_capabilities_access(uint16_t conn, uint16_t attr,
 static void nimble_notify_state(void)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
-    uint8_t state = wifi_mgr_improv_get_state();
+    uint8_t state = wifi_cfg_improv_get_state();
     struct os_mbuf *om = ble_hs_mbuf_from_flat(&state, 1);
     if (om) ble_gatts_notify_custom(s_conn_handle, s_state_val_handle, om);
 }
@@ -230,7 +230,7 @@ static void nimble_notify_state(void)
 static void nimble_notify_error(void)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
-    uint8_t error = wifi_mgr_improv_get_error();
+    uint8_t error = wifi_cfg_improv_get_error();
     struct os_mbuf *om = ble_hs_mbuf_from_flat(&error, 1);
     if (om) ble_gatts_notify_custom(s_conn_handle, s_error_val_handle, om);
 }
@@ -243,12 +243,12 @@ static void nimble_notify_rpc_result(const uint8_t *data, size_t len)
 }
 
 // Connection tracking (called from the NimBLE backend's GAP handler)
-void wifi_mgr_improv_ble_on_connect_nimble(uint16_t conn_handle)
+void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle)
 {
     s_conn_handle = conn_handle;
 }
 
-void wifi_mgr_improv_ble_on_disconnect_nimble(void)
+void wifi_cfg_improv_ble_on_disconnect_nimble(void)
 {
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 }
@@ -440,19 +440,19 @@ void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
             if (param->read.handle == improv_handle_table[IMPROV_IDX_CHAR_STATE_VAL]) {
                 esp_gatt_rsp_t rsp = {0};
                 rsp.attr_value.len = 1;
-                rsp.attr_value.value[0] = wifi_mgr_improv_get_state();
+                rsp.attr_value.value[0] = wifi_cfg_improv_get_state();
                 esp_ble_gatts_send_response(gatts_if, param->read.conn_id,
                                             param->read.trans_id, ESP_GATT_OK, &rsp);
             } else if (param->read.handle == improv_handle_table[IMPROV_IDX_CHAR_ERROR_VAL]) {
                 esp_gatt_rsp_t rsp = {0};
                 rsp.attr_value.len = 1;
-                rsp.attr_value.value[0] = wifi_mgr_improv_get_error();
+                rsp.attr_value.value[0] = wifi_cfg_improv_get_error();
                 esp_ble_gatts_send_response(gatts_if, param->read.conn_id,
                                             param->read.trans_id, ESP_GATT_OK, &rsp);
             } else if (param->read.handle == improv_handle_table[IMPROV_IDX_CHAR_CAPABILITIES_VAL]) {
                 esp_gatt_rsp_t rsp = {0};
                 rsp.attr_value.len = 1;
-                rsp.attr_value.value[0] = wifi_mgr_improv_get_capabilities();
+                rsp.attr_value.value[0] = wifi_cfg_improv_get_capabilities();
                 esp_ble_gatts_send_response(gatts_if, param->read.conn_id,
                                             param->read.trans_id, ESP_GATT_OK, &rsp);
             } else if (param->read.handle == improv_handle_table[IMPROV_IDX_CHAR_RPC_RESULT_VAL]) {
@@ -491,7 +491,7 @@ void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
 static void bd_notify_state(void)
 {
     if (!s_bd_profile.connected || s_bd_profile.gatts_if == ESP_GATT_IF_NONE) return;
-    uint8_t state = wifi_mgr_improv_get_state();
+    uint8_t state = wifi_cfg_improv_get_state();
     esp_ble_gatts_send_indicate(s_bd_profile.gatts_if, s_bd_profile.conn_id,
                                 improv_handle_table[IMPROV_IDX_CHAR_STATE_VAL],
                                 1, &state, false);
@@ -500,7 +500,7 @@ static void bd_notify_state(void)
 static void bd_notify_error(void)
 {
     if (!s_bd_profile.connected || s_bd_profile.gatts_if == ESP_GATT_IF_NONE) return;
-    uint8_t error = wifi_mgr_improv_get_error();
+    uint8_t error = wifi_cfg_improv_get_error();
     esp_ble_gatts_send_indicate(s_bd_profile.gatts_if, s_bd_profile.conn_id,
                                 improv_handle_table[IMPROV_IDX_CHAR_ERROR_VAL],
                                 1, &error, false);
@@ -553,7 +553,7 @@ static void improv_ble_cmd_task(void *param)
 {
     improv_ble_cmd_msg_t msg;
     while (xQueueReceive(s_cmd_queue, &msg, portMAX_DELAY) == pdTRUE) {
-        wifi_mgr_improv_handle_rpc(msg.data, msg.length, ble_response_cb, NULL);
+        wifi_cfg_improv_handle_rpc(msg.data, msg.length, ble_response_cb, NULL);
         free(msg.data);
     }
     vTaskDelete(NULL);
@@ -563,7 +563,7 @@ static void improv_ble_cmd_task(void *param)
 // Transport API
 // =============================================================================
 
-esp_err_t wifi_mgr_improv_ble_init(void)
+esp_err_t wifi_cfg_improv_ble_init(void)
 {
     ESP_LOGI(TAG, "Initializing Improv BLE");
 
@@ -578,7 +578,7 @@ esp_err_t wifi_mgr_improv_ble_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    wifi_mgr_improv_register_state_cb(ble_state_change_cb, NULL);
+    wifi_cfg_improv_register_state_cb(ble_state_change_cb, NULL);
 
 #if defined(CONFIG_BT_BLUEDROID_ENABLED)
     // Register Improv GATT app. The GATTS callback is already registered by the
@@ -597,12 +597,12 @@ esp_err_t wifi_mgr_improv_ble_init(void)
     esp_ble_gatts_app_register(IMPROV_PROFILE_APP_ID);
 #endif
 
-    // NimBLE registration happens in the backend file via wifi_mgr_improv_nimble_svcs
+    // NimBLE registration happens in the backend file via wifi_cfg_improv_nimble_svcs
 
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_ble_deinit(void)
+esp_err_t wifi_cfg_improv_ble_deinit(void)
 {
     ESP_LOGI(TAG, "Deinitializing Improv BLE");
 
@@ -630,7 +630,7 @@ esp_err_t wifi_mgr_improv_ble_deinit(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_ble_start(void)
+esp_err_t wifi_cfg_improv_ble_start(void)
 {
     s_started = true;
     ESP_LOGI(TAG, "Improv BLE started");
@@ -640,11 +640,11 @@ esp_err_t wifi_mgr_improv_ble_start(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_mgr_improv_ble_stop(void)
+esp_err_t wifi_cfg_improv_ble_stop(void)
 {
     s_started = false;
     ESP_LOGI(TAG, "Improv BLE stopped");
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_MGR_ENABLE_IMPROV && CONFIG_WIFI_MGR_ENABLE_IMPROV_BLE
+#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV && CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE

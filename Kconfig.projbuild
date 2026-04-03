@@ -122,7 +122,7 @@ menu "WiFi Config"
 
     menu "Improv WiFi"
 
-        config WIFI_MGR_ENABLE_IMPROV
+        config WIFI_CFG_ENABLE_IMPROV
             bool "Enable Improv WiFi"
             default n
             help
@@ -131,21 +131,21 @@ menu "WiFi Config"
                 or Web Serial) and companion apps using a standardized protocol.
                 Reference: https://www.improv-wifi.com/
 
-        config WIFI_MGR_ENABLE_IMPROV_BLE
+        config WIFI_CFG_ENABLE_IMPROV_BLE
             bool "Enable Improv BLE transport"
             default y
-            depends on WIFI_MGR_ENABLE_IMPROV && BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
-            select WIFI_MGR_ENABLE_BLE
+            depends on WIFI_CFG_ENABLE_IMPROV && BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
+            select WIFI_CFG_ENABLE_BLE
             help
                 Enable the Improv WiFi BLE transport. Registers a separate GATT
                 service (UUID 00467768-...) alongside the existing custom BLE service.
                 Requires Bluetooth to be enabled. Automatically enables the BLE
-                backend (WIFI_MGR_ENABLE_BLE) for stack and advertising management.
+                backend (WIFI_CFG_ENABLE_BLE) for stack and advertising management.
 
-        config WIFI_MGR_ENABLE_IMPROV_SERIAL
+        config WIFI_CFG_ENABLE_IMPROV_SERIAL
             bool "Enable Improv Serial transport"
             default n
-            depends on WIFI_MGR_ENABLE_IMPROV
+            depends on WIFI_CFG_ENABLE_IMPROV
             help
                 Enable the Improv WiFi Serial transport over UART.
                 Uses the Improv Serial framing protocol.
@@ -153,7 +153,7 @@ menu "WiFi Config"
         config WIFI_MGR_IMPROV_SERIAL_UART_NUM
             int "Improv Serial UART port number"
             default 0
-            depends on WIFI_MGR_ENABLE_IMPROV_SERIAL
+            depends on WIFI_CFG_ENABLE_IMPROV_SERIAL
             help
                 UART port number used for Improv Serial transport.
                 0 = UART0, 1 = UART1, 2 = UART2.
@@ -161,7 +161,7 @@ menu "WiFi Config"
         config WIFI_MGR_IMPROV_SERIAL_BAUD
             int "Improv Serial baud rate"
             default 115200
-            depends on WIFI_MGR_ENABLE_IMPROV_SERIAL
+            depends on WIFI_CFG_ENABLE_IMPROV_SERIAL
             help
                 Baud rate for the Improv Serial UART transport.
 
