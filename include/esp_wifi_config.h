@@ -451,17 +451,6 @@ typedef struct {
 } wifi_cfg_http_config_t;
 
 /**
- * @brief mDNS configuration
- *
- * Cấu hình mDNS service discovery. Hostname hỗ trợ template {id}.
- */
-typedef struct {
-    bool enable;                ///< Enable mDNS
-    const char *hostname;       ///< Hostname template, e.g., "esp32-{id}", default from Kconfig
-    const char *instance_name;  ///< Instance name, default = hostname
-} wifi_cfg_mdns_config_t;
-
-/**
  * @brief BLE configuration
  *
  * Cấu hình BLE GATT interface. Device name hỗ trợ template {id}.
@@ -524,7 +513,6 @@ typedef struct {
 
     // Interfaces
     wifi_cfg_http_config_t http;        ///< HTTP REST API config
-    wifi_cfg_mdns_config_t mdns;        ///< mDNS config
     wifi_cfg_ble_config_t ble;          ///< BLE GATT config
 } wifi_cfg_config_t;
 
@@ -560,7 +548,7 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config);
 /**
  * @brief Deinitialize WiFi Config
  * 
- * Stop the HTTP server, BLE, mDNS, and (optionally) WiFi interfaces. Free resources.
+ * Stop the HTTP server, BLE, and (optionally) WiFi interfaces. Free resources.
  * 
  * @return ESP_OK on success
  */

@@ -88,7 +88,6 @@ Types that previously used `wifi_mgr_` now use `wifi_cfg_`. The main config stru
 | `wifi_manager_config_t` | `wifi_cfg_config_t` |
 | `wifi_mgr_ap_config_t` | `wifi_cfg_ap_config_t` |
 | `wifi_mgr_http_config_t` | `wifi_cfg_http_config_t` |
-| `wifi_mgr_mdns_config_t` | `wifi_cfg_mdns_config_t` |
 | `wifi_mgr_ble_config_t` | `wifi_cfg_ble_config_t` |
 | `wifi_mgr_http_hook_t` | `wifi_cfg_http_hook_t` |
 | `wifi_mgr_var_validator_t` | `wifi_cfg_var_validator_t` |
@@ -122,7 +121,6 @@ All menuconfig options changed from `WIFI_MGR_` to `WIFI_CFG_`. If you reference
 | `WIFI_MGR_AP_SSID` | `WIFI_CFG_AP_SSID` |
 | `WIFI_MGR_AP_PASSWORD` | `WIFI_CFG_AP_PASSWORD` |
 | `WIFI_MGR_AP_IP` | `WIFI_CFG_AP_IP` |
-| `WIFI_MGR_MDNS_HOSTNAME` | `WIFI_CFG_MDNS_HOSTNAME` |
 | `WIFI_MGR_MAX_SCAN_RESULTS` | `WIFI_CFG_MAX_SCAN_RESULTS` |
 | `WIFI_MGR_HTTP_MAX_CONTENT_LEN` | `WIFI_CFG_HTTP_MAX_CONTENT_LEN` |
 | `WIFI_MGR_TASK_STACK_SIZE` | `WIFI_CFG_TASK_STACK_SIZE` |
@@ -153,13 +151,38 @@ wifi_manager_deinit();  // always stopped WiFi and destroyed netifs
 
 // New
 wifi_cfg_deinit(true);  // same as old behavior: stop WiFi, destroy netifs, free resources
-wifi_cfg_deinit(false); // tear down the manager (HTTP, BLE, mDNS, event handlers, task)
+wifi_cfg_deinit(false); // tear down the manager (HTTP, BLE, event handlers, task)
                         // but keep WiFi connected and netifs alive
 ```
 
 When `deinit_wifi` is `false`, the STA and AP network interfaces are preserved. You can reobtain their handles later via `esp_netif_get_handle_from_ifkey()` if needed.
 
 **Typical usage**: after provisioning completes and WiFi is connected, call `wifi_cfg_deinit(false)` to free the manager's resources while keeping your WiFi connection active.
+
+
+## mDNS Removed
+
+The built-in mDNS integration has been removed. It was a convenience wrapper that initialized mDNS on WiFi connect and advertised an HTTP service — no core library functionality depended on it.
+
+**What to do:**
+
+- Remove the `.mdns` field from your `wifi_cfg_config_t` initializer.
+- Remove `WIFI_CFG_MDNS_HOSTNAME` from any `sdkconfig.defaults` files.
+- If you need mDNS, initialize it directly in your application after receiving the `WIFI_CFG_EVT_GOT_IP` event:
+
+```c
+#include "mdns.h"
+
+static void on_got_ip(const char *event, const void *data, size_t len, void *ctx)
+{
+    mdns_init();
+    mdns_hostname_set("my-device");
+    mdns_instance_name_set("My Device");
+    mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+}
+```
+
+You will also need to add `espressif/mdns` to your own project's `idf_component.yml` dependencies if you use mDNS.
 
 
 ## esp_bus Dependency

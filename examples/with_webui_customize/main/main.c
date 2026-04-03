@@ -124,10 +124,6 @@ void app_main(void)
             .api_base_path = "/api/wifi",
         },
 
-        .mdns = {
-            .enable = true,
-            .hostname = "esp32-{id}",
-        },
     };
 
     ret = wifi_cfg_init(&config);

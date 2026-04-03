@@ -7,7 +7,6 @@ Example demonstrating WiFi Config with embedded Web UI.
 - Modern responsive Web UI
 - Dark mode support (auto-detect)
 - Captive portal for initial setup
-- mDNS for easy access (esp32-xxx.local)
 - Embedded files (~10KB gzipped)
 
 ## Build & Flash
@@ -34,7 +33,6 @@ If you want to modify the frontend, see `with_webui_customize` example.
 
 Access the Web UI at:
 - `http://<device-ip>/` (shown in serial monitor)
-- `http://esp32-xxxxxx.local/` (mDNS, if supported)
 
 ## Web UI Features
 

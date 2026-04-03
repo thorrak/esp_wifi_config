@@ -42,14 +42,6 @@ menu "WiFi Config"
         help
             Default IP address for SoftAP mode.
 
-    config WIFI_CFG_MDNS_HOSTNAME
-        string "Default mDNS hostname"
-        default "esp32-{id}"
-        help
-            Default hostname for mDNS. Supports {id} placeholder which
-            will be replaced with last 3 bytes of MAC address.
-            Example: "esp32-{id}" becomes "esp32-AABBCC"
-
     config WIFI_CFG_MAX_SCAN_RESULTS
         int "Maximum scan results returned"
         default 20
