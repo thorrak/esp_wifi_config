@@ -227,15 +227,15 @@ static void serial_rx_task(void *param)
 
 esp_err_t wifi_cfg_improv_serial_init(void)
 {
-    int uart_num = CONFIG_WIFI_CFG_IMPROV_SERIAL_UART_NUM;
-    int baud = CONFIG_WIFI_CFG_IMPROV_SERIAL_BAUD;
+    int uart_num = CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM;
+    int baud = CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD;
 
-    if (g_wifi_mgr) {
-        if (g_wifi_mgr->config.improv.serial_uart_num > 0) {
-            uart_num = g_wifi_mgr->config.improv.serial_uart_num;
+    if (g_wifi_cfg) {
+        if (g_wifi_cfg->config.improv.serial_uart_num > 0) {
+            uart_num = g_wifi_cfg->config.improv.serial_uart_num;
         }
-        if (g_wifi_mgr->config.improv.serial_baud_rate > 0) {
-            baud = g_wifi_mgr->config.improv.serial_baud_rate;
+        if (g_wifi_cfg->config.improv.serial_baud_rate > 0) {
+            baud = g_wifi_cfg->config.improv.serial_baud_rate;
         }
     }
 

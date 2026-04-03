@@ -75,7 +75,7 @@ improv_error_t wifi_cfg_improv_get_error(void)
 uint8_t wifi_cfg_improv_get_capabilities(void)
 {
     // Report IDENTIFY capability if user provided a callback
-    if (g_wifi_mgr && g_wifi_mgr->config.improv.on_identify) {
+    if (g_wifi_cfg && g_wifi_cfg->config.improv.on_identify) {
         return IMPROV_CAPABILITY_IDENTIFY;
     }
     return 0;
@@ -186,12 +186,12 @@ static void handle_send_wifi_settings(const uint8_t *data, size_t len,
     strncpy(net.password, password, sizeof(net.password) - 1);
     net.priority = 10;
 
-    esp_err_t ret = wifi_manager_add_network(&net);
+    esp_err_t ret = wifi_cfg_add_network(&net);
     if (ret == ESP_ERR_INVALID_STATE) {
         // Already exists — update
-        wifi_manager_update_network(&net);
+        wifi_cfg_update_network(&net);
     }
-    wifi_manager_connect(ssid);
+    wifi_cfg_connect(ssid);
 
     // Response will be sent from on_wifi_connected / on_wifi_disconnected callbacks
 }
@@ -200,8 +200,8 @@ static void handle_identify(improv_response_cb_t cb, void *ctx)
 {
     ESP_LOGI(TAG, "RPC: Identify");
 
-    if (g_wifi_mgr && g_wifi_mgr->config.improv.on_identify) {
-        g_wifi_mgr->config.improv.on_identify();
+    if (g_wifi_cfg && g_wifi_cfg->config.improv.on_identify) {
+        g_wifi_cfg->config.improv.on_identify();
     }
 
     send_rpc_result(IMPROV_RPC_IDENTIFY, NULL, 0, cb, ctx);
@@ -216,15 +216,15 @@ static void handle_get_device_info(improv_response_cb_t cb, void *ctx)
     const char *chip_variant = "ESP32";
     const char *device_name = "";
 
-    if (g_wifi_mgr) {
-        if (g_wifi_mgr->config.improv.firmware_name) {
-            fw_name = g_wifi_mgr->config.improv.firmware_name;
+    if (g_wifi_cfg) {
+        if (g_wifi_cfg->config.improv.firmware_name) {
+            fw_name = g_wifi_cfg->config.improv.firmware_name;
         }
-        if (g_wifi_mgr->config.improv.firmware_version) {
-            fw_version = g_wifi_mgr->config.improv.firmware_version;
+        if (g_wifi_cfg->config.improv.firmware_version) {
+            fw_version = g_wifi_cfg->config.improv.firmware_version;
         }
-        if (g_wifi_mgr->config.improv.device_name) {
-            device_name = g_wifi_mgr->config.improv.device_name;
+        if (g_wifi_cfg->config.improv.device_name) {
+            device_name = g_wifi_cfg->config.improv.device_name;
         }
     }
 
@@ -256,14 +256,14 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
 {
     ESP_LOGI(TAG, "RPC: Get WiFi Networks (scan)");
 
-    wifi_scan_result_t *results = malloc(WIFI_MGR_MAX_SCAN_RESULTS * sizeof(wifi_scan_result_t));
+    wifi_scan_result_t *results = malloc(WIFI_CFG_MAX_SCAN_RESULTS * sizeof(wifi_scan_result_t));
     if (!results) {
         wifi_cfg_improv_set_error(IMPROV_ERROR_UNKNOWN);
         return;
     }
 
     size_t count = 0;
-    esp_err_t ret = wifi_manager_scan(results, WIFI_MGR_MAX_SCAN_RESULTS, &count);
+    esp_err_t ret = wifi_cfg_scan(results, WIFI_CFG_MAX_SCAN_RESULTS, &count);
     if (ret != ESP_OK) {
         free(results);
         wifi_cfg_improv_set_error(IMPROV_ERROR_UNKNOWN);
@@ -355,7 +355,7 @@ static void on_wifi_connected(const char *event, const void *data, size_t len, v
         // Send deferred RPC result with redirect URL
         if (s_pending_wifi_cb) {
             wifi_status_t status;
-            wifi_manager_get_status(&status);
+            wifi_cfg_get_status(&status);
 
             char url[64];
             snprintf(url, sizeof(url), "http://%s", status.ip);
@@ -397,11 +397,11 @@ esp_err_t wifi_cfg_improv_init(void)
     s_state_cb_count = 0;
 
     // Subscribe to wifi events for state transitions
-    s_sub_connected = esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_connected, NULL);
-    s_sub_disconnected = esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
+    s_sub_connected = esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_connected, NULL);
+    s_sub_disconnected = esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
-    if (g_wifi_mgr->config.improv.enable_serial) {
+    if (g_wifi_cfg->config.improv.enable_serial) {
         esp_err_t ret = wifi_cfg_improv_serial_init();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Improv Serial init failed: %s", esp_err_to_name(ret));
@@ -410,7 +410,7 @@ esp_err_t wifi_cfg_improv_init(void)
 #endif
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-    if (g_wifi_mgr->config.improv.enable_ble) {
+    if (g_wifi_cfg->config.improv.enable_ble) {
         esp_err_t ret = wifi_cfg_improv_ble_init();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Improv BLE init failed: %s", esp_err_to_name(ret));
@@ -455,16 +455,16 @@ esp_err_t wifi_cfg_improv_start(void)
     s_error = IMPROV_ERROR_NONE;
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
-    if (g_wifi_mgr->config.improv.enable_serial) {
+    if (g_wifi_cfg->config.improv.enable_serial) {
         wifi_cfg_improv_serial_start();
-        g_wifi_mgr->improv_serial_active = true;
+        g_wifi_cfg->improv_serial_active = true;
     }
 #endif
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-    if (g_wifi_mgr->config.improv.enable_ble) {
+    if (g_wifi_cfg->config.improv.enable_ble) {
         wifi_cfg_improv_ble_start();
-        g_wifi_mgr->improv_ble_active = true;
+        g_wifi_cfg->improv_ble_active = true;
     }
 #endif
 
@@ -476,16 +476,16 @@ esp_err_t wifi_cfg_improv_stop(void)
     ESP_LOGI(TAG, "Stopping Improv provisioning");
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
-    if (g_wifi_mgr->improv_serial_active) {
+    if (g_wifi_cfg->improv_serial_active) {
         wifi_cfg_improv_serial_stop();
-        g_wifi_mgr->improv_serial_active = false;
+        g_wifi_cfg->improv_serial_active = false;
     }
 #endif
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-    if (g_wifi_mgr->improv_ble_active) {
+    if (g_wifi_cfg->improv_ble_active) {
         wifi_cfg_improv_ble_stop();
-        g_wifi_mgr->improv_ble_active = false;
+        g_wifi_cfg->improv_ble_active = false;
     }
 #endif
 
