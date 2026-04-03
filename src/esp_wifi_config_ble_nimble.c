@@ -215,6 +215,17 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             ESP_LOGI(TAG, "MTU changed to %d", event->mtu.value);
             break;
 
+        case BLE_GAP_EVENT_REPEAT_PAIRING: {
+            // A previously bonded client is trying to pair again (e.g. after
+            // the device was reflashed). Delete the stale bond and allow the
+            // new pairing to proceed.
+            struct ble_gap_conn_desc desc;
+            ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+            ble_store_util_delete_peer(&desc.peer_id_addr);
+            ESP_LOGI(TAG, "Repeat pairing — deleted stale bond, retrying");
+            return BLE_GAP_REPEAT_PAIRING_RETRY;
+        }
+
         default:
             break;
     }

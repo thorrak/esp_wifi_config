@@ -63,7 +63,10 @@ typedef enum {
 #define IMPROV_SERIAL_TYPE_RPC_RESULT      0x04
 
 // --- Improv Capability Flags ---
-#define IMPROV_CAPABILITY_IDENTIFY  0x01
+#define IMPROV_CAPABILITY_IDENTIFY      0x01
+#define IMPROV_CAPABILITY_DEVICE_INFO   0x02
+#define IMPROV_CAPABILITY_WIFI_SCAN     0x04
+#define IMPROV_CAPABILITY_HOSTNAME      0x08
 
 // =============================================================================
 // Improv BLE UUIDs

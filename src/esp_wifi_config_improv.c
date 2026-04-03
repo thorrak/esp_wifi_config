@@ -74,11 +74,13 @@ improv_error_t wifi_cfg_improv_get_error(void)
 
 uint8_t wifi_cfg_improv_get_capabilities(void)
 {
-    // Report IDENTIFY capability if user provided a callback
+    uint8_t caps = IMPROV_CAPABILITY_DEVICE_INFO | IMPROV_CAPABILITY_WIFI_SCAN;
+
     if (g_wifi_cfg && g_wifi_cfg->config.improv.on_identify) {
-        return IMPROV_CAPABILITY_IDENTIFY;
+        caps |= IMPROV_CAPABILITY_IDENTIFY;
     }
-    return 0;
+
+    return caps;
 }
 
 void wifi_cfg_improv_set_state(improv_state_t state)
@@ -282,7 +284,19 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
         snprintf(rssi_str, sizeof(rssi_str), "%d", results[i].rssi);
         append_tlv_string(payload, sizeof(payload), &poff, rssi_str);
 
-        const char *auth_str = (results[i].auth == WIFI_AUTH_OPEN) ? "NO" : "YES";
+        const char *auth_str;
+        switch (results[i].auth) {
+            case WIFI_AUTH_OPEN:         auth_str = "NO";       break;
+            case WIFI_AUTH_WEP:          auth_str = "WEP";      break;
+            case WIFI_AUTH_WPA_PSK:      auth_str = "WPA";      break;
+            case WIFI_AUTH_WPA2_PSK:     auth_str = "WPA2";     break;
+            case WIFI_AUTH_WPA_WPA2_PSK: auth_str = "WPA/WPA2"; break;
+            case WIFI_AUTH_WPA3_PSK:     auth_str = "WPA3";     break;
+            case WIFI_AUTH_WPA2_WPA3_PSK:auth_str = "WPA2/WPA3";break;
+            case WIFI_AUTH_WPA2_ENTERPRISE: auth_str = "WPA2 EAP"; break;
+            case WIFI_AUTH_WAPI_PSK:     auth_str = "WAPI";     break;
+            default:                     auth_str = "WPA2";     break;
+        }
         append_tlv_string(payload, sizeof(payload), &poff, auth_str);
 
         send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
