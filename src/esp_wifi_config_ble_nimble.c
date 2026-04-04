@@ -169,18 +169,6 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
 // GAP Event Handler
 // =============================================================================
 
-static int mtu_exchange_cb(uint16_t conn_handle,
-                           const struct ble_gatt_error *error, uint16_t mtu,
-                           void *arg)
-{
-    if (error->status == 0) {
-        ESP_LOGI(TAG, "MTU exchange complete, mtu=%d", mtu);
-    } else {
-        ESP_LOGW(TAG, "MTU exchange failed, status=%d", error->status);
-    }
-    return 0;
-}
-
 static int gap_event_handler(struct ble_gap_event *event, void *arg)
 {
     switch (event->type) {
@@ -188,11 +176,6 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
-
-                // Initiate MTU exchange so notifications (e.g. scan results)
-                // are not limited to the default 20-byte ATT payload.
-                ble_gattc_exchange_mtu(s_conn_handle, mtu_exchange_cb, NULL);
-
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
                 extern void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle);
@@ -476,17 +459,15 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.reset_cb = ble_on_reset;
 
-    // Allow bonding so reconnecting clients can restore encryption using
-    // keys exchanged during the first connection in this session.  Stale
-    // keys left in NVS from a previous boot are wiped by ble_store_clear()
-    // in ble_on_sync().  "Just Works" pairing (no PIN) is sufficient for a
-    // provisioning device.
+    // No encryption required — this is a provisioning device with no
+    // sensitive characteristics.  Disable the security manager entirely
+    // so clients never enter a pairing flow.
     ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
-    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_bonding = 0;
     ble_hs_cfg.sm_mitm = 0;
-    ble_hs_cfg.sm_sc = 1;
-    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
-    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_sc = 0;
+    ble_hs_cfg.sm_our_key_dist = 0;
+    ble_hs_cfg.sm_their_key_dist = 0;
 
     // Set preferred MTU
     int mtu_rc = ble_att_set_preferred_mtu(517);
