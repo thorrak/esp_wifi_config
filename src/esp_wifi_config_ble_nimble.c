@@ -189,19 +189,6 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 };
                 ble_gap_update_params(s_conn_handle, &conn_params);
 
-                // On reconnection, tell Chrome to discard its cached
-                // GATT handles and re-discover services.  Without this,
-                // Chrome goes silent on the second connection and the
-                // link dies from supervision timeout.  Skipped on the
-                // very first connection since there is no stale cache.
-                {
-                    static bool s_has_had_connection = false;
-                    if (s_has_had_connection) {
-                        ESP_LOGI(TAG, "Reconnection — sending Service Changed");
-                        ble_svc_gatt_changed(0x0001, 0xFFFF);
-                    }
-                    s_has_had_connection = true;
-                }
 
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE

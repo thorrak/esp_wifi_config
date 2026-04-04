@@ -268,6 +268,15 @@ static void nimble_notify_rpc_result(const uint8_t *data, size_t len)
 void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle)
 {
     s_conn_handle = conn_handle;
+
+    // Push the current state + error as unsolicited notifications.
+    // On reconnection Chrome may believe its GATT subscriptions are
+    // still active (cached from the previous connection) yet the
+    // device-side CCCD was reset.  Sending these immediately
+    // generates ATT traffic that keeps the link layer alive and
+    // delivers the initial state the Improv SDK expects.
+    nimble_notify_state();
+    nimble_notify_error();
 }
 
 void wifi_cfg_improv_ble_on_disconnect_nimble(void)
