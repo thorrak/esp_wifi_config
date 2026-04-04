@@ -6,6 +6,7 @@ set(SRCS
     "src/esp_wifi_config_nvs.c"
     "src/esp_wifi_config_http.c"
     "src/esp_wifi_config_dns.c"
+    "src/esp_wifi_config_improv.c"
 )
 
 set(PRIV_REQUIRES
@@ -33,6 +34,12 @@ if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
     )
 endif()
 
+# Improv Serial needs driver component
+if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
+    list(APPEND SRCS "src/esp_wifi_config_improv_serial.c")
+    list(APPEND PRIV_REQUIRES driver)
+endif()
+
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS
@@ -49,8 +56,8 @@ idf_component_register(
     EMBED_FILES ${EMBED_FILES}
 )
 
-# Add BLE support after component registration
-# This ensures Kconfig variables are properly resolved
+# Add BLE support after component registration.
+# bt include paths are propagated via target_link_libraries.
 if(CONFIG_BT_ENABLED AND CONFIG_WIFI_CFG_ENABLE_BLE)
     idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
     # Shared BLE layer (command routing, JSON protocol)
@@ -61,7 +68,10 @@ if(CONFIG_BT_ENABLED AND CONFIG_WIFI_CFG_ENABLE_BLE)
     elseif(CONFIG_BT_NIMBLE_ENABLED)
         target_sources(${lib} PRIVATE "src/esp_wifi_config_ble_nimble.c")
     endif()
+    # Improv BLE transport
+    if(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
+        target_sources(${lib} PRIVATE "src/esp_wifi_config_improv_ble.c")
+    endif()
     idf_component_get_property(bt_lib bt COMPONENT_LIB)
     target_link_libraries(${lib} PRIVATE ${bt_lib})
 endif()
-

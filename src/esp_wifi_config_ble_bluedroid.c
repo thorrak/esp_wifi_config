@@ -8,6 +8,9 @@
 #if defined(CONFIG_WIFI_CFG_ENABLE_BLE) && defined(CONFIG_BT_BLUEDROID_ENABLED)
 
 #include "esp_wifi_config_ble_int.h"
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+#include "esp_wifi_config_improv.h"
+#endif
 #include "esp_log.h"
 #include <string.h>
 
@@ -143,6 +146,49 @@ static bool s_ble_stack_owned = false;
 // GAP Event Handler
 // =============================================================================
 
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+// When Improv is enabled:
+//   Primary adv: Improv 128-bit UUID + service data (state + caps) — spec requires these
+//                MUST NOT be in scan response.
+//   Scan response: device name + custom 16-bit UUID (0xFFE0)
+
+static uint8_t improv_adv_svc_uuid128[] = IMPROV_BLE_SVC_UUID_128;
+
+// Service data format: UUID16 (0x4677 LE) + state + capabilities + 4 reserved bytes
+static uint8_t improv_svc_data[] = {
+    0x77, 0x46,                     // UUID16 0x4677 in little-endian
+    IMPROV_STATE_AUTHORIZED,        // Current state (updated at runtime)
+    0x00,                           // Capabilities (updated at runtime)
+    0x00, 0x00, 0x00, 0x00,        // Reserved
+};
+
+static esp_ble_adv_data_t adv_data = {
+    .set_scan_rsp = false,
+    .include_name = false,          // Name goes in scan response
+    .include_txpower = false,
+    .service_uuid_len = sizeof(improv_adv_svc_uuid128),
+    .p_service_uuid = improv_adv_svc_uuid128,
+    .service_data_len = sizeof(improv_svc_data),
+    .p_service_data = improv_svc_data,
+    .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
+};
+
+static uint8_t scan_rsp_custom_uuid[] = {
+    0xE0, 0xFF,  // WIFI_BLE_SVC_UUID (0xFFE0) in little-endian
+};
+
+static esp_ble_adv_data_t scan_rsp_data = {
+    .set_scan_rsp = true,
+    .include_name = true,           // Device name in scan response
+    .include_txpower = false,
+    .service_uuid_len = sizeof(scan_rsp_custom_uuid),
+    .p_service_uuid = scan_rsp_custom_uuid,
+    .flag = 0,
+};
+
+#else
+// Without Improv: original layout — name + custom UUID in primary adv
+
 static uint8_t adv_service_uuid[] = {
     0xE0, 0xFF,  // WIFI_BLE_SVC_UUID (0xFFE0) in little-endian
 };
@@ -163,6 +209,8 @@ static esp_ble_adv_data_t adv_data = {
     .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
 };
 
+#endif
+
 static esp_ble_adv_params_t adv_params = {
     .adv_int_min = 0x20,
     .adv_int_max = 0x40,
@@ -176,8 +224,18 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 {
     switch (event) {
         case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+            esp_ble_gap_config_adv_data(&scan_rsp_data);
+#else
+            esp_ble_gap_start_advertising(&adv_params);
+#endif
+            break;
+
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+        case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
             esp_ble_gap_start_advertising(&adv_params);
             break;
+#endif
 
         case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
             if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
@@ -205,6 +263,14 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                                  esp_ble_gatts_cb_param_t *param)
 {
+    // Filter: only process REG_EVT for our own app, and all other events for our gatts_if
+    if (event == ESP_GATTS_REG_EVT) {
+        if (param->reg.app_id != PROFILE_APP_IDX) return;
+    } else if (s_profile.gatts_if != ESP_GATT_IF_NONE &&
+               gatts_if != s_profile.gatts_if) {
+        return;
+    }
+
     switch (event) {
         case ESP_GATTS_REG_EVT:
             if (param->reg.status == ESP_GATT_OK) {
@@ -300,6 +366,27 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 }
 
 // =============================================================================
+// GATTS Dispatcher (fans out to custom + Improv handlers)
+// =============================================================================
+
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+extern void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
+                                     esp_ble_gatts_cb_param_t *param);
+#endif
+
+static void gatts_dispatch_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
+                                    esp_ble_gatts_cb_param_t *param)
+{
+    // Always call the custom BLE handler
+    gatts_event_handler(event, gatts_if, param);
+
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+    // Also call the Improv handler — it filters by its own gatts_if/app_id
+    improv_bd_gatts_handler(event, gatts_if, param);
+#endif
+}
+
+// =============================================================================
 // Backend Interface Implementation
 // =============================================================================
 
@@ -370,7 +457,7 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     }
 
     // Register callbacks (needed in both modes)
-    esp_err_t ret = esp_ble_gatts_register_callback(gatts_event_handler);
+    esp_err_t ret = esp_ble_gatts_register_callback(gatts_dispatch_handler);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "GATTS register callback failed: %s", esp_err_to_name(ret));
         return ret;

@@ -4,6 +4,9 @@
  */
 
 #include "esp_wifi_config_priv.h"
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+#include "esp_wifi_config_improv.h"
+#endif
 #include "esp_bus.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -84,13 +87,24 @@ void wifi_cfg_start_provisioning(void)
         wifi_cfg_start_ap(NULL);
     }
 
-    // Start BLE if enabled and not already active
+    // Start BLE if enabled and not already active (custom BLE or Improv BLE)
 #ifdef CONFIG_WIFI_CFG_ENABLE_BLE
-    if (g_wifi_cfg->config.ble.enable && !g_wifi_cfg->ble_active) {
-        if (wifi_cfg_ble_start() == ESP_OK) {
-            g_wifi_cfg->ble_active = true;
+    {
+        bool need_ble = g_wifi_cfg->config.ble.enable;
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+        need_ble = need_ble || g_wifi_cfg->config.improv.enable_ble;
+#endif
+        if (need_ble && !g_wifi_cfg->ble_active) {
+            if (wifi_cfg_ble_start() == ESP_OK) {
+                g_wifi_cfg->ble_active = true;
+            }
         }
     }
+#endif
+
+    // Start Improv if enabled
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+    wifi_cfg_improv_start();
 #endif
 
     // Register HTTP handlers for provisioning (both are idempotent)
@@ -120,6 +134,11 @@ void wifi_cfg_stop_provisioning(void)
         wifi_cfg_ble_stop();
         g_wifi_cfg->ble_active = false;
     }
+#endif
+
+    // Stop Improv if active
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+    wifi_cfg_improv_stop();
 #endif
 
     // Transition HTTP per post-prov mode
@@ -392,12 +411,28 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     }
 #endif
 
-    // Init BLE if enabled
+    // Init BLE if enabled (custom BLE or Improv BLE — both need the BLE backend)
 #ifdef CONFIG_WIFI_CFG_ENABLE_BLE
-    if (config && config->ble.enable) {
-        ret = wifi_cfg_ble_init();
+    {
+        bool need_ble = (config && config->ble.enable);
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+        need_ble = need_ble || (config && config->improv.enable_ble);
+#endif
+        if (need_ble) {
+            ret = wifi_cfg_ble_init();
+            if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "BLE init failed: %s", esp_err_to_name(ret));
+            }
+        }
+    }
+#endif
+
+    // Init Improv WiFi if enabled
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+    if (config && (config->improv.enable_ble || config->improv.enable_serial)) {
+        ret = wifi_cfg_improv_init();
         if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "BLE init failed: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "Improv init failed: %s", esp_err_to_name(ret));
         }
     }
 #endif
@@ -446,6 +481,11 @@ esp_err_t wifi_cfg_deinit(bool deinit_wifi)
     // Stop task
     wifi_cfg_send_event(WM_INT_EVT_STOP);
     vTaskDelay(pdMS_TO_TICKS(100));
+
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+    wifi_cfg_improv_stop();
+    wifi_cfg_improv_deinit();
+#endif
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_BLE
     // Stop BLE advertising before full deinit

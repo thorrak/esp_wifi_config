@@ -8,7 +8,11 @@
 #if defined(CONFIG_WIFI_CFG_ENABLE_BLE) && defined(CONFIG_BT_NIMBLE_ENABLED)
 
 #include "esp_wifi_config_ble_int.h"
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+#include "esp_wifi_config_improv.h"
+#endif
 #include "esp_log.h"
+#include "esp_bt.h"
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -172,19 +176,44 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
+
+                // Request Apple-compliant connection parameters.  The
+                // supervision_timeout of 600 (6 s) is the maximum macOS
+                // accepts.  Without this, macOS's default (~1 s) is in
+                // effect and the reconnection window is too short.
+                struct ble_gap_upd_params conn_params = {
+                    .itvl_min = 24,              // 30 ms
+                    .itvl_max = 48,              // 60 ms
+                    .latency = 0,
+                    .supervision_timeout = 600,  // 6 seconds (Apple max)
+                    .min_ce_len = 0,
+                    .max_ce_len = 0,
+                };
+                ble_gap_update_params(s_conn_handle, &conn_params);
+
                 wifi_cfg_ble_on_connect();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+                extern void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle);
+                wifi_cfg_improv_ble_on_connect_nimble(s_conn_handle);
+#endif
             } else {
                 ESP_LOGE(TAG, "Connection failed, status %d", event->connect.status);
                 start_advertising();
             }
             break;
 
-        case BLE_GAP_EVENT_DISCONNECT:
+        case BLE_GAP_EVENT_DISCONNECT: {
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            ESP_LOGI(TAG, "BLE client disconnected, reason %d", event->disconnect.reason);
+            ESP_LOGI(TAG, "BLE client disconnected, reason %d (0x%03x)",
+                     event->disconnect.reason, event->disconnect.reason);
             wifi_cfg_ble_on_disconnect();
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+            extern void wifi_cfg_improv_ble_on_disconnect_nimble(void);
+            wifi_cfg_improv_ble_on_disconnect_nimble();
+#endif
             start_advertising();
             break;
+        }
 
         case BLE_GAP_EVENT_ADV_COMPLETE:
             ESP_LOGD(TAG, "Advertising complete");
@@ -192,10 +221,13 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             break;
 
         case BLE_GAP_EVENT_SUBSCRIBE:
+            ESP_LOGD(TAG, "Subscribe: handle=%d notify=%d indicate=%d",
+                     event->subscribe.attr_handle,
+                     event->subscribe.cur_notify,
+                     event->subscribe.cur_indicate);
             if (event->subscribe.attr_handle == s_response_val_handle) {
                 bool enabled = event->subscribe.cur_notify;
                 wifi_cfg_ble_set_response_notify(enabled);
-                ESP_LOGI(TAG, "Response notify %s", enabled ? "enabled" : "disabled");
             }
             break;
 
@@ -203,7 +235,62 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             ESP_LOGI(TAG, "MTU changed to %d", event->mtu.value);
             break;
 
+        case BLE_GAP_EVENT_ENC_CHANGE:
+            ESP_LOGI(TAG, "Encryption change, status=%d", event->enc_change.status);
+            if (event->enc_change.status != 0) {
+                ESP_LOGW(TAG, "Encryption failed — deleting stale bond");
+                struct ble_gap_conn_desc desc;
+                if (ble_gap_conn_find(event->enc_change.conn_handle, &desc) == 0) {
+                    ble_store_util_delete_peer(&desc.peer_id_addr);
+                }
+            }
+            break;
+
+        case BLE_GAP_EVENT_REPEAT_PAIRING: {
+            // A previously bonded client is trying to pair again (e.g. after
+            // the device was reflashed). Delete the stale bond and allow the
+            // new pairing to proceed.
+            struct ble_gap_conn_desc desc;
+            ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+            ble_store_util_delete_peer(&desc.peer_id_addr);
+            ESP_LOGI(TAG, "Repeat pairing — deleted stale bond, retrying");
+            return BLE_GAP_REPEAT_PAIRING_RETRY;
+        }
+
+        case BLE_GAP_EVENT_CONN_UPDATE:
+            ESP_LOGD(TAG, "Conn params update, status=%d", event->conn_update.status);
+            break;
+
+        case BLE_GAP_EVENT_PASSKEY_ACTION:
+            ESP_LOGI(TAG, "Passkey action: %d", event->passkey.params.action);
+            if (event->passkey.params.action == BLE_SM_IOACT_NONE) {
+                struct ble_sm_io pk = { .action = BLE_SM_IOACT_NONE };
+                ble_sm_inject_io(event->passkey.conn_handle, &pk);
+            }
+            break;
+
+        case BLE_GAP_EVENT_NOTIFY_TX:
+            ESP_LOGD(TAG, "Notify TX: handle=%d status=%d",
+                     event->notify_tx.attr_handle, event->notify_tx.status);
+            break;
+
+        case BLE_GAP_EVENT_DATA_LEN_CHG:
+            ESP_LOGD(TAG, "Data length changed: tx=%d rx=%d",
+                     event->data_len_chg.max_tx_octets,
+                     event->data_len_chg.max_rx_octets);
+            break;
+
+        case BLE_GAP_EVENT_LINK_ESTAB:
+            ESP_LOGD(TAG, "Link established");
+            break;
+
+        case BLE_GAP_EVENT_PARING_COMPLETE:
+            ESP_LOGI(TAG, "Pairing complete, status=%d",
+                     event->pairing_complete.status);
+            break;
+
         default:
+            ESP_LOGD(TAG, "Unhandled GAP event: %d", event->type);
             break;
     }
     return 0;
@@ -221,6 +308,70 @@ static void start_advertising(void)
     adv_params.itvl_min = 0x20;
     adv_params.itvl_max = 0x40;
 
+    int rc;
+
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+    // Improv spec: Service UUID + Service Data MUST be in primary adv (not scan response).
+    // NimBLE's ble_hs_adv_fields doesn't support service data, so use raw bytes.
+
+    // Primary adv: Flags + Improv 128-bit UUID + Service Data (UUID16 0x4677)
+    static const uint8_t improv_uuid_le[] = IMPROV_BLE_SVC_UUID_128;
+    uint8_t adv_buf[31];
+    int pos = 0;
+
+    // Flags (3 bytes)
+    adv_buf[pos++] = 2;
+    adv_buf[pos++] = 0x01;  // AD type: Flags
+    adv_buf[pos++] = 0x06;  // General Discoverable + BR/EDR Not Supported
+
+    // Complete List of 128-bit UUIDs (18 bytes)
+    adv_buf[pos++] = 17;
+    adv_buf[pos++] = 0x07;  // AD type: Complete List of 128-bit UUIDs
+    memcpy(&adv_buf[pos], improv_uuid_le, 16);
+    pos += 16;
+
+    // Service Data - 16 bit UUID (10 bytes)
+    adv_buf[pos++] = 9;
+    adv_buf[pos++] = 0x16;  // AD type: Service Data - 16 bit UUID
+    adv_buf[pos++] = 0x77;  // UUID16 0x4677 in little-endian
+    adv_buf[pos++] = 0x46;
+    adv_buf[pos++] = wifi_cfg_improv_get_state();
+    adv_buf[pos++] = wifi_cfg_improv_get_capabilities();
+    adv_buf[pos++] = 0x00;  // Reserved
+    adv_buf[pos++] = 0x00;
+    adv_buf[pos++] = 0x00;
+    adv_buf[pos++] = 0x00;
+
+    rc = ble_gap_adv_set_data(adv_buf, pos);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to set raw adv data, rc=%d", rc);
+        return;
+    }
+
+    // Scan response: device name + custom 16-bit UUID (0xFFE0)
+    size_t name_len = strlen(s_device_name);
+    uint8_t rsp_buf[31];
+    int rpos = 0;
+
+    // Complete Local Name
+    rsp_buf[rpos++] = (uint8_t)(name_len + 1);
+    rsp_buf[rpos++] = 0x09;  // AD type: Complete Local Name
+    memcpy(&rsp_buf[rpos], s_device_name, name_len);
+    rpos += name_len;
+
+    // Complete List of 16-bit UUIDs (custom service)
+    rsp_buf[rpos++] = 3;
+    rsp_buf[rpos++] = 0x03;  // AD type: Complete List of 16-bit UUIDs
+    rsp_buf[rpos++] = 0xE0;  // 0xFFE0 in little-endian
+    rsp_buf[rpos++] = 0xFF;
+
+    rc = ble_gap_adv_rsp_set_data(rsp_buf, rpos);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Failed to set scan response data, rc=%d", rc);
+    }
+
+#else
+    // Without Improv: original layout — name + custom UUID in primary adv
     static const ble_uuid16_t adv_service_uuid = BLE_UUID16_INIT(WIFI_BLE_SVC_UUID);
 
     struct ble_hs_adv_fields fields = {0};
@@ -232,11 +383,12 @@ static void start_advertising(void)
     fields.num_uuids16 = 1;
     fields.uuids16_is_complete = 1;
 
-    int rc = ble_gap_adv_set_fields(&fields);
+    rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to set adv fields, rc=%d", rc);
         return;
     }
+#endif
 
     rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
                             &adv_params, gap_event_handler, NULL);
@@ -259,6 +411,17 @@ static void ble_on_sync(void)
         ESP_LOGE(TAG, "Failed to ensure address, rc=%d", rc);
         return;
     }
+
+    // Clear any stale bonds left in NVS from a previous flash.  Without
+    // this, a client that bonded before a reflash can trigger an LL-level
+    // encryption timeout (reason 0x208) because the device still has the
+    // old peer record but the keys no longer match.
+    ble_store_clear();
+
+    // Disable DLE from the device side — set suggested TX to the BLE
+    // default of 27 bytes.  Must happen here (not init) because the
+    // controller isn't synced during backend_init().
+    ble_gap_write_sugg_def_data_len(27, 328);
 
     start_advertising();
 }
@@ -318,7 +481,10 @@ uint16_t wifi_cfg_ble_backend_get_mtu(void)
 
 bool wifi_cfg_ble_backend_is_stack_running(void)
 {
-    return ble_hs_is_enabled();
+    // Cannot call ble_hs_is_enabled() before nimble_port_init() — the NimBLE
+    // host data structures aren't allocated yet and the access will fault.
+    // Check the BT controller status instead, which is always safe to query.
+    return esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
 }
 
 esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
@@ -345,18 +511,35 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.reset_cb = ble_on_reset;
 
+    // No encryption required for provisioning characteristics.
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
+    ble_hs_cfg.sm_bonding = 0;
+    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_sc = 0;
+    ble_hs_cfg.sm_our_key_dist = 0;
+    ble_hs_cfg.sm_their_key_dist = 0;
+
     // Set preferred MTU
     int mtu_rc = ble_att_set_preferred_mtu(517);
     if (mtu_rc != 0) {
         ESP_LOGW(TAG, "Failed to set preferred MTU, rc=%d", mtu_rc);
     }
 
-    // Set device name
+    // Initialize GAP service (required for device name / appearance).
+    // Must be called before ble_svc_gap_device_name_set() — init
+    // resets the name to the default ("nimble").
+    ble_svc_gap_init();
     ble_svc_gap_device_name_set(s_device_name);
 
-    // Initialize GAP and GATT services
-    ble_svc_gap_init();
-    ble_svc_gatt_init();
+    // Deliberately skip ble_svc_gatt_init().  The standard GATT service
+    // registers Service Changed and Database Hash characteristics.  On
+    // reconnection, macOS CoreBluetooth tries to validate its cached
+    // GATT data against these characteristics and gets stuck for ~30 s
+    // before timing out.  Without the GATT service, CoreBluetooth falls
+    // back to fresh service discovery, which completes immediately.
+    // The GATT service is technically mandatory per spec, but omitting
+    // it is widely practiced (ESPHome, many BLE peripherals) and all
+    // major BLE centrals handle its absence gracefully.
 
     // Register custom GATT service
     int rc = ble_gatts_count_cfg(s_gatt_svcs);
@@ -370,6 +553,26 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         ESP_LOGE(TAG, "ble_gatts_add_svcs failed, rc=%d", rc);
         return ESP_FAIL;
     }
+
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
+    // Register Improv GATT service alongside custom service.
+    // NOTE: NimBLE requires all services to be registered before ble_gatts_start().
+    // In "service-only" mode (stack already running), this may fail if ble_gatts_start()
+    // was already called. In that case, Improv BLE will not be available, and the user
+    // must ensure BLE init happens before the host stack is fully started.
+    extern const struct ble_gatt_svc_def wifi_cfg_improv_nimble_svcs[];
+    rc = ble_gatts_count_cfg(wifi_cfg_improv_nimble_svcs);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Improv ble_gatts_count_cfg failed, rc=%d (stack already started?)", rc);
+    } else {
+        rc = ble_gatts_add_svcs(wifi_cfg_improv_nimble_svcs);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "Improv ble_gatts_add_svcs failed, rc=%d (stack already started?)", rc);
+        } else {
+            ESP_LOGI(TAG, "Improv BLE GATT service registered");
+        }
+    }
+#endif
 
     // Create command processing queue and task (runs off nimble_host stack)
     s_cmd_queue = xQueueCreate(BLE_CMD_QUEUE_DEPTH, sizeof(ble_cmd_msg_t));
@@ -448,7 +651,7 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
         ESP_LOGW(TAG, "ble_gatts_reset failed, rc=%d", rc);
     }
     ble_svc_gap_init();
-    ble_svc_gatt_init();
+    ble_svc_gap_device_name_set(s_device_name);
     ble_gatts_start();
 
     // Full stack teardown only if we own it

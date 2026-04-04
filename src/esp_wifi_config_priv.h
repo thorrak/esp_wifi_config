@@ -155,6 +155,8 @@ typedef struct {
     bool initialized;
     bool ap_active;
     bool ble_active;                // BLE advertising currently running
+    bool improv_ble_active;         // Improv BLE transport currently running
+    bool improv_serial_active;      // Improv Serial transport currently running
     bool provisioning_active;       // Provisioning interfaces (AP/BLE) currently running
     bool connecting;                // Currently in connect sequence
     int64_t connect_time;           // Connection start time
