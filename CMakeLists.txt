@@ -17,12 +17,6 @@ set(PRIV_REQUIRES
 
 set(EMBED_FILES)
 
-# Add CLI if enabled
-if(CONFIG_WIFI_CFG_ENABLE_CLI)
-    list(APPEND SRCS "src/esp_wifi_config_cli.c")
-    list(APPEND PRIV_REQUIRES console)
-endif()
-
 # Add Web UI if enabled
 if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
     list(APPEND SRCS "src/esp_wifi_config_webui.c")
@@ -55,6 +49,15 @@ idf_component_register(
     PRIV_REQUIRES ${PRIV_REQUIRES}
     EMBED_FILES ${EMBED_FILES}
 )
+
+# Add CLI support after component registration.
+# console include paths are propagated via target_link_libraries.
+if(CONFIG_WIFI_CFG_ENABLE_CLI)
+    idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
+    target_sources(${lib} PRIVATE "src/esp_wifi_config_cli.c")
+    idf_component_get_property(console_lib console COMPONENT_LIB)
+    target_link_libraries(${lib} PRIVATE ${console_lib})
+endif()
 
 # Add BLE support after component registration.
 # bt include paths are propagated via target_link_libraries.
