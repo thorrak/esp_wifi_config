@@ -188,10 +188,6 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             break;
 
         case BLE_GAP_EVENT_DISCONNECT: {
-            // Purge any security state the peer accumulated during this
-            // session so the next connection starts clean.
-            ble_store_util_delete_peer(&event->disconnect.conn.peer_id_addr);
-
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             ESP_LOGI(TAG, "BLE client disconnected, reason %d (0x%03x)",
                      event->disconnect.reason, event->disconnect.reason);
@@ -459,15 +455,17 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.reset_cb = ble_on_reset;
 
-    // No encryption required — this is a provisioning device with no
-    // sensitive characteristics.  Disable the security manager entirely
-    // so clients never enter a pairing flow.
+    // Allow Just Works bonding so reconnecting clients (Chrome Web
+    // Bluetooth) can restore encryption using keys from the first
+    // connection.  ble_store_clear() in ble_on_sync() wipes stale keys
+    // from previous boots; within a session, bonds are kept so
+    // reconnections succeed.
     ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
-    ble_hs_cfg.sm_bonding = 0;
+    ble_hs_cfg.sm_bonding = 1;
     ble_hs_cfg.sm_mitm = 0;
-    ble_hs_cfg.sm_sc = 0;
-    ble_hs_cfg.sm_our_key_dist = 0;
-    ble_hs_cfg.sm_their_key_dist = 0;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
 
     // Set preferred MTU
     int mtu_rc = ble_att_set_preferred_mtu(517);
