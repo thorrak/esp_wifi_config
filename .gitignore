@@ -151,3 +151,7 @@ frontend/node_modules/
 dependencies.lock
 dist/*
 venv
+# Docusaurus
+website/node_modules/
+website/build/
+website/.docusaurus/
