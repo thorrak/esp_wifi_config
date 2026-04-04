@@ -359,7 +359,7 @@ void app_main(void)
 
     // ── Step 4: Deinit WiFi Config (soft BLE teardown) ──
     ESP_LOGI(TAG, "Step 4: Deinitializing WiFi Config (BLE service removed, stack stays)");
-    wifi_cfg_deinit();
+    wifi_cfg_deinit(false);
     ESP_LOGI(TAG, "WiFi Config deinitialized — NimBLE stack still running");
 
     // ── Step 5: App takes over BLE ──
