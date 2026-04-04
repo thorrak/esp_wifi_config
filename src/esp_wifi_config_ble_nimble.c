@@ -12,6 +12,7 @@
 #include "esp_wifi_config_improv.h"
 #endif
 #include "esp_log.h"
+#include "esp_idf_version.h"
 #include "esp_bt.h"
 #include <string.h>
 
@@ -280,6 +281,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                      event->data_len_chg.max_rx_octets);
             break;
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
         case BLE_GAP_EVENT_LINK_ESTAB:
             ESP_LOGD(TAG, "Link established");
             break;
@@ -288,6 +290,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             ESP_LOGI(TAG, "Pairing complete, status=%d",
                      event->pairing_complete.status);
             break;
+#endif
 
         default:
             ESP_LOGD(TAG, "Unhandled GAP event: %d", event->type);
