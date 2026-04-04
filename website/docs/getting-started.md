@@ -118,5 +118,5 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 - [Provisioning Modes](./provisioning/modes) — Control when AP/BLE/Improv start
 - [Kconfig Options](./api/kconfig) — Enable Web UI, CLI, BLE, Improv
-- [Examples](./examples/basic) — Complete example projects
+- [Examples](./examples) — Complete example projects
 - [AI Integration Guide](./ai-integration-guide) — Scenario-based configuration recipes

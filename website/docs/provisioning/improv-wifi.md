@@ -84,4 +84,4 @@ When both `ble.enable` and `improv.enable_ble` are `true`:
 
 ## BLE Stack Requirements
 
-Improv BLE requires the same Bluetooth stack setup as the [custom BLE GATT](./ble-gatt) interface. If you enable Improv BLE, the Bluetooth stack and `CONFIG_WIFI_CFG_ENABLE_BLE` are implicitly required. See the [with_improv example](../examples/with-improv) for a complete sdkconfig.
+Improv BLE requires the same Bluetooth stack setup as the [custom BLE GATT](./ble-gatt) interface. If you enable Improv BLE, the Bluetooth stack and `CONFIG_WIFI_CFG_ENABLE_BLE` are implicitly required. See the [with_improv example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_improv) for a complete sdkconfig.

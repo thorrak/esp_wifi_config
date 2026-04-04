@@ -31,12 +31,7 @@ const PAGE_ORDER = [
   'api/ble-protocol.md',
   'api/cli-commands.md',
   'api/kconfig.md',
-  'examples/basic.md',
-  'examples/with-cli.md',
-  'examples/with-webui.md',
-  'examples/with-webui-customize.md',
-  'examples/with-ble.md',
-  'examples/with-improv.md',
+  'examples.md',
   'migration.md',
 ];
 

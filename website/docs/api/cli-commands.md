@@ -16,7 +16,7 @@ Add to your `sdkconfig.defaults`:
 CONFIG_WIFI_CFG_ENABLE_CLI=y
 ```
 
-Your application must initialize the ESP Console REPL. See the [with_cli example](../examples/with-cli) for a complete setup.
+Your application must initialize the ESP Console REPL. See the [with_cli example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_cli) for a complete setup.
 
 ## Commands
 

@@ -69,7 +69,7 @@ Full documentation is available at **[configwifi.com](https://configwifi.com)**:
 - [Getting Started](https://configwifi.com/docs/getting-started) — Installation and first project
 - [Provisioning Modes](https://configwifi.com/docs/provisioning/modes) — Control when AP/BLE/Improv activate
 - [API Reference](https://configwifi.com/docs/api/c-api) — C API, REST API, BLE protocol, CLI
-- [Examples](https://configwifi.com/docs/examples/basic) — Complete example walkthroughs
+- [Examples](https://configwifi.com/docs/examples) — Complete example walkthroughs
 
 ### AI-Friendly Docs
 
