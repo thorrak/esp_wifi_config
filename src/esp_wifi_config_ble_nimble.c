@@ -176,6 +176,19 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
+
+                // Request generous connection parameters so the link
+                // survives long enough for Chrome's pairing dialog.
+                struct ble_gap_upd_params conn_params = {
+                    .itvl_min = 24,              // 30 ms
+                    .itvl_max = 48,              // 60 ms
+                    .latency = 0,
+                    .supervision_timeout = 600,  // 6 seconds
+                    .min_ce_len = 0,
+                    .max_ce_len = 0,
+                };
+                ble_gap_update_params(s_conn_handle, &conn_params);
+
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
                 extern void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle);
