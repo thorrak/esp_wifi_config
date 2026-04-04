@@ -269,14 +269,14 @@ void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle)
 {
     s_conn_handle = conn_handle;
 
-    // Push the current state + error as unsolicited notifications.
-    // On reconnection Chrome may believe its GATT subscriptions are
-    // still active (cached from the previous connection) yet the
-    // device-side CCCD was reset.  Sending these immediately
-    // generates ATT traffic that keeps the link layer alive and
-    // delivers the initial state the Improv SDK expects.
-    nimble_notify_state();
-    nimble_notify_error();
+    // Do NOT send unsolicited notifications here.  On first connect
+    // Chrome hasn't discovered services yet so it ignores them.  But
+    // on reconnect Chrome has cached handle→characteristic mappings,
+    // and receiving notifications before startNotifications() is called
+    // confuses Chrome's Web Bluetooth state machine, causing the
+    // subsequent readValue() calls to hang until the supervision
+    // timeout fires.  The Improv SDK reads the initial state explicitly
+    // after subscribing — no push needed.
 }
 
 void wifi_cfg_improv_ble_on_disconnect_nimble(void)

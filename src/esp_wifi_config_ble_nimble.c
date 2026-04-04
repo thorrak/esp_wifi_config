@@ -177,18 +177,19 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 s_conn_handle = event->connect.conn_handle;
                 ESP_LOGI(TAG, "BLE client connected, conn_handle %d", s_conn_handle);
 
-                // Request generous connection parameters so the link
-                // survives long enough for Chrome's pairing dialog.
+                // Request Apple-compliant connection parameters.  The
+                // supervision_timeout of 600 (6 s) is the maximum macOS
+                // accepts.  Without this, macOS's default (~1 s) is in
+                // effect and the reconnection window is too short.
                 struct ble_gap_upd_params conn_params = {
                     .itvl_min = 24,              // 30 ms
                     .itvl_max = 48,              // 60 ms
                     .latency = 0,
-                    .supervision_timeout = 600,  // 6 seconds
+                    .supervision_timeout = 600,  // 6 seconds (Apple max)
                     .min_ce_len = 0,
                     .max_ce_len = 0,
                 };
                 ble_gap_update_params(s_conn_handle, &conn_params);
-
 
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
@@ -220,10 +221,13 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             break;
 
         case BLE_GAP_EVENT_SUBSCRIBE:
+            ESP_LOGI(TAG, "Subscribe: handle=%d notify=%d indicate=%d",
+                     event->subscribe.attr_handle,
+                     event->subscribe.cur_notify,
+                     event->subscribe.cur_indicate);
             if (event->subscribe.attr_handle == s_response_val_handle) {
                 bool enabled = event->subscribe.cur_notify;
                 wifi_cfg_ble_set_response_notify(enabled);
-                ESP_LOGI(TAG, "Response notify %s", enabled ? "enabled" : "disabled");
             }
             break;
 
@@ -268,6 +272,21 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
         case BLE_GAP_EVENT_NOTIFY_TX:
             ESP_LOGI(TAG, "Notify TX: handle=%d status=%d",
                      event->notify_tx.attr_handle, event->notify_tx.status);
+            break;
+
+        case BLE_GAP_EVENT_DATA_LEN_CHG:
+            ESP_LOGI(TAG, "Data length changed: tx=%d rx=%d",
+                     event->data_len_chg.max_tx_octets,
+                     event->data_len_chg.max_rx_octets);
+            break;
+
+        case BLE_GAP_EVENT_LINK_ESTAB:
+            ESP_LOGD(TAG, "Link established");
+            break;
+
+        case BLE_GAP_EVENT_PARING_COMPLETE:
+            ESP_LOGI(TAG, "Pairing complete, status=%d",
+                     event->pairing_complete.status);
             break;
 
         default:
@@ -399,6 +418,11 @@ static void ble_on_sync(void)
     // old peer record but the keys no longer match.
     ble_store_clear();
 
+    // Disable DLE from the device side — set suggested TX to the BLE
+    // default of 27 bytes.  Must happen here (not init) because the
+    // controller isn't synced during backend_init().
+    ble_gap_write_sugg_def_data_len(27, 328);
+
     start_advertising();
 }
 
@@ -504,9 +528,18 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     // Set device name
     ble_svc_gap_device_name_set(s_device_name);
 
-    // Initialize GAP and GATT services
+    // Initialize GAP service (required for device name / appearance).
     ble_svc_gap_init();
-    ble_svc_gatt_init();
+
+    // Deliberately skip ble_svc_gatt_init().  The standard GATT service
+    // registers Service Changed and Database Hash characteristics.  On
+    // reconnection, macOS CoreBluetooth tries to validate its cached
+    // GATT data against these characteristics and gets stuck for ~30 s
+    // before timing out.  Without the GATT service, CoreBluetooth falls
+    // back to fresh service discovery, which completes immediately.
+    // The GATT service is technically mandatory per spec, but omitting
+    // it is widely practiced (ESPHome, many BLE peripherals) and all
+    // major BLE centrals handle its absence gracefully.
 
     // Register custom GATT service
     int rc = ble_gatts_count_cfg(s_gatt_svcs);
@@ -618,7 +651,6 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
         ESP_LOGW(TAG, "ble_gatts_reset failed, rc=%d", rc);
     }
     ble_svc_gap_init();
-    ble_svc_gatt_init();
     ble_gatts_start();
 
     // Full stack teardown only if we own it
