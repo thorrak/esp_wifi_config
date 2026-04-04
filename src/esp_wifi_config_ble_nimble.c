@@ -189,6 +189,11 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 };
                 ble_gap_update_params(s_conn_handle, &conn_params);
 
+                // Signal that the GATT database may have changed so
+                // reconnecting clients (Chrome Web Bluetooth) discard
+                // their cached service handles and re-discover.
+                ble_svc_gatt_changed(0x0001, 0xFFFF);
+
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
                 extern void wifi_cfg_improv_ble_on_connect_nimble(uint16_t conn_handle);
