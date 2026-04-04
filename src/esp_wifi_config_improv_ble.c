@@ -44,6 +44,13 @@ static QueueHandle_t s_cmd_queue = NULL;
 static TaskHandle_t  s_cmd_task  = NULL;
 static bool s_started = false;
 
+// Latest RPC result — stored so the client can read the RPC Result
+// characteristic after writing a command (the spec-defined flow).
+// Written by improv_ble_cmd_task, read by the NimBLE host task —
+// volatile ensures cross-task visibility.
+static volatile uint8_t  s_rpc_result[512];
+static volatile uint16_t s_rpc_result_len = 0;
+
 // =============================================================================
 // NimBLE backend
 // =============================================================================
@@ -202,7 +209,11 @@ static int improv_rpc_result_access(uint16_t conn, uint16_t attr,
                                     struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        return 0;  // Read returns empty; data pushed via notify
+        uint16_t len = s_rpc_result_len;
+        if (len > 0) {
+            os_mbuf_append(ctxt->om, (const void *)s_rpc_result, len);
+        }
+        return 0;
     }
     return BLE_ATT_ERR_UNLIKELY;
 }
@@ -468,7 +479,14 @@ void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                                             param->read.trans_id, ESP_GATT_OK, &rsp);
             } else if (param->read.handle == improv_handle_table[IMPROV_IDX_CHAR_RPC_RESULT_VAL]) {
                 esp_gatt_rsp_t rsp = {0};
-                rsp.attr_value.len = 0;
+                uint16_t copy = s_rpc_result_len;
+                if (copy > sizeof(rsp.attr_value.value)) {
+                    copy = sizeof(rsp.attr_value.value);
+                }
+                rsp.attr_value.len = copy;
+                if (copy > 0) {
+                    memcpy(rsp.attr_value.value, (const void *)s_rpc_result, copy);
+                }
                 esp_ble_gatts_send_response(gatts_if, param->read.conn_id,
                                             param->read.trans_id, ESP_GATT_OK, &rsp);
             }
@@ -536,18 +554,21 @@ static void ble_response_cb(uint8_t type, const uint8_t *data, size_t len, void 
     // Improv BLE spec requires an LSB checksum as the final byte of the
     // RPC result.  The protocol core doesn't add one (serial has its own
     // transport-level checksum), so we append it here.
-    uint8_t buf[512];
-    if (len + 1 > sizeof(buf)) return;
+    if (len + 1 > sizeof(s_rpc_result)) return;
 
-    memcpy(buf, data, len);
+    memcpy((void *)s_rpc_result, data, len);
     uint8_t checksum = 0;
     for (size_t i = 0; i < len; i++) checksum += data[i];
-    buf[len] = checksum;
+    s_rpc_result[len] = checksum;
+    s_rpc_result_len = (uint16_t)(len + 1);
 
+    // Store the result for characteristic reads (spec-defined flow) and
+    // also send a notification for clients that subscribe to it.
+    uint16_t result_len = s_rpc_result_len;
 #if defined(CONFIG_BT_NIMBLE_ENABLED)
-    nimble_notify_rpc_result(buf, len + 1);
+    nimble_notify_rpc_result((const uint8_t *)s_rpc_result, result_len);
 #elif defined(CONFIG_BT_BLUEDROID_ENABLED)
-    bd_notify_rpc_result(buf, len + 1);
+    bd_notify_rpc_result((const uint8_t *)s_rpc_result, result_len);
 #endif
 }
 
