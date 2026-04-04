@@ -476,12 +476,17 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.reset_cb = ble_on_reset;
 
-    // Disable bonding — this is a provisioning device that doesn't need
-    // persistent security.  Prevents clients from caching keys that go
-    // stale after a reflash (which causes reconnection failures).
-    ble_hs_cfg.sm_bonding = 0;
-    ble_hs_cfg.sm_our_key_dist = 0;
-    ble_hs_cfg.sm_their_key_dist = 0;
+    // Allow bonding so reconnecting clients can restore encryption using
+    // keys exchanged during the first connection in this session.  Stale
+    // keys left in NVS from a previous boot are wiped by ble_store_clear()
+    // in ble_on_sync().  "Just Works" pairing (no PIN) is sufficient for a
+    // provisioning device.
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
 
     // Set preferred MTU
     int mtu_rc = ble_att_set_preferred_mtu(517);
