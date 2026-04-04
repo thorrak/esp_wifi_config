@@ -253,7 +253,7 @@ static void nimble_notify_rpc_result(const uint8_t *data, size_t len)
         return;
     }
     uint16_t mtu = ble_att_mtu(s_conn_handle);
-    ESP_LOGI(TAG, "Sending RPC result: %zu bytes (MTU=%d, max_notify=%d)",
+    ESP_LOGD(TAG, "Sending RPC result: %zu bytes (MTU=%d, max_notify=%d)",
              len, mtu, mtu - 3);
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
     if (om) {

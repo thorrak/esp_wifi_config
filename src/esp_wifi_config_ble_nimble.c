@@ -221,7 +221,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             break;
 
         case BLE_GAP_EVENT_SUBSCRIBE:
-            ESP_LOGI(TAG, "Subscribe: handle=%d notify=%d indicate=%d",
+            ESP_LOGD(TAG, "Subscribe: handle=%d notify=%d indicate=%d",
                      event->subscribe.attr_handle,
                      event->subscribe.cur_notify,
                      event->subscribe.cur_indicate);
@@ -258,7 +258,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
         }
 
         case BLE_GAP_EVENT_CONN_UPDATE:
-            ESP_LOGI(TAG, "Conn params update, status=%d", event->conn_update.status);
+            ESP_LOGD(TAG, "Conn params update, status=%d", event->conn_update.status);
             break;
 
         case BLE_GAP_EVENT_PASSKEY_ACTION:
@@ -270,12 +270,12 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             break;
 
         case BLE_GAP_EVENT_NOTIFY_TX:
-            ESP_LOGI(TAG, "Notify TX: handle=%d status=%d",
+            ESP_LOGD(TAG, "Notify TX: handle=%d status=%d",
                      event->notify_tx.attr_handle, event->notify_tx.status);
             break;
 
         case BLE_GAP_EVENT_DATA_LEN_CHG:
-            ESP_LOGI(TAG, "Data length changed: tx=%d rx=%d",
+            ESP_LOGD(TAG, "Data length changed: tx=%d rx=%d",
                      event->data_len_chg.max_tx_octets,
                      event->data_len_chg.max_rx_octets);
             break;
@@ -290,7 +290,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             break;
 
         default:
-            ESP_LOGI(TAG, "Unhandled GAP event: %d", event->type);
+            ESP_LOGD(TAG, "Unhandled GAP event: %d", event->type);
             break;
     }
     return 0;
