@@ -189,18 +189,18 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 };
                 ble_gap_update_params(s_conn_handle, &conn_params);
 
-                // On reconnection from a bonded peer, signal that the
-                // GATT database may have changed so Chrome discards its
-                // cached service handles and re-discovers.  Skip this on
-                // the first connection — Chrome has no cache yet, and
-                // sending it prematurely stalls Web Bluetooth's setup.
+                // On reconnection, tell Chrome to discard its cached
+                // GATT handles and re-discover services.  Without this,
+                // Chrome goes silent on the second connection and the
+                // link dies from supervision timeout.  Skipped on the
+                // very first connection since there is no stale cache.
                 {
-                    struct ble_gap_conn_desc desc;
-                    if (ble_gap_conn_find(s_conn_handle, &desc) == 0 &&
-                        desc.sec_state.bonded) {
-                        ESP_LOGI(TAG, "Bonded peer reconnected — sending Service Changed");
+                    static bool s_has_had_connection = false;
+                    if (s_has_had_connection) {
+                        ESP_LOGI(TAG, "Reconnection — sending Service Changed");
                         ble_svc_gatt_changed(0x0001, 0xFFFF);
                     }
+                    s_has_had_connection = true;
                 }
 
                 wifi_cfg_ble_on_connect();
@@ -500,17 +500,13 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.reset_cb = ble_on_reset;
 
-    // Allow Just Works bonding so reconnecting clients (Chrome Web
-    // Bluetooth) can restore encryption using keys from the first
-    // connection.  ble_store_clear() in ble_on_sync() wipes stale keys
-    // from previous boots; within a session, bonds are kept so
-    // reconnections succeed.
+    // No encryption required for provisioning characteristics.
     ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
-    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_bonding = 0;
     ble_hs_cfg.sm_mitm = 0;
-    ble_hs_cfg.sm_sc = 1;
-    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
-    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_sc = 0;
+    ble_hs_cfg.sm_our_key_dist = 0;
+    ble_hs_cfg.sm_their_key_dist = 0;
 
     // Set preferred MTU
     int mtu_rc = ble_att_set_preferred_mtu(517);
