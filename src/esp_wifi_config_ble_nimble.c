@@ -252,7 +252,25 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             return BLE_GAP_REPEAT_PAIRING_RETRY;
         }
 
+        case BLE_GAP_EVENT_CONN_UPDATE:
+            ESP_LOGI(TAG, "Conn params update, status=%d", event->conn_update.status);
+            break;
+
+        case BLE_GAP_EVENT_PASSKEY_ACTION:
+            ESP_LOGI(TAG, "Passkey action: %d", event->passkey.params.action);
+            if (event->passkey.params.action == BLE_SM_IOACT_NONE) {
+                struct ble_sm_io pk = { .action = BLE_SM_IOACT_NONE };
+                ble_sm_inject_io(event->passkey.conn_handle, &pk);
+            }
+            break;
+
+        case BLE_GAP_EVENT_NOTIFY_TX:
+            ESP_LOGI(TAG, "Notify TX: handle=%d status=%d",
+                     event->notify_tx.attr_handle, event->notify_tx.status);
+            break;
+
         default:
+            ESP_LOGI(TAG, "Unhandled GAP event: %d", event->type);
             break;
     }
     return 0;
