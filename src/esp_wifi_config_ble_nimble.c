@@ -204,7 +204,11 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             }
             break;
 
-        case BLE_GAP_EVENT_DISCONNECT:
+        case BLE_GAP_EVENT_DISCONNECT: {
+            // Purge any security state the peer accumulated during this
+            // session so the next connection starts clean.
+            ble_store_util_delete_peer(&event->disconnect.conn.peer_id_addr);
+
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
             ESP_LOGI(TAG, "BLE client disconnected, reason %d (0x%03x)",
                      event->disconnect.reason, event->disconnect.reason);
@@ -215,6 +219,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
 #endif
             start_advertising();
             break;
+        }
 
         case BLE_GAP_EVENT_ADV_COMPLETE:
             ESP_LOGD(TAG, "Advertising complete");
