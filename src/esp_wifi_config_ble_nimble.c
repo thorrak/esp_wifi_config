@@ -525,11 +525,11 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         ESP_LOGW(TAG, "Failed to set preferred MTU, rc=%d", mtu_rc);
     }
 
-    // Set device name
-    ble_svc_gap_device_name_set(s_device_name);
-
     // Initialize GAP service (required for device name / appearance).
+    // Must be called before ble_svc_gap_device_name_set() — init
+    // resets the name to the default ("nimble").
     ble_svc_gap_init();
+    ble_svc_gap_device_name_set(s_device_name);
 
     // Deliberately skip ble_svc_gatt_init().  The standard GATT service
     // registers Service Changed and Database Hash characteristics.  On
@@ -651,6 +651,7 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
         ESP_LOGW(TAG, "ble_gatts_reset failed, rc=%d", rc);
     }
     ble_svc_gap_init();
+    ble_svc_gap_device_name_set(s_device_name);
     ble_gatts_start();
 
     // Full stack teardown only if we own it
