@@ -189,10 +189,19 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 };
                 ble_gap_update_params(s_conn_handle, &conn_params);
 
-                // Signal that the GATT database may have changed so
-                // reconnecting clients (Chrome Web Bluetooth) discard
-                // their cached service handles and re-discover.
-                ble_svc_gatt_changed(0x0001, 0xFFFF);
+                // On reconnection from a bonded peer, signal that the
+                // GATT database may have changed so Chrome discards its
+                // cached service handles and re-discovers.  Skip this on
+                // the first connection — Chrome has no cache yet, and
+                // sending it prematurely stalls Web Bluetooth's setup.
+                {
+                    struct ble_gap_conn_desc desc;
+                    if (ble_gap_conn_find(s_conn_handle, &desc) == 0 &&
+                        desc.sec_state.bonded) {
+                        ESP_LOGI(TAG, "Bonded peer reconnected — sending Service Changed");
+                        ble_svc_gatt_changed(0x0001, 0xFFFF);
+                    }
+                }
 
                 wifi_cfg_ble_on_connect();
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
