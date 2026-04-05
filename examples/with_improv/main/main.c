@@ -1,6 +1,6 @@
 /**
  * @file main.c
- * @brief ESP WiFi Manager - Improv WiFi Example
+ * @brief ESP WiFi Config - Improv WiFi Example
  *
  * This example demonstrates WiFi provisioning using the Improv WiFi standard
  * (https://www.improv-wifi.com/) alongside the existing custom BLE GATT interface.
@@ -68,7 +68,7 @@ static void on_wifi_disconnected(const char *event, const void *data, size_t len
 static void on_wifi_got_ip(const char *event, const void *data, size_t len, void *ctx)
 {
     wifi_status_t status;
-    if (wifi_manager_get_status(&status) == ESP_OK) {
+    if (wifi_cfg_get_status(&status) == ESP_OK) {
         ESP_LOGI(TAG, "Got IP: %s", status.ip);
     }
 }
@@ -83,7 +83,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_LOGI(TAG, "Starting WiFi Manager with Improv WiFi example");
+    ESP_LOGI(TAG, "Starting WiFi Config with Improv WiFi example");
 
     // Initialize esp_bus
     ret = esp_bus_init();
@@ -93,12 +93,12 @@ void app_main(void)
     }
 
     // Subscribe to WiFi events
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_MGR_EVT_GOT_IP), on_wifi_got_ip, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
+    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
 
-    // Initialize WiFi Manager with Improv + BLE + AP
-    wifi_manager_config_t config = {
+    // Initialize WiFi Config with Improv + BLE + AP
+    wifi_cfg_config_t config = {
         // Retry configuration
         .max_retry_per_network = 3,
         .retry_interval_ms = 5000,
@@ -149,13 +149,13 @@ void app_main(void)
         },
     };
 
-    ret = wifi_manager_init(&config);
+    ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize WiFi Manager: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to initialize WiFi Config: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "WiFi Manager initialized with Improv WiFi");
+    ESP_LOGI(TAG, "WiFi Config initialized with Improv WiFi");
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Provisioning options:");
     ESP_LOGI(TAG, "  1. Improv BLE: Open https://www.improv-wifi.com/ in Chrome/Edge");
@@ -174,7 +174,7 @@ void app_main(void)
 
     // Wait for connection
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    ret = wifi_manager_wait_connected(30000);
+    ret = wifi_cfg_wait_connected(30000);
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected successfully!");
@@ -184,9 +184,9 @@ void app_main(void)
 
     // Main loop
     while (1) {
-        if (wifi_manager_is_connected()) {
+        if (wifi_cfg_is_connected()) {
             wifi_status_t status;
-            if (wifi_manager_get_status(&status) == ESP_OK) {
+            if (wifi_cfg_get_status(&status) == ESP_OK) {
                 ESP_LOGI(TAG, "Connected: %s - Signal: %d%%", status.ssid, status.quality);
             }
         } else {

@@ -1,0 +1,420 @@
+# ESP WiFi Config — LLM Onboarding Prompt
+#
+# Load this document into your context when a user wants to add WiFi
+# configuration / provisioning to an ESP-IDF project using the
+# esp_wifi_config library.
+#
+# Your job: walk through the questionnaire below, collect the user's
+# answers, then generate (or edit) the appropriate output files (sdkconfig.defaults,
+# idf_component.yml (if applicable), platformio.ini (if applicable), and the new C++ file scaffold).
+#
+# Full library documentation: https://configwifi.com
+# Full AI integration guide:  https://configwifi.com/docs/ai-integration-guide
+
+================================================================================
+INTERVIEW INSTRUCTIONS
+================================================================================
+
+You are helping a user integrate the esp_wifi_config library into their
+ESP-IDF project. This library handles WiFi management, multi-network
+support, auto-reconnect, and device provisioning through multiple
+interfaces (SoftAP captive portal, BLE, Improv WiFi (Serial and BLE), and CLI).
+
+Walk through the questions below IN ORDER. Some questions are conditional —
+skip them when the condition is not met. Use the defaults noted in brackets
+when the user has no preference. After collecting all answers, generate the
+output files described at the end.
+
+Keep the conversation efficient:
+- Ask 2-3 related questions at once when they have no dependencies.
+- Offer the recommended default and let the user confirm or override.
+- If the user describes their project in general terms (e.g., "consumer IoT
+  sensor"), use the Scenario Quick-Picks at the end to pre-fill answers, then
+  confirm with the user.
+
+================================================================================
+QUESTIONNAIRE
+================================================================================
+
+This questionnaire will help determine the user's needs and generate the 
+  appropriate configuration for the esp_wifi_config library. The options 
+  listed here will not be obvious to a user and must be presented to the 
+  user for him/her to know what to choose (for example, we need to give 
+  the user the option of all the provisioning interfaces, as he/she will 
+  likely not know what is available/what they want).
+
+Q1: TARGET CHIP
+---------------
+Ask: What ESP32 chip are you targeting?
+Options: ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-H2
+
+GATES:
+- ESP32-H2: STOP. This library requires WiFi. ESP32-H2 has no WiFi.
+- ESP32-S2: No Bluetooth. Disable all BLE and Improv BLE options.
+
+Q2: INSTALLATION METHOD
+-----------------------
+Ask: How do you want to install/maintain the library?
+Options:
+  a) ESP-IDF Component Manager [recommended]
+     -> Add to main/idf_component.yml:
+        dependencies:
+          thorrak/esp_wifi_config: "*"
+  b) PlatformIO
+     -> Only an option if the user is using PlatformIO as their build system (signified by them having an existing platformio.ini file). If they are using plain ESP-IDF with CMake, this option should not be offered.
+     -> Add to lib_deps in platformio.ini
+     -> Configuration that would be done via sdkconfig.defaults must be done via build flags in platformio.ini or #define in code instead.
+  c) Manual clone into `components/`
+     -> Also need esp_bus: https://github.com/thorrak/esp_bus
+
+Q3: PROVISIONING INTERFACES
+----------------------------
+Ask: Which provisioning interfaces do you want? (select all that apply)
+Options:
+  [ ] SoftAP + Captive Portal — device creates WiFi AP, user configures via browser
+  [ ] BLE GATT — configure via Bluetooth (phone app or Python CLI tool)
+  [ ] Improv WiFi (BLE) — open standard, works with Chrome/Edge Web Bluetooth
+  [ ] Improv WiFi (Serial) — open standard, works with Chrome/Edge Web Serial
+  [ ] CLI — serial console commands for dev/debug
+  [ ] None — device only connects to hardcoded/NVS networks
+
+GATE: If "None" selected, skip Q4-Q8.
+
+RECOMMENDATIONS:
+- Most projects want at least SoftAP + Captive Portal.
+- BLE gives a smoother mobile experience (no WiFi network switching).
+- Improv BLE is great if the user wants browser-based provisioning.
+- CLI is primarily useful during development.
+
+CONSTRAINTS:
+- Improv BLE auto-enables BLE backend.
+- BLE/Improv BLE not available on ESP32-S2.
+
+Q4: PROVISIONING MODE
+---------------------
+Ask: When should provisioning interfaces start?
+Options:
+  a) When connection fails
+     -> WIFI_PROV_ON_FAILURE
+  b) Always - including after provisioning (provisioning runs alongside normal operation)
+     -> WIFI_PROV_ALWAYS
+  c) Only when unprovisioned (once configured, never auto-provision again)
+     -> WIFI_PROV_WHEN_UNPROVISIONED
+  d) Manual trigger only (app calls wifi_cfg_start_ap() explicitly)
+     -> WIFI_PROV_MANUAL
+
+RECOMMENDATIONS:
+- Projects that are going to be located in public environments should use "Only when unprovisioned" or "Manual" to prevent unauthorized users from re-provisioning the device.
+- For development and private environments, "On failure" is usually best so that provisioning is available
+
+Q5: PER-INTERFACE CONFIGURATION
+--------------------------------
+Only ask about interfaces the user selected in Q3.
+
+Q5a: SOFTAP SETTINGS (if SoftAP selected)
+  Ask: Customize the AP name, password, or IP?
+  Defaults:
+    - SSID: "ESP32-Config" (supports {id} placeholder for MAC suffix)
+    - Password: "" (open network)
+    - IP: "192.168.4.1"
+
+  Ask: Enable the enhanced Web UI? Adds an embedded Preact frontend to the captive
+       portal for a much nicer provisioning experience (~10KB gzip).
+    - Yes [recommended] -> CONFIG_WIFI_CFG_ENABLE_WEBUI=y
+    - No (bare captive portal only)
+
+Q5b: BLE SETTINGS (if BLE selected)
+  Ask: Customize the BLE device name?
+  Default: "ESP32-WiFi-{id}" (supports {id} for MAC suffix)
+
+  Ask: Which Bluetooth stack?
+    - Bluedroid (~100KB flash / ~40KB RAM, supports BLE + classic Bluetooth)
+    - NimBLE (lighter: ~50KB flash / ~20KB RAM, but BLE only) [recommended]
+
+Q5c: IMPROV SETTINGS (if Improv selected)
+  Ask: What firmware name, version, and device name should Improv report?
+  Required fields:
+    - firmware_name (e.g., project name)
+    - firmware_version (e.g., "1.0.0")
+    - device_name (human-readable)
+  Optional:
+    - on_identify callback (flash LED / beep on Identify command)
+
+Q5d: IMPROV SERIAL SETTINGS (if Improv Serial selected)
+  Ask: UART port and baud rate?
+  Defaults: UART0, 115200
+
+Q5e: CLI (if CLI selected)
+  No config needed. User must init ESP Console REPL in app_main().
+
+Q6: SHARED HTTP SERVER
+----------------------
+Ask: Will your application run an HTTP server for more than just WiFi 
+  configuration? If yes, do you want to create/maintain your own HTTPD 
+  instance, or have the library create it?
+
+Options:
+  a) No HTTP server other than for initial provisioning [default]
+     -> Library creates/manages/tears down its own HTTPD. No action.
+  b) User wants the library to create/manage the HTTPD
+     -> After wifi_cfg_init(), user can use wifi_cfg_get_httpd() to get handle.
+  c) User wants to create/maintain their own HTTPD server object
+     -> Pass existing httpd_handle_t via .http.httpd field
+     -> Library registers its routes on user's server.
+     -> On deinit, library unregisters routes but does NOT stop the server.
+
+Q7: POST-PROVISIONING TEARDOWN
+-------------------------------
+Q7a: Ask: After connecting to WiFi, stop provisioning interfaces (Soft AP/BLE)?
+  Options:
+    a) Yes [recommended] -> .stop_provisioning_on_connect = true
+    b) No (keep running) -> .stop_provisioning_on_connect = false
+
+Q7b: (if Q7a = yes) Ask: Add a delay before teardown so the captive portal
+     can show the connection result?
+  Options:
+    a) Yes, 5 seconds [recommended] -> .provisioning_teardown_delay_ms = 5000
+    b) No delay -> .provisioning_teardown_delay_ms = 0
+    c) Custom value
+
+Q7c: Ask: After provisioning stops, what should happen to the HTTP server?
+  Options:
+    a) Keep everything (Web UI + API) -> WIFI_HTTP_FULL
+    b) Keep API only -> WIFI_HTTP_API_ONLY
+    c) Shut down HTTP entirely -> WIFI_HTTP_DISABLED
+  Recommendation: DISABLED for headless devices, API_ONLY for remote-managed,
+                  FULL for devices with a local dashboard.
+
+Q8: RECONNECTION BEHAVIOR
+--------------------------
+Q8a: Ask: Auto-reconnect if WiFi is lost?
+  Options:
+    a) Yes [default] -> .auto_reconnect = true (or omit, it's the default)
+    b) No -> .auto_reconnect = false
+
+Q8b: (if Q8a = yes) Ask: If reconnection fails repeatedly, what happens?
+  Options:
+    a) Retry forever [default] -> .max_reconnect_attempts = 0
+    b) After N failures, re-enter provisioning
+       -> .max_reconnect_attempts = N
+       -> .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION
+    c) After N failures, reboot the device
+       -> .max_reconnect_attempts = N
+       -> .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART
+
+Q9: CUSTOM VARIABLES
+--------------------
+Ask: Does your app need key-value settings configurable through provisioning?
+     (e.g., server URL, device name, update interval)
+
+If yes: Collect variable names and default values.
+  -> .default_vars and .default_var_count
+  -> Mention CONFIG_WIFI_CFG_MAX_VARS=10 default can be raised in Kconfig.
+
+Q10: HTTP AUTHENTICATION
+------------------------
+Only ask if the user chose to enable the Soft AP interface in Q3.
+
+Ask: Should the WiFi config REST API require authentication?
+  Options:
+    a) No [default]
+    b) Yes, Basic Auth
+       -> .http.enable_auth = true
+       -> .http.auth_username = "..."
+       -> .http.auth_password = "..."
+
+Q11: DEFAULT NETWORKS
+---------------------
+Ask: Should the firmware include any hardcoded WiFi networks as fallbacks?
+     (Only written to NVS on first boot — after that, NVS is the source of truth)
+
+If yes: Collect SSIDs, passwords, priorities (0-255, higher = tried first).
+  -> .default_networks and .default_network_count
+
+================================================================================
+OUTPUT GENERATION
+================================================================================
+
+After collecting all answers, generate the files below.
+
+IMPORTANT — Understanding flag categories:
+
+There are two categories of configuration flags:
+
+  SYSTEM-LEVEL FLAGS — These configure the ESP-IDF framework itself (Bluetooth
+  stack, partition table, etc.). They MUST go in sdkconfig.defaults (and any
+  target-specific sdkconfig.* files) regardless of whether the library is
+  installed via IDF Component Manager or PlatformIO. PlatformIO projects still
+  use sdkconfig files for system-level configuration.
+
+    Required for BLE (any BLE interface):
+      CONFIG_BT_ENABLED=y
+      CONFIG_BT_BLUEDROID_ENABLED=y  (or CONFIG_BT_NIMBLE_ENABLED=y per Q5b)
+
+    Additional for NimBLE:
+      CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
+
+    Recommended for BLE (larger partition table to fit BLE stack):
+      CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+      NOTE: For PlatformIO users, skip this flag if the user has already set
+      board_build.partitions in platformio.ini — they have already chosen a
+      partition scheme and this flag would conflict.
+
+  LIBRARY-SPECIFIC FLAGS (CONFIG_WIFI_CFG_*) — These configure esp_wifi_config
+  features. Where they go depends on the installation method:
+    - IDF Component Manager / Manual: set in sdkconfig.defaults
+    - PlatformIO: set as build_flags in platformio.ini (-D flags)
+
+    CONFIG_WIFI_CFG_ENABLE_BLE=y        (if any BLE interface selected)
+    CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y      (if Improv BLE selected)
+    CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y   (if Improv Serial selected)
+    CONFIG_WIFI_CFG_ENABLE_WEBUI=y           (if Web UI selected)
+    CONFIG_WIFI_CFG_ENABLE_CLI=y             (if CLI selected)
+
+Include ONLY the lines needed for the user's selected interfaces.
+Do not include lines for features that aren't enabled.
+
+
+FILE 1a: sdkconfig.defaults
+---------------------------
+ALL projects need this file for system-level flags (if any BLE interface is
+selected). IDF Component Manager and Manual installs also put library-specific
+flags (CONFIG_WIFI_CFG_*) here.
+
+PlatformIO projects ALSO need sdkconfig.defaults for system-level flags —
+only the CONFIG_WIFI_CFG_* flags move to platformio.ini build_flags.
+
+FILE 1b: platformio.ini (if user chose PlatformIO in Q2)
+---------------------------
+Add library-specific CONFIG_WIFI_CFG_* flags as build_flags (prefixed with
+-D). Do NOT put system-level flags here — those stay in sdkconfig.defaults.
+
+We will also need to add the library to lib_deps: `thorrak/esp_wifi_config`
+
+FILE 2: main/idf_component.yml
+-------------------------------
+This is only applicable if the user chose installation method (a) ESP-IDF 
+  Component Manager in Q2. If they chose PlatformIO this is configured as
+  described in FILE 1b above. This file may also be located in a `src/`
+  directory (or similar).
+
+dependencies:
+  thorrak/esp_wifi_config: "*"
+
+(esp_bus is pulled in automatically as a transitive dependency)
+
+FILE 3: WiFi Configuration Source File (e.g. wifi_setup.cpp / wifi_setup.h)
+--------------------
+Generate a clean WiFi configuration source file with ONLY the code relevant 
+  to the user's answers. Do not include commented-out blocks for unused 
+  features. You can review the esp_wifi_config library documentation 
+  and examples for reference, but make sure to only include code for 
+  the features the user selected.
+
+Rules:
+- Call nvs_flash_init() and esp_bus_init() before wifi_cfg_init() (if the user has not called them elsewhere in his/her code)
+- Subscribe to events (esp_bus_sub) BEFORE wifi_cfg_init().
+- For C code, use compound literal for config: &(wifi_cfg_config_t){...}
+- For C++ code, compound literals are not valid. Instead declare a stack
+  variable and assign fields:
+    wifi_cfg_config_t config = {};
+    config.field = value;
+    wifi_cfg_init(&config);
+- Only set config fields that DIFFER from defaults.
+- Include esp_console.h only if CLI is enabled.
+- If Q6 = custom endpoints, add wifi_cfg_get_httpd() after init.
+- If Q6 = shared server, pass .http.httpd in config.
+
+Default fields (omit if user wants these):
+  auto_reconnect = true
+  max_retry_per_network = 3
+  retry_interval_ms = 5000
+  retry_max_interval_ms = 60000
+  max_reconnect_attempts = 0
+  provisioning_teardown_delay_ms = 0
+  http_post_prov_mode = WIFI_HTTP_FULL
+  http.api_base_path = "/api/wifi"
+
+FILE 4: main/CMakeLists.txt (or `src/CMakeLists.txt`, or similar)
+----------------------------
+Review this file and see if it currently refers to individual source files. 
+  If it does, add the source file generated in FILE 3 to the list. If it 
+  uses a wildcard (e.g., *.c or *.cpp), no changes are needed.
+
+
+================================================================================
+SCENARIO QUICK-PICKS
+================================================================================
+
+If the user describes their project broadly, pre-fill answers from these
+profiles and confirm with the user before generating code.
+
+CONSUMER IOT DEVICE (sensor, smart plug, etc.)
+  Q3: SoftAP
+  Q4: ON_FAILURE
+  Q5a: Web UI enabled
+  Q7: Tear down, 5s delay, HTTP DISABLED
+  Q8: Retry forever (or re-provision after 10 failures)
+
+DEVELOPMENT / PROTOTYPING
+  Q3: SoftAP + CLI
+  Q4: ALWAYS
+  Q5a: Web UI enabled
+  Q7: Keep running, HTTP FULL
+  Q8: Retry forever
+
+MOBILE-APP-PROVISIONED DEVICE
+  Q3: BLE + SoftAP (fallback)
+  Q4: ON_FAILURE
+  Q5a: Web UI enabled
+  Q7: Tear down, 5s delay, HTTP DISABLED
+  Q8: Re-provision after 10 failures
+
+ESPHOME-STYLE DEVICE (browser provisioning)
+  Q3: Improv BLE + SoftAP (fallback)
+  Q4: ON_FAILURE
+  Q5a: Web UI enabled
+  Q5b: Bluedroid (required for Improv BLE)
+  Q7: Tear down, 5s delay, HTTP DISABLED
+  Q8: Re-provision after 10 failures
+
+LOCAL DASHBOARD / GATEWAY
+  Q3: SoftAP
+  Q4: ALWAYS
+  Q5a: Web UI enabled
+  Q7: Keep running, HTTP FULL
+  Q8: Retry forever
+
+FACTORY-CONFIGURED DEVICE
+  Q3: SoftAP + BLE (on button press)
+  Q4: MANUAL
+  Q5a: No Web UI
+  Q7: Tear down, 5s delay, HTTP API_ONLY
+  Q8: Reboot after 5 failures
+
+HEADLESS SENSOR (minimal resources)
+  Q3: SoftAP only
+  Q4: ON_FAILURE
+  Q5a: No Web UI
+  Q7: Tear down, no delay, HTTP DISABLED
+  Q8: Reboot after 5 failures
+
+================================================================================
+GOTCHAS — ALWAYS VERIFY THESE IN GENERATED CODE
+================================================================================
+
+1. nvs_flash_init() MUST be called before wifi_cfg_init().
+2. esp_bus_init() MUST be called before wifi_cfg_init().
+3. esp_bus_sub() calls MUST come before wifi_cfg_init() to catch early events.
+4. BLE requires CONFIG_BT_ENABLED=y + a host stack + CONFIG_WIFI_CFG_ENABLE_BLE=y.
+5. BLE needs a larger partition table (CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y)
+   unless the user already has a custom partition scheme (e.g., board_build.partitions
+   in platformio.ini).
+6. NimBLE needs CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144.
+8. Improv BLE auto-requires CONFIG_WIFI_CFG_ENABLE_BLE=y.
+9. ESP32-S2 has NO Bluetooth — do not enable BLE/Improv BLE features.
+10. ESP32-H2 has NO WiFi — this library cannot be used.
+11. Default networks are only written to NVS on first boot.
+12. All ESP32 variants are 2.4GHz WiFi only — no 5GHz support.
+13. If user passes their own httpd_handle_t, the library never creates or
+    destroys the server — it only registers/unregisters its own handlers.
