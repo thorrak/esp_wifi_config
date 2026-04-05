@@ -58,7 +58,7 @@ The device advertises the WiFi Service UUID (`0xFFE0`):
 | 0xFFE2 | Command | Write | Send JSON command |
 | 0xFFE3 | Response | Notify | Command response (JSON) |
 
-See [BLE Protocol Reference](../api/ble-protocol) for the full command/response format.
+See [BLE Protocol Reference](../api/ble-protocol.md) for the full command/response format.
 
 ## Stack Ownership & Deinitialization
 

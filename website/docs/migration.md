@@ -40,7 +40,7 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 
 ## Key Changes
 
-- **`provisioning_mode`** replaces the individual boolean flags, giving explicit control over when provisioning activates. See [Provisioning Modes](./provisioning/modes) for details.
+- **`provisioning_mode`** replaces the individual boolean flags, giving explicit control over when provisioning activates. See [Provisioning Modes](./provisioning/modes.md) for details.
 - **`provisioning_teardown_delay_ms`** is new — it adds a delay before tearing down provisioning interfaces so the Web UI can show connection results.
 - **`http_post_prov_mode`** controls what happens to the HTTP server after provisioning stops (keep full, API only, or disable).
 - **`wifi_cfg_deinit()`** signature changed — it no longer takes parameters.

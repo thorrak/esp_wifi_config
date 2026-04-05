@@ -104,7 +104,7 @@ void app_main(void)
 
 ### Required sdkconfig
 
-No special sdkconfig is needed for basic WiFi — the defaults work. To enable optional features, see [Kconfig Options](./api/kconfig).
+No special sdkconfig is needed for basic WiFi — the defaults work. To enable optional features, see [Kconfig Options](./api/kconfig.md).
 
 ## Building and Flashing
 
@@ -116,7 +116,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ## Next Steps
 
-- [Provisioning Modes](./provisioning/modes) — Control when AP/BLE/Improv start
-- [Kconfig Options](./api/kconfig) — Enable Web UI, CLI, BLE, Improv
-- [Examples](./examples) — Complete example projects
-- [AI Integration Guide](./ai-integration-guide) — Scenario-based configuration recipes
+- [Provisioning Modes](./provisioning/modes.md) — Control when AP/BLE/Improv start
+- [Kconfig Options](./api/kconfig.md) — Enable Web UI, CLI, BLE, Improv
+- [Examples](./examples.md) — Complete example projects
+- [AI Integration Guide](./ai-integration-guide.md) — Scenario-based configuration recipes

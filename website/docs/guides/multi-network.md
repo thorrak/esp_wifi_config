@@ -82,7 +82,7 @@ size_t count;
 wifi_cfg_list_networks(networks, 5, &count);
 ```
 
-Networks can also be managed via the [REST API](../api/rest-api), [BLE GATT](../provisioning/ble-gatt), or [CLI](../api/cli-commands).
+Networks can also be managed via the [REST API](../api/rest-api.md), [BLE GATT](../provisioning/ble-gatt.md), or [CLI](../api/cli-commands.md).
 
 ## Connection Flow Diagram
 

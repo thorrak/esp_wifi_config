@@ -79,7 +79,7 @@ All configuration interfaces feed into the same core API. The library uses [esp_
 
 ## Next Steps
 
-- [Getting Started](./getting-started) — Install the component and build your first project
-- [AI Integration Guide](./ai-integration-guide) — For AI coding assistants: how to integrate this library
-- [Provisioning Modes](./provisioning/modes) — Understand when and how provisioning interfaces activate
-- [API Reference](./api/c-api) — Full C API documentation
+- [Getting Started](./getting-started.md) — Install the component and build your first project
+- [AI Integration Guide](./ai-integration-guide.md) — For AI coding assistants: how to integrate this library
+- [Provisioning Modes](./provisioning/modes.md) — Understand when and how provisioning interfaces activate
+- [API Reference](./api/c-api.md) — Full C API documentation

@@ -6,7 +6,7 @@ description: BLE GATT service UUIDs, characteristics, JSON command/response form
 
 # BLE Protocol Reference
 
-This page documents the wire protocol for the custom BLE GATT service. For setup instructions, see [BLE GATT Provisioning](../provisioning/ble-gatt).
+This page documents the wire protocol for the custom BLE GATT service. For setup instructions, see [BLE GATT Provisioning](../provisioning/ble-gatt.md).
 
 ## Service & Characteristics
 
