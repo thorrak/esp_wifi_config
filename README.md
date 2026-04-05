@@ -8,6 +8,16 @@ WiFi configuration component for ESP-IDF with multi-network support, auto-reconn
 
 **Targets:** ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-H2
 
+
+## Configuration Methods Supported
+
+Set up your device with a workflow that works for you and your users:
+
+- Soft AP + Captive Portal
+- Bluetooth (BLE)
+- [Improv WiFi](https://www.improv-wifi.com/) - Serial
+- [Improv WiFi](https://www.improv-wifi.com/) - BLE
+
 ## Features
 
 - Multi-network support with priority-based auto-connect
@@ -15,7 +25,7 @@ WiFi configuration component for ESP-IDF with multi-network support, auto-reconn
 - SoftAP captive portal (triggers OS popup)
 - Embedded Web UI (Preact, ~10KB gzipped)
 - Serial CLI, BLE GATT, Improv WiFi, REST API
-- Custom key-value variable storage (NVS)
+- Custom key-value variable storage (NVS) to allow settings configuration during WiFi setup flow
 - Event-driven via [esp_bus](https://components.espressif.com/components/thorrak/esp_bus)
 
 ## Quick Start

@@ -118,9 +118,9 @@ All menuconfig options changed from `WIFI_MGR_` to `WIFI_CFG_`. If you reference
 | `WIFI_MGR_MAX_VARS` | `WIFI_CFG_MAX_VARS` |
 | `WIFI_MGR_DEFAULT_RETRY` | `WIFI_CFG_DEFAULT_RETRY` |
 | `WIFI_MGR_RETRY_INTERVAL_MS` | `WIFI_CFG_RETRY_INTERVAL_MS` |
-| `WIFI_MGR_AP_SSID` | `WIFI_CFG_AP_SSID` |
-| `WIFI_MGR_AP_PASSWORD` | `WIFI_CFG_AP_PASSWORD` |
-| `WIFI_MGR_AP_IP` | `WIFI_CFG_AP_IP` |
+| `WIFI_MGR_AP_SSID` | Removed — use `wifi_cfg_config_t.default_ap.ssid` |
+| `WIFI_MGR_AP_PASSWORD` | Removed — use `wifi_cfg_config_t.default_ap.password` |
+| `WIFI_MGR_AP_IP` | Removed — use `wifi_cfg_config_t.default_ap.ip` |
 | `WIFI_MGR_MAX_SCAN_RESULTS` | `WIFI_CFG_MAX_SCAN_RESULTS` |
 | `WIFI_MGR_HTTP_MAX_CONTENT_LEN` | `WIFI_CFG_HTTP_MAX_CONTENT_LEN` |
 | `WIFI_MGR_TASK_STACK_SIZE` | `WIFI_CFG_TASK_STACK_SIZE` |
@@ -130,7 +130,7 @@ All menuconfig options changed from `WIFI_MGR_` to `WIFI_CFG_`. If you reference
 | `WIFI_MGR_ENABLE_WEBUI` | `WIFI_CFG_ENABLE_WEBUI` |
 | `WIFI_MGR_WEBUI_CUSTOM_PATH` | `WIFI_CFG_WEBUI_CUSTOM_PATH` |
 | `WIFI_MGR_ENABLE_BLE` | `WIFI_CFG_ENABLE_BLE` |
-| `WIFI_MGR_BLE_DEVICE_NAME` | `WIFI_CFG_BLE_DEVICE_NAME` |
+| `WIFI_MGR_BLE_DEVICE_NAME` | Removed — use `wifi_cfg_config_t.ble.device_name` |
 
 General rule: find-and-replace `WIFI_MGR_` with `WIFI_CFG_` in sdkconfig files and C code.
 

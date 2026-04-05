@@ -476,8 +476,6 @@ typedef void (*wifi_cfg_improv_identify_cb_t)(void);
  * Reference: https://www.improv-wifi.com/
  */
 typedef struct {
-    bool enable_ble;                          ///< Enable Improv BLE transport
-    bool enable_serial;                       ///< Enable Improv Serial transport
     int serial_uart_num;                      ///< UART port number (default UART_NUM_0)
     int serial_baud_rate;                     ///< Baud rate (default 115200)
     const char *firmware_name;                ///< Reported in Device Info RPC

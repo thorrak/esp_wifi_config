@@ -13,9 +13,6 @@ description: Open-standard provisioning via Web Bluetooth and Web Serial
 ### Kconfig
 
 ```kconfig
-# Master switch
-CONFIG_WIFI_CFG_ENABLE_IMPROV=y
-
 # BLE transport (requires Bluetooth enabled)
 CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
 
@@ -32,13 +29,12 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .provisioning_mode = WIFI_PROV_ON_FAILURE,
     .stop_provisioning_on_connect = true,
     .enable_ap = true,
+    // Transports selected via Kconfig (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL)
     .improv = {
-        .enable_ble = true,
-        .enable_serial = false,
         .firmware_name = "my_project",
         .firmware_version = "1.0.0",
         .device_name = "My Device",
-        .on_identify = my_identify_callback,  // Optional: flash LED on Identify
+        .on_identify = my_identify_callback,  // Optional: flash LED/make noise on Identify
     },
 });
 ```
@@ -75,7 +71,7 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 
 ## Coexistence with Custom BLE
 
-When both `ble.enable` and `improv.enable_ble` are `true`:
+When both custom BLE (`ble.enable = true`) and Improv BLE (`CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y`) are active:
 
 - The custom service (UUID `0xFFE0`) is in the primary advertising packet
 - The Improv service (UUID `00467768-6228-2272-4663-277478268000`) is in the scan response

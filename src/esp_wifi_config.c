@@ -54,14 +54,14 @@ void wifi_cfg_send_event_data(const wifi_cfg_event_t *event)
 
 static void set_default_ap_config(wifi_cfg_ap_config_t *ap)
 {
-    strncpy(ap->ssid, CONFIG_WIFI_CFG_AP_SSID, sizeof(ap->ssid) - 1);
-    strncpy(ap->password, CONFIG_WIFI_CFG_AP_PASSWORD, sizeof(ap->password) - 1);
+    strncpy(ap->ssid, WIFI_CFG_DEFAULT_AP_SSID, sizeof(ap->ssid) - 1);
+    strncpy(ap->password, WIFI_CFG_DEFAULT_AP_PASSWORD, sizeof(ap->password) - 1);
     ap->channel = 0;
     ap->max_connections = 4;
     ap->hidden = false;
-    strncpy(ap->ip, CONFIG_WIFI_CFG_AP_IP, sizeof(ap->ip) - 1);
+    strncpy(ap->ip, WIFI_CFG_DEFAULT_AP_IP, sizeof(ap->ip) - 1);
     strncpy(ap->netmask, "255.255.255.0", sizeof(ap->netmask) - 1);
-    strncpy(ap->gateway, CONFIG_WIFI_CFG_AP_IP, sizeof(ap->gateway) - 1);
+    strncpy(ap->gateway, WIFI_CFG_DEFAULT_AP_IP, sizeof(ap->gateway) - 1);
     strncpy(ap->dhcp_start, "192.168.4.2", sizeof(ap->dhcp_start) - 1);
     strncpy(ap->dhcp_end, "192.168.4.20", sizeof(ap->dhcp_end) - 1);
 }
@@ -92,7 +92,7 @@ void wifi_cfg_start_provisioning(void)
     {
         bool need_ble = g_wifi_cfg->config.ble.enable;
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-        need_ble = need_ble || g_wifi_cfg->config.improv.enable_ble;
+        need_ble = true;
 #endif
         if (need_ble && !g_wifi_cfg->ble_active) {
             if (wifi_cfg_ble_start() == ESP_OK) {
@@ -416,7 +416,7 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     {
         bool need_ble = (config && config->ble.enable);
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-        need_ble = need_ble || (config && config->improv.enable_ble);
+        need_ble = true;
 #endif
         if (need_ble) {
             ret = wifi_cfg_ble_init();
@@ -429,11 +429,9 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
 
     // Init Improv WiFi if enabled
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
-    if (config && (config->improv.enable_ble || config->improv.enable_serial)) {
-        ret = wifi_cfg_improv_init();
-        if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Improv init failed: %s", esp_err_to_name(ret));
-        }
+    ret = wifi_cfg_improv_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Improv init failed: %s", esp_err_to_name(ret));
     }
 #endif
 

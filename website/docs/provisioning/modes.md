@@ -37,8 +37,8 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .enable_ap = true,
 
     // Optionally enable BLE and/or Improv as additional provisioning interfaces
+    // (Improv transports are selected at compile time via Kconfig)
     .ble = { .enable = true },
-    .improv = { .enable_ble = true },
 });
 ```
 

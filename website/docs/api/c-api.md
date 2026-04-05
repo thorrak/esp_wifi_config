@@ -163,10 +163,8 @@ wifi_cfg_config_t config = {
         .device_name = "ESP32-WiFi-{id}",
     },
 
-    // Improv WiFi (requires CONFIG_WIFI_CFG_ENABLE_IMPROV=y)
+    // Improv WiFi (transports selected via Kconfig: CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL)
     .improv = {
-        .enable_ble = true,
-        .enable_serial = false,
         .firmware_name = "my_project",
         .firmware_version = "1.0.0",
         .device_name = "My Device",

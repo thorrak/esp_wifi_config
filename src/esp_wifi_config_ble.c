@@ -503,7 +503,7 @@ esp_err_t wifi_cfg_ble_init(void)
     // Expand device name template
     const char *name_template = g_wifi_cfg->config.ble.device_name;
     if (!name_template || !name_template[0]) {
-        name_template = CONFIG_WIFI_CFG_BLE_DEVICE_NAME;
+        name_template = WIFI_CFG_DEFAULT_BLE_DEVICE_NAME;
     }
 
     char device_name[32];

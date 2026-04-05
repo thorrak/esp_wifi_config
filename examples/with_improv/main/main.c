@@ -131,16 +131,17 @@ void app_main(void)
 
         // Custom BLE GATT (0xFFE0) — JSON-based protocol
         // Can be disabled if only Improv is needed; the BLE stack will still
-        // be initialized automatically when .improv.enable_ble is true.
+        // be initialized automatically when Improv BLE is enabled in Kconfig.
         .ble = {
             .enable = false,
-            .device_name = NULL,  // Kconfig default: "ESP32-WiFi-{id}"
+            .device_name = NULL,  // Default: "ESP32-WiFi-{id}"
         },
 
         // Improv WiFi — open standard for browser/app provisioning
+        // Transports are selected at compile time via Kconfig:
+        //   CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y   (Web Bluetooth)
+        //   CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y (Web Serial)
         .improv = {
-            .enable_ble = true,               // Improv BLE (Web Bluetooth)
-            .enable_serial = false,            // Set true for Improv Serial (Web Serial)
             .firmware_name = "wifi_improv_example",
             .firmware_version = "1.0.0",
             .device_name = "ESP32 Improv Demo",

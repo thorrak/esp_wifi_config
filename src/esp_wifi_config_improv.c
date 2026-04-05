@@ -424,7 +424,7 @@ esp_err_t wifi_cfg_improv_init(void)
     s_sub_disconnected = esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
-    if (g_wifi_cfg->config.improv.enable_serial) {
+    {
         esp_err_t ret = wifi_cfg_improv_serial_init();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Improv Serial init failed: %s", esp_err_to_name(ret));
@@ -433,7 +433,7 @@ esp_err_t wifi_cfg_improv_init(void)
 #endif
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-    if (g_wifi_cfg->config.improv.enable_ble) {
+    {
         esp_err_t ret = wifi_cfg_improv_ble_init();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Improv BLE init failed: %s", esp_err_to_name(ret));
@@ -478,17 +478,13 @@ esp_err_t wifi_cfg_improv_start(void)
     s_error = IMPROV_ERROR_NONE;
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
-    if (g_wifi_cfg->config.improv.enable_serial) {
-        wifi_cfg_improv_serial_start();
-        g_wifi_cfg->improv_serial_active = true;
-    }
+    wifi_cfg_improv_serial_start();
+    g_wifi_cfg->improv_serial_active = true;
 #endif
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-    if (g_wifi_cfg->config.improv.enable_ble) {
-        wifi_cfg_improv_ble_start();
-        g_wifi_cfg->improv_ble_active = true;
-    }
+    wifi_cfg_improv_ble_start();
+    g_wifi_cfg->improv_ble_active = true;
 #endif
 
     return ESP_OK;
