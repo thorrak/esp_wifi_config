@@ -315,10 +315,11 @@ Rules:
 - Call nvs_flash_init() and esp_bus_init() before wifi_cfg_init() (if the user has not called them elsewhere in his/her code)
 - Subscribe to events (esp_bus_sub) BEFORE wifi_cfg_init().
 - For C code, use compound literal for config: &(wifi_cfg_config_t){...}
-- For C++ code, compound literals are not valid. Instead declare a stack
-  variable and assign fields:
-    wifi_cfg_config_t config = {};
-    config.field = value;
+- For C++ code, compound literals (&(type){...}) are not valid. Instead
+  use a named variable with designated initializers (supported by GCC):
+    wifi_cfg_config_t config = {
+        .field = value,
+    };
     wifi_cfg_init(&config);
 - Only set config fields that DIFFER from defaults.
 - Include esp_console.h only if CLI is enabled.
