@@ -281,14 +281,14 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
         strncpy(g_wifi_cfg->auth_password, config->http.auth_password, sizeof(g_wifi_cfg->auth_password) - 1);
     }
     
-    // Init TCP/IP stack (có thể đã init bởi component khác)
+    // Init TCP/IP stack (may have already been initialized by another component)
     ret = esp_netif_init();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "netif init failed: %s", esp_err_to_name(ret));
         goto cleanup;
     }
     
-    // Event loop (có thể đã init bởi component khác)
+    // Event loop (may have already been initialized by another component)
     ret = esp_event_loop_create_default();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "event loop create failed: %s", esp_err_to_name(ret));
@@ -312,7 +312,7 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
         g_wifi_cfg->ap_netif_owned = false;
     }
     
-    // Init WiFi (có thể đã init bởi component khác)
+    // Init WiFi (may have already been initialized by another component)
     wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
     ret = esp_wifi_init(&wifi_cfg);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
@@ -518,7 +518,7 @@ esp_err_t wifi_cfg_deinit(bool deinit_wifi)
         }
     }
         
-    // Task tự delete khi nhận WM_INT_EVT_STOP, không cần delete lại
+    // Task auto-deletes when it receives WM_INT_EVT_STOP, no need to delete again
     g_wifi_cfg->task = NULL;
     vSemaphoreDelete(g_wifi_cfg->mutex);
     vEventGroupDelete(g_wifi_cfg->event_group);

@@ -27,7 +27,7 @@ static const char *TAG = "wifi_cfg_nvs";
 
 esp_err_t wifi_cfg_nvs_init(void)
 {
-    // NVS có thể đã được init bởi component khác
+    // NVS may have already been initialized by another component
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS partition truncated, erasing...");
