@@ -1,0 +1,17 @@
+name: Publish to ESP Component Registry
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: espressif/upload-components-ci-action@v2
+        with:
+          name: esp_wifi_config
+          namespace: thorrak
+          api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
