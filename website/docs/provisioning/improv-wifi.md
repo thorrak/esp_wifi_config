@@ -71,7 +71,7 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 
 ## Coexistence with Custom BLE
 
-When both custom BLE (`ble.enable = true`) and Improv BLE (`CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y`) are active:
+When both custom BLE (`CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y`) and Improv BLE (`CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y`) are active:
 
 - The custom service (UUID `0xFFE0`) is in the primary advertising packet
 - The Improv service (UUID `00467768-6228-2272-4663-277478268000`) is in the scan response
@@ -80,4 +80,4 @@ When both custom BLE (`ble.enable = true`) and Improv BLE (`CONFIG_WIFI_CFG_ENAB
 
 ## BLE Stack Requirements
 
-Improv BLE requires the same Bluetooth stack setup as the [custom BLE GATT](./ble-gatt.md) interface. If you enable Improv BLE, the Bluetooth stack and `CONFIG_WIFI_CFG_ENABLE_BLE` are implicitly required. See the [with_improv example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_improv) for a complete sdkconfig.
+Improv BLE requires the same Bluetooth stack (`CONFIG_BT_ENABLED=y` + a host stack) as the [custom BLE GATT](./ble-gatt.md) interface, but does **not** require `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE`. The BLE stack is initialized automatically when Improv BLE is enabled. See the [with_improv example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_improv) for a complete sdkconfig.

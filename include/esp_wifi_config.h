@@ -454,9 +454,10 @@ typedef struct {
  * @brief BLE configuration
  *
  * Cấu hình BLE GATT interface. Device name hỗ trợ template {id}.
+ * BLE interfaces are enabled at compile time via Kconfig
+ * (CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE and/or CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE).
  */
 typedef struct {
-    bool enable;                ///< Enable BLE interface
     const char *device_name;    ///< BLE device name, e.g., "ESP32-WiFi-{id}", default from Kconfig
 } wifi_cfg_ble_config_t;
 

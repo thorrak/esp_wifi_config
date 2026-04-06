@@ -88,16 +88,10 @@ void wifi_cfg_start_provisioning(void)
     }
 
     // Start BLE if enabled and not already active (custom BLE or Improv BLE)
-#ifdef CONFIG_WIFI_CFG_ENABLE_BLE
-    {
-        bool need_ble = g_wifi_cfg->config.ble.enable;
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-        need_ble = true;
-#endif
-        if (need_ble && !g_wifi_cfg->ble_active) {
-            if (wifi_cfg_ble_start() == ESP_OK) {
-                g_wifi_cfg->ble_active = true;
-            }
+#ifdef WIFI_CFG_NEED_BLE
+    if (!g_wifi_cfg->ble_active) {
+        if (wifi_cfg_ble_start() == ESP_OK) {
+            g_wifi_cfg->ble_active = true;
         }
     }
 #endif
@@ -129,7 +123,7 @@ void wifi_cfg_stop_provisioning(void)
     }
 
     // Stop BLE if active
-#ifdef CONFIG_WIFI_CFG_ENABLE_BLE
+#ifdef WIFI_CFG_NEED_BLE
     if (g_wifi_cfg->ble_active) {
         wifi_cfg_ble_stop();
         g_wifi_cfg->ble_active = false;
@@ -411,19 +405,11 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     }
 #endif
 
-    // Init BLE if enabled (custom BLE or Improv BLE — both need the BLE backend)
-#ifdef CONFIG_WIFI_CFG_ENABLE_BLE
-    {
-        bool need_ble = (config && config->ble.enable);
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-        need_ble = true;
-#endif
-        if (need_ble) {
-            ret = wifi_cfg_ble_init();
-            if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "BLE init failed: %s", esp_err_to_name(ret));
-            }
-        }
+    // Init BLE stack if any BLE interface is enabled (custom BLE or Improv BLE)
+#ifdef WIFI_CFG_NEED_BLE
+    ret = wifi_cfg_ble_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "BLE init failed: %s", esp_err_to_name(ret));
     }
 #endif
 
@@ -485,7 +471,7 @@ esp_err_t wifi_cfg_deinit(bool deinit_wifi)
     wifi_cfg_improv_deinit();
 #endif
 
-#ifdef CONFIG_WIFI_CFG_ENABLE_BLE
+#ifdef WIFI_CFG_NEED_BLE
     // Stop BLE advertising before full deinit
     if (g_wifi_cfg->ble_active) {
         wifi_cfg_ble_stop();

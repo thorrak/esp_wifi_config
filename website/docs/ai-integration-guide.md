@@ -63,7 +63,7 @@ This affects project setup but not runtime code.
 |---|---|---|---|
 | **SoftAP + Captive Portal** | Device creates a WiFi AP; user connects and configures via browser popup | Nothing extra | (none — runtime `enable_ap = true`) |
 | **Web UI** | Embedded Preact frontend served on the captive portal (richer than plain API) | SoftAP enabled | `CONFIG_WIFI_CFG_ENABLE_WEBUI=y` |
-| **BLE GATT** | Configure via Bluetooth (smartphone app or Python CLI) | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_BLE=y` + BT stack |
+| **BLE GATT** | Configure via Bluetooth (smartphone app or Python CLI) | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y` + BT stack |
 | **Improv WiFi (BLE)** | Open standard provisioning via Chrome/Edge Web Bluetooth or ESPHome app | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y` + BT stack |
 | **Improv WiFi (Serial)** | Open standard provisioning via Chrome/Edge Web Serial | UART access | `CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y` |
 | **CLI** | Serial console commands (`wifi status`, `wifi scan`, etc.) | ESP Console REPL init in app code | `CONFIG_WIFI_CFG_ENABLE_CLI=y` |
@@ -251,7 +251,7 @@ Build the sdkconfig from Q3 and Q5 answers:
 CONFIG_BT_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=y          # or CONFIG_BT_NIMBLE_ENABLED=y (see Q5b)
 # CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144  # only if NimBLE
-CONFIG_WIFI_CFG_ENABLE_BLE=y
+CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y       # if custom BLE GATT selected
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y  # BLE adds ~100KB flash
 
 # === Improv (if Q3 includes Improv) ===
@@ -340,9 +340,8 @@ void app_main(void)
         //     .auth_password = "changeme",    // Q10
         // },
 
-        // -- BLE (Q3 + Q5b) --
+        // -- BLE (Q3 + Q5b) — enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y --
         // .ble = {
-        //     .enable = true,
         //     .device_name = "ESP32-WiFi-{id}",  // Q5b
         // },
 
@@ -405,7 +404,7 @@ void app_main(void)
 4. **BLE needs larger partition table**: Use `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` when enabling BLE.
 5. **NimBLE needs stack size**: Set `CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144` when using NimBLE.
 6. **Improv BLE requires Bluedroid**: NimBLE is not compatible with the Improv BLE transport.
-7. **Improv requires BLE backend**: Enabling Improv BLE implicitly requires `CONFIG_WIFI_CFG_ENABLE_BLE=y`.
+7. **Improv BLE is independent**: Improv BLE no longer requires `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y`. The BLE stack is initialized automatically when either BLE interface is enabled.
 8. **Default networks are seeds**: They're only written to NVS on first boot. After that, NVS is the source of truth.
 9. **ESP32 is 2.4GHz only**: The device cannot connect to 5GHz WiFi networks.
 10. **Subscribe to events before init**: Call `esp_bus_sub()` before `wifi_cfg_init()` to catch events fired during initialization.

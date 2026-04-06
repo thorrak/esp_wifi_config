@@ -84,15 +84,17 @@ menu "WiFi Config"
             embedded defaults. Leave empty to use embedded Web UI.
             Example: "/littlefs" or "/spiffs"
 
-    config WIFI_CFG_ENABLE_BLE
-        bool "Enable BLE interface"
+    config WIFI_CFG_ENABLE_CUSTOM_BLE
+        bool "Enable custom BLE GATT interface"
         default n
         depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
         help
-            Enable Bluetooth Low Energy interface for WiFi configuration.
-            Allows configuration via BLE GATT from mobile apps or CLI tools.
+            Enable the library's custom BLE GATT service (UUID 0xFFE0) for WiFi
+            configuration via JSON commands. Allows configuration from mobile apps
+            or the included Python CLI tool.
             Requires Bluetooth to be enabled in menuconfig.
             Works with both Bluedroid and NimBLE host stacks.
+            Can be enabled independently of Improv WiFi BLE.
 
     menu "Improv WiFi"
 
@@ -100,12 +102,13 @@ menu "WiFi Config"
             bool "Enable Improv BLE transport"
             default n
             depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
-            select WIFI_CFG_ENABLE_BLE
             help
-                Enable the Improv WiFi BLE transport. Registers a separate GATT
-                service (UUID 00467768-...) alongside the existing custom BLE service.
-                Requires Bluetooth to be enabled. Automatically enables the BLE
-                backend (WIFI_CFG_ENABLE_BLE) for stack and advertising management.
+                Enable the Improv WiFi BLE transport. Registers a GATT service
+                (UUID 00467768-...) for provisioning via Web Bluetooth or the
+                ESPHome companion app.
+                Requires Bluetooth to be enabled.
+                Can be enabled independently of the custom BLE GATT interface.
+                The BLE stack is initialized automatically when this is enabled.
                 Reference: https://www.improv-wifi.com/
 
         config WIFI_CFG_ENABLE_IMPROV_SERIAL

@@ -157,9 +157,8 @@ wifi_cfg_config_t config = {
         .auth_password = "secret",
     },
 
-    // BLE GATT (requires CONFIG_WIFI_CFG_ENABLE_BLE=y)
+    // BLE GATT (requires CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y)
     .ble = {
-        .enable = true,
         .device_name = "ESP32-WiFi-{id}",
     },
 

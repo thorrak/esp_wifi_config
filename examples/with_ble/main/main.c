@@ -95,9 +95,8 @@ void app_main(void)
             .enable_auth = false,
         },
 
-        // BLE GATT configuration
+        // BLE GATT configuration (enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y in sdkconfig)
         .ble = {
-            .enable = true,
             .device_name = NULL,  // Use Kconfig default: "ESP32-WiFi-{id}"
         },
     };

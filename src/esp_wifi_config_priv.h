@@ -50,6 +50,11 @@ extern "C" {
 #endif
 #endif
 
+// Convenience: BLE stack is needed if either custom BLE or Improv BLE is enabled
+#if defined(CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE) || defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
+#define WIFI_CFG_NEED_BLE 1
+#endif
+
 #define WIFI_CFG_DEFAULT_AP_SSID "ESP32-Config"
 #define WIFI_CFG_DEFAULT_AP_PASSWORD ""
 #define WIFI_CFG_DEFAULT_AP_IP "192.168.4.1"

@@ -5,7 +5,7 @@
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_WIFI_CFG_ENABLE_BLE) && defined(CONFIG_BT_BLUEDROID_ENABLED)
+#if (defined(CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE) || defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)) && defined(CONFIG_BT_BLUEDROID_ENABLED)
 
 #include "esp_wifi_config_ble_int.h"
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
@@ -531,4 +531,4 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_CFG_ENABLE_BLE && CONFIG_BT_BLUEDROID_ENABLED
+#endif // (CUSTOM_BLE || IMPROV_BLE) && BT_BLUEDROID_ENABLED

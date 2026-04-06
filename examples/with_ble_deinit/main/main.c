@@ -330,8 +330,8 @@ void app_main(void)
         },
 
         // WiFi Config will detect NimBLE already running and use service-only mode
+        // (enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y in sdkconfig)
         .ble = {
-            .enable = true,
             .device_name = NULL,
         },
     };

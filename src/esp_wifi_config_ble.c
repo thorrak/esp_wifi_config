@@ -12,7 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#ifdef CONFIG_WIFI_CFG_ENABLE_BLE
+#ifdef WIFI_CFG_NEED_BLE
 
 #include "esp_wifi_config_ble_int.h"
 
@@ -546,7 +546,7 @@ esp_err_t wifi_cfg_ble_deinit(void)
     return wifi_cfg_ble_backend_deinit();
 }
 
-#else // CONFIG_WIFI_CFG_ENABLE_BLE
+#else // WIFI_CFG_NEED_BLE
 
 esp_err_t wifi_cfg_ble_init(void)
 {
@@ -568,4 +568,4 @@ esp_err_t wifi_cfg_ble_deinit(void)
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_CFG_ENABLE_BLE
+#endif // WIFI_CFG_NEED_BLE

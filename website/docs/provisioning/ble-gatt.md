@@ -13,7 +13,7 @@ ESP WiFi Config provides a BLE GATT service for configuring WiFi from a smartpho
 ### 1. Kconfig
 
 ```kconfig
-CONFIG_WIFI_CFG_ENABLE_BLE=y
+CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y
 ```
 
 ### 2. Bluetooth Stack (choose one)
@@ -41,7 +41,6 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .stop_provisioning_on_connect = true,
     .enable_ap = true,
     .ble = {
-        .enable = true,
         .device_name = "ESP32-WiFi-{id}",  // NULL uses Kconfig default
     },
 });
@@ -77,7 +76,7 @@ nimble_port_init();
 nimble_port_freertos_init(nimble_host_task);
 
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .ble = { .enable = true },
+    // BLE is enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y in sdkconfig
 });
 
 // Later: WiFi Config removes its GATT service but NimBLE keeps running
@@ -97,7 +96,7 @@ esp_bluedroid_init();
 esp_bluedroid_enable();
 
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .ble = { .enable = true },
+    // BLE is enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y in sdkconfig
 });
 
 // Later: WiFi Config unregisters its GATT app but Bluedroid keeps running

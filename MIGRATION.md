@@ -129,12 +129,44 @@ All menuconfig options changed from `WIFI_MGR_` to `WIFI_CFG_`. If you reference
 | `WIFI_MGR_ENABLE_CLI` | `WIFI_CFG_ENABLE_CLI` |
 | `WIFI_MGR_ENABLE_WEBUI` | `WIFI_CFG_ENABLE_WEBUI` |
 | `WIFI_MGR_WEBUI_CUSTOM_PATH` | `WIFI_CFG_WEBUI_CUSTOM_PATH` |
-| `WIFI_MGR_ENABLE_BLE` | `WIFI_CFG_ENABLE_BLE` |
+| `WIFI_MGR_ENABLE_BLE` | `WIFI_CFG_ENABLE_CUSTOM_BLE` |
 | `WIFI_MGR_BLE_DEVICE_NAME` | Removed — use `wifi_cfg_config_t.ble.device_name` |
 
 General rule: find-and-replace `WIFI_MGR_` with `WIFI_CFG_` in sdkconfig files and C code.
 
 **Important:** After updating, run `idf.py fullclean` and re-run `idf.py menuconfig` to regenerate your sdkconfig with the new option names. Old `CONFIG_WIFI_MGR_*` entries in an existing sdkconfig will be silently ignored, reverting those settings to their defaults.
+
+
+## BLE Kconfig Rename and `ble.enable` Removal
+
+| Old | New |
+|-----|-----|
+| `WIFI_CFG_ENABLE_BLE` | `WIFI_CFG_ENABLE_CUSTOM_BLE` |
+
+Update your `sdkconfig.defaults`:
+
+```kconfig
+# Old
+CONFIG_WIFI_CFG_ENABLE_BLE=y
+
+# New
+CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y
+```
+
+The `enable` field has been removed from `wifi_cfg_ble_config_t`. BLE is now enabled entirely at compile time via Kconfig. The `device_name` field remains.
+
+```c
+// Old
+.ble = {
+    .enable = true,
+    .device_name = "ESP32-WiFi-{id}",
+},
+
+// New
+.ble = {
+    .device_name = "ESP32-WiFi-{id}",
+},
+```
 
 
 ## Changed Function Signatures

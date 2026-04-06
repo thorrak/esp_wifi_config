@@ -14,10 +14,7 @@ CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
 #     CONFIG_BT_NIMBLE_ENABLED=y
 #     CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
 
-# WiFi Manager BLE (custom GATT protocol)
-CONFIG_WIFI_CFG_ENABLE_BLE=y
-
-# Improv WiFi (standard protocol)
+# Improv WiFi (standard protocol — BLE stack is initialized automatically)
 CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
 # Uncomment to also enable Improv Serial over UART:
 # CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y

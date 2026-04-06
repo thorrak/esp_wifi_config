@@ -265,7 +265,7 @@ There are two categories of configuration flags:
     - IDF Component Manager / Manual: set in sdkconfig.defaults
     - PlatformIO: set as build_flags in platformio.ini (-D flags)
 
-    CONFIG_WIFI_CFG_ENABLE_BLE=y        (if any BLE interface selected)
+    CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y      (if custom BLE GATT selected)
     CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y      (if Improv BLE selected)
     CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y   (if Improv Serial selected)
     CONFIG_WIFI_CFG_ENABLE_WEBUI=y           (if Web UI selected)
@@ -407,12 +407,12 @@ GOTCHAS — ALWAYS VERIFY THESE IN GENERATED CODE
 1. nvs_flash_init() MUST be called before wifi_cfg_init().
 2. esp_bus_init() MUST be called before wifi_cfg_init().
 3. esp_bus_sub() calls MUST come before wifi_cfg_init() to catch early events.
-4. BLE requires CONFIG_BT_ENABLED=y + a host stack + CONFIG_WIFI_CFG_ENABLE_BLE=y.
+4. Custom BLE requires CONFIG_BT_ENABLED=y + a host stack + CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y.
 5. BLE needs a larger partition table (CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y)
    unless the user already has a custom partition scheme (e.g., board_build.partitions
    in platformio.ini).
 6. NimBLE needs CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144.
-8. Improv BLE auto-requires CONFIG_WIFI_CFG_ENABLE_BLE=y.
+8. Improv BLE is independent of custom BLE — the BLE stack inits automatically.
 9. ESP32-S2 has NO Bluetooth — do not enable BLE/Improv BLE features.
 10. ESP32-H2 has NO WiFi — this library cannot be used.
 11. Default networks are only written to NVS on first boot.
