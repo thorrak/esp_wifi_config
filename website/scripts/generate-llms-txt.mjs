@@ -32,7 +32,6 @@ const PAGE_ORDER = [
   'api/cli-commands.md',
   'api/kconfig.md',
   'examples.md',
-  'migration.md',
 ];
 
 function stripFrontmatter(content) {
