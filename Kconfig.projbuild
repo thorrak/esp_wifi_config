@@ -88,6 +88,9 @@ menu "WiFi Config"
         bool "Enable custom BLE GATT interface"
         default n
         depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
+        select BT_NIMBLE_ROLE_PERIPHERAL if BT_NIMBLE_ENABLED
+        select BT_NIMBLE_ROLE_BROADCASTER if BT_NIMBLE_ENABLED
+        select BT_NIMBLE_GATT_SERVER if BT_NIMBLE_ENABLED
         help
             Enable the library's custom BLE GATT service (UUID 0xFFE0) for WiFi
             configuration via JSON commands. Allows configuration from mobile apps
@@ -96,12 +99,22 @@ menu "WiFi Config"
             Works with both Bluedroid and NimBLE host stacks.
             Can be enabled independently of Improv WiFi BLE.
 
+            When using NimBLE, this automatically selects the peripheral role,
+            broadcaster role, and GATT server (required to advertise and expose
+            the configuration service). Without these, NimBLE compiles as a
+            client-only stack and the GATT server symbols are stripped from
+            libbt.a, producing link errors like "undefined reference to
+            ble_gatts_notify_custom".
+
     menu "Improv WiFi"
 
         config WIFI_CFG_ENABLE_IMPROV_BLE
             bool "Enable Improv BLE transport"
             default n
             depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
+            select BT_NIMBLE_ROLE_PERIPHERAL if BT_NIMBLE_ENABLED
+            select BT_NIMBLE_ROLE_BROADCASTER if BT_NIMBLE_ENABLED
+            select BT_NIMBLE_GATT_SERVER if BT_NIMBLE_ENABLED
             help
                 Enable the Improv WiFi BLE transport. Registers a GATT service
                 (UUID 00467768-...) for provisioning via Web Bluetooth or the
@@ -110,6 +123,10 @@ menu "WiFi Config"
                 Can be enabled independently of the custom BLE GATT interface.
                 The BLE stack is initialized automatically when this is enabled.
                 Reference: https://www.improv-wifi.com/
+
+                When using NimBLE, this automatically selects the peripheral
+                role, broadcaster role, and GATT server, which are required to
+                advertise and expose the Improv service.
 
         config WIFI_CFG_ENABLE_IMPROV_SERIAL
             bool "Enable Improv Serial transport"
