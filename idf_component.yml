@@ -1,4 +1,4 @@
-version: "0.0.3"
+version: "0.0.4"
 description: WiFi Config component with multi-network support, auto-reconnect, SoftAP captive portal, and REST API configuration
 url: https://github.com/thorrak/esp_wifi_config
 repository: https://github.com/thorrak/esp_wifi_config.git
