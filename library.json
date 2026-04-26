@@ -1,6 +1,6 @@
 {
   "name": "esp_wifi_config",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "WiFi configuration library for ESP-IDF with multi-network support, auto-reconnect, SoftAP captive portal, BLE provisioning, and REST API",
   "keywords": "wifi, esp32, esp-idf, captive-portal, softap, ble, provisioning, improv, configuration",
   "repository": {
