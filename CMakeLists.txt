@@ -21,11 +21,13 @@ set(EMBED_FILES)
 if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
     list(APPEND SRCS "src/esp_wifi_config_webui.c")
     # Embed gzipped frontend files
-    set(EMBED_FILES
-        "frontend/dist/index.html"
-        "frontend/dist/assets/app.js.gz"
-        "frontend/dist/assets/index.css.gz"
-    )
+    if(NOT CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH)
+        list(APPEND EMBED_FILES
+            "frontend/dist/index.html"
+            "frontend/dist/assets/app.js.gz"
+            "frontend/dist/assets/index.css.gz"
+        )
+    endif()
 endif()
 
 # Improv Serial needs driver component
