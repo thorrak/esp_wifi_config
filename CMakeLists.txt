@@ -36,6 +36,23 @@ if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
     list(APPEND PRIV_REQUIRES driver)
 endif()
 
+# BLE stack is needed if either custom BLE or Improv BLE is enabled.
+if(CONFIG_BT_ENABLED AND (CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE OR CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE))
+    list(APPEND PRIV_REQUIRES bt)
+    # Shared BLE layer (command routing, JSON protocol, init/deinit)
+    list(APPEND SRCS "src/esp_wifi_config_ble.c")
+    # Stack-specific backend
+    if(CONFIG_BT_BLUEDROID_ENABLED)
+        list(APPEND SRCS "src/esp_wifi_config_ble_bluedroid.c")
+    elseif(CONFIG_BT_NIMBLE_ENABLED)
+        list(APPEND SRCS "src/esp_wifi_config_ble_nimble.c")
+    endif()
+    # Improv BLE transport
+    if(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
+        list(APPEND SRCS "src/esp_wifi_config_improv_ble.c")
+    endif()
+endif()
+
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS
@@ -61,23 +78,3 @@ if(CONFIG_WIFI_CFG_ENABLE_CLI)
     target_link_libraries(${lib} PRIVATE ${console_lib})
 endif()
 
-# Add BLE support after component registration.
-# bt include paths are propagated via target_link_libraries.
-# BLE stack is needed if either custom BLE or Improv BLE is enabled.
-if(CONFIG_BT_ENABLED AND (CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE OR CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE))
-    idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
-    # Shared BLE layer (command routing, JSON protocol, init/deinit)
-    target_sources(${lib} PRIVATE "src/esp_wifi_config_ble.c")
-    # Stack-specific backend
-    if(CONFIG_BT_BLUEDROID_ENABLED)
-        target_sources(${lib} PRIVATE "src/esp_wifi_config_ble_bluedroid.c")
-    elseif(CONFIG_BT_NIMBLE_ENABLED)
-        target_sources(${lib} PRIVATE "src/esp_wifi_config_ble_nimble.c")
-    endif()
-    # Improv BLE transport
-    if(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
-        target_sources(${lib} PRIVATE "src/esp_wifi_config_improv_ble.c")
-    endif()
-    idf_component_get_property(bt_lib bt COMPONENT_LIB)
-    target_link_libraries(${lib} PRIVATE ${bt_lib})
-endif()
