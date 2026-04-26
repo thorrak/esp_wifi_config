@@ -78,3 +78,17 @@ if(CONFIG_WIFI_CFG_ENABLE_CLI)
     target_link_libraries(${lib} PRIVATE ${console_lib})
 endif()
 
+# Belt-and-suspenders BLE include/link propagation.
+# PRIV_REQUIRES bt (above) handles ESP-IDF's dep graph and final-exe link,
+# but some build flows (e.g. PlatformIO's espressif32 platform) don't
+# always forward bt's INCLUDE_DIRS onto our compile commands. Explicitly
+# linking against bt's COMPONENT_LIB target makes CMake propagate
+# INTERFACE_INCLUDE_DIRECTORIES regardless.
+if(CONFIG_BT_ENABLED AND (CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE OR CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE))
+    idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
+    idf_component_get_property(bt_lib bt COMPONENT_LIB)
+    if(bt_lib)
+        target_link_libraries(${lib} PRIVATE ${bt_lib})
+    endif()
+endif()
+
