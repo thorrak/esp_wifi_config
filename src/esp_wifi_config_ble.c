@@ -24,6 +24,7 @@ static const char *TAG = "wifi_cfg_ble";
 
 static bool s_connected = false;
 static bool s_response_notify_enabled = false;
+static bool s_status_notify_enabled = false;
 
 // =============================================================================
 // Command Handlers
@@ -338,12 +339,10 @@ static cJSON *handle_factory_reset(void)
 /** Delay between chunks to avoid flooding the BLE controller's TX queue. */
 #define BLE_CHUNK_DELAY_MS  20
 
-static void send_response(const char *json_str)
-{
-    if (!s_connected || !s_response_notify_enabled) {
-        return;
-    }
+typedef esp_err_t (*notify_fn_t)(const uint8_t *data, size_t length);
 
+static void send_chunked(const char *json_str, notify_fn_t notify)
+{
     uint16_t mtu = wifi_cfg_ble_backend_get_mtu();
     size_t chunk_size = (mtu >= 3 + BLE_MIN_CHUNK_SIZE) ? (mtu - 3) : BLE_MIN_CHUNK_SIZE;
 
@@ -353,7 +352,7 @@ static void send_response(const char *json_str)
     while (remaining > 0) {
         size_t send_len = (remaining > chunk_size) ? chunk_size : remaining;
 
-        esp_err_t err = wifi_cfg_ble_backend_notify_response(ptr, send_len);
+        esp_err_t err = notify(ptr, send_len);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Notify failed during chunked send, %d bytes remaining",
                      (int)remaining);
@@ -367,6 +366,14 @@ static void send_response(const char *json_str)
             vTaskDelay(pdMS_TO_TICKS(BLE_CHUNK_DELAY_MS));
         }
     }
+}
+
+static void send_response(const char *json_str)
+{
+    if (!s_connected || !s_response_notify_enabled) {
+        return;
+    }
+    send_chunked(json_str, wifi_cfg_ble_backend_notify_response);
 }
 
 // =============================================================================
@@ -475,17 +482,45 @@ void wifi_cfg_ble_on_connect(void)
 {
     s_connected = true;
     s_response_notify_enabled = false;
+    s_status_notify_enabled = false;
 }
 
 void wifi_cfg_ble_on_disconnect(void)
 {
     s_connected = false;
     s_response_notify_enabled = false;
+    s_status_notify_enabled = false;
 }
 
 void wifi_cfg_ble_set_response_notify(bool enabled)
 {
     s_response_notify_enabled = enabled;
+}
+
+void wifi_cfg_ble_set_status_notify(bool enabled)
+{
+    s_status_notify_enabled = enabled;
+}
+
+void wifi_cfg_ble_notify_status_change(void)
+{
+    if (!s_connected || !s_status_notify_enabled) {
+        return;
+    }
+
+    cJSON *data = handle_get_status();
+    if (!data) {
+        return;
+    }
+
+    char *json = cJSON_PrintUnformatted(data);
+    cJSON_Delete(data);
+    if (!json) {
+        return;
+    }
+
+    send_chunked(json, wifi_cfg_ble_backend_notify_status);
+    free(json);
 }
 
 // =============================================================================
@@ -566,6 +601,10 @@ esp_err_t wifi_cfg_ble_stop(void)
 esp_err_t wifi_cfg_ble_deinit(void)
 {
     return ESP_OK;
+}
+
+void wifi_cfg_ble_notify_status_change(void)
+{
 }
 
 #endif // WIFI_CFG_NEED_BLE

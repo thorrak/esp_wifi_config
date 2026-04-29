@@ -61,12 +61,22 @@ static const ble_uuid16_t s_char_response_uuid =
 
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_response_val_handle;
+static uint16_t s_status_val_handle;
 static char s_device_name[32];
 static QueueHandle_t s_cmd_queue;
 static TaskHandle_t  s_cmd_task;
 
 /** true if we initialized the NimBLE stack ourselves; false if it was already running. */
 static bool s_ble_stack_owned = false;
+
+/** Set true while advertising should be active. Gated against the GAP disconnect
+ * handler so a graceful stop doesn't immediately re-arm advertising via the
+ * auto-restart path. */
+static bool s_advertising_desired = false;
+
+/** Set true once the NimBLE host has synced with the controller. start_advertising()
+ * is a no-op until this is true; on_sync drives the first start. */
+static bool s_ble_synced = false;
 
 // Forward declarations
 static void nimble_host_task(void *param);
@@ -145,6 +155,7 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
                 // Status (read + notify)
                 .uuid = &s_char_status_uuid.u,
                 .access_cb = gatt_status_access,
+                .val_handle = &s_status_val_handle,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
             },
             {
@@ -212,13 +223,20 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
             extern void wifi_cfg_improv_ble_on_disconnect_nimble(void);
             wifi_cfg_improv_ble_on_disconnect_nimble();
 #endif
-            start_advertising();
+            // Only re-arm advertising on spontaneous disconnects. A graceful
+            // stop clears s_advertising_desired before terminating the link,
+            // so this skips the auto-restart and leaves the radio quiet.
+            if (s_advertising_desired) {
+                start_advertising();
+            }
             break;
         }
 
         case BLE_GAP_EVENT_ADV_COMPLETE:
             ESP_LOGD(TAG, "Advertising complete");
-            start_advertising();
+            if (s_advertising_desired) {
+                start_advertising();
+            }
             break;
 
         case BLE_GAP_EVENT_SUBSCRIBE:
@@ -227,8 +245,9 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                      event->subscribe.cur_notify,
                      event->subscribe.cur_indicate);
             if (event->subscribe.attr_handle == s_response_val_handle) {
-                bool enabled = event->subscribe.cur_notify;
-                wifi_cfg_ble_set_response_notify(enabled);
+                wifi_cfg_ble_set_response_notify(event->subscribe.cur_notify);
+            } else if (event->subscribe.attr_handle == s_status_val_handle) {
+                wifi_cfg_ble_set_status_notify(event->subscribe.cur_notify);
             }
             break;
 
@@ -305,6 +324,14 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
 
 static void start_advertising(void)
 {
+    // Defer until both the host has synced with the controller and the
+    // shared layer has actually requested advertising. Avoids the
+    // BLE_HS_ENOTSYNCED error from an early backend_start, and makes the
+    // disconnect/adv-complete auto-restart paths a no-op during teardown.
+    if (!s_ble_synced || !s_advertising_desired) {
+        return;
+    }
+
     struct ble_gap_adv_params adv_params = {0};
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
@@ -426,6 +453,7 @@ static void ble_on_sync(void)
     // controller isn't synced during backend_init().
     ble_gap_write_sugg_def_data_len(27, 328);
 
+    s_ble_synced = true;
     start_advertising();
 }
 
@@ -454,7 +482,7 @@ static void nimble_host_task(void *param)
 // Backend Interface Implementation
 // =============================================================================
 
-esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length)
+static esp_err_t notify_on(uint16_t val_handle, const uint8_t *data, size_t length)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
         return ESP_ERR_INVALID_STATE;
@@ -465,13 +493,23 @@ esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t lengt
         return ESP_ERR_NO_MEM;
     }
 
-    int rc = ble_gatts_notify_custom(s_conn_handle, s_response_val_handle, om);
+    int rc = ble_gatts_notify_custom(s_conn_handle, val_handle, om);
     if (rc != 0) {
         ESP_LOGE(TAG, "Notify failed, rc=%d", rc);
         return ESP_FAIL;
     }
 
     return ESP_OK;
+}
+
+esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length)
+{
+    return notify_on(s_response_val_handle, data, length);
+}
+
+esp_err_t wifi_cfg_ble_backend_notify_status(const uint8_t *data, size_t length)
+{
+    return notify_on(s_status_val_handle, data, length);
 }
 
 uint16_t wifi_cfg_ble_backend_get_mtu(void)
@@ -599,12 +637,15 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         return ESP_ERR_NO_MEM;
     }
 
-    // Start NimBLE host task only if we own the stack
+    // Start NimBLE host task only if we own the stack. Advertising itself is
+    // not kicked off here — it waits for backend_start (gated on
+    // s_advertising_desired) plus on_sync (gated on s_ble_synced).
     if (s_ble_stack_owned) {
         nimble_port_freertos_init(nimble_host_task);
     } else {
-        // Stack is already running — trigger advertising via on_sync path
-        start_advertising();
+        // Host already synced before our init ran; flip the synced flag so
+        // backend_start can advertise. on_sync won't fire again.
+        s_ble_synced = true;
     }
 
     return ESP_OK;
@@ -612,12 +653,17 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
 
 esp_err_t wifi_cfg_ble_backend_start(void)
 {
+    s_advertising_desired = true;
     start_advertising();
     return ESP_OK;
 }
 
 esp_err_t wifi_cfg_ble_backend_stop(void)
 {
+    // Clear desired BEFORE terminating so the disconnect handler's
+    // auto-restart path is suppressed.
+    s_advertising_desired = false;
+
     // Disconnect active client
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
         ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -633,6 +679,8 @@ esp_err_t wifi_cfg_ble_backend_stop(void)
 
 esp_err_t wifi_cfg_ble_backend_deinit(void)
 {
+    s_advertising_desired = false;
+
     // Disconnect active client
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
         ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -687,6 +735,7 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
 
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_ble_stack_owned = false;
+    s_ble_synced = false;
 
     return ESP_OK;
 }

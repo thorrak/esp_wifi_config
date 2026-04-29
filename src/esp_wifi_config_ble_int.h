@@ -54,6 +54,13 @@ void wifi_cfg_ble_on_disconnect(void);
  */
 void wifi_cfg_ble_set_response_notify(bool enabled);
 
+/**
+ * @brief Called by the stack backend when the Status CCCD is written.
+ *
+ * @param enabled true if notifications were enabled, false if disabled
+ */
+void wifi_cfg_ble_set_status_notify(bool enabled);
+
 // =============================================================================
 // Functions: shared layer -> stack backend
 // =============================================================================
@@ -66,6 +73,15 @@ void wifi_cfg_ble_set_response_notify(bool enabled);
  * @return ESP_OK on success
  */
 esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length);
+
+/**
+ * @brief Send a notification on the Status characteristic.
+ *
+ * @param data   Data to send
+ * @param length Number of bytes
+ * @return ESP_OK on success
+ */
+esp_err_t wifi_cfg_ble_backend_notify_status(const uint8_t *data, size_t length);
 
 /**
  * @brief Get the current negotiated MTU for the active connection.

@@ -327,6 +327,10 @@ esp_err_t wifi_cfg_webui_init(httpd_handle_t httpd);
 esp_err_t wifi_cfg_ble_init(void);
 esp_err_t wifi_cfg_ble_deinit(void);
 
+// Push current WiFi status to subscribed BLE clients (no-op if no client/notify).
+// Safe to call when BLE is disabled — provides a stub.
+void wifi_cfg_ble_notify_status_change(void);
+
 // =============================================================================
 // Utility Functions
 // =============================================================================

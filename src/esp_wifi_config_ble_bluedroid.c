@@ -142,6 +142,11 @@ static char s_device_name[32];
 /** true if we initialized the BLE stack ourselves; false if it was already running. */
 static bool s_ble_stack_owned = false;
 
+/** Set true while advertising should be active. The disconnect handler checks
+ * this before auto-restarting advertising; a graceful stop clears it first
+ * so the link teardown doesn't immediately re-arm the radio. */
+static bool s_advertising_desired = false;
+
 // =============================================================================
 // GAP Event Handler
 // =============================================================================
@@ -321,8 +326,12 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 
             wifi_cfg_ble_on_disconnect();
 
-            // Restart advertising
-            esp_ble_gap_start_advertising(&adv_params);
+            // Only re-arm advertising on spontaneous disconnects. A graceful
+            // stop clears s_advertising_desired before disconnecting, so this
+            // skips the auto-restart and leaves the radio quiet.
+            if (s_advertising_desired) {
+                esp_ble_gap_start_advertising(&adv_params);
+            }
             break;
 
         case ESP_GATTS_WRITE_EVT:
@@ -338,8 +347,9 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
                 } else if (param->write.handle == wifi_handle_table[IDX_CHAR_STATUS_CCC]) {
                     if (param->write.len == 2) {
                         uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
-                        ESP_LOGI(TAG, "Status notify %s",
-                                 (descr_value == 0x0001) ? "enabled" : "disabled");
+                        bool enabled = (descr_value == 0x0001);
+                        wifi_cfg_ble_set_status_notify(enabled);
+                        ESP_LOGI(TAG, "Status notify %s", enabled ? "enabled" : "disabled");
                     }
                 }
                 // Handle command write
@@ -398,6 +408,18 @@ esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t lengt
 
     esp_ble_gatts_send_indicate(s_profile.gatts_if, s_profile.conn_id,
                                  wifi_handle_table[IDX_CHAR_RESPONSE_VAL],
+                                 length, (uint8_t *)data, false);
+    return ESP_OK;
+}
+
+esp_err_t wifi_cfg_ble_backend_notify_status(const uint8_t *data, size_t length)
+{
+    if (s_profile.gatts_if == ESP_GATT_IF_NONE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_ble_gatts_send_indicate(s_profile.gatts_if, s_profile.conn_id,
+                                 wifi_handle_table[IDX_CHAR_STATUS_VAL],
                                  length, (uint8_t *)data, false);
     return ESP_OK;
 }
@@ -484,12 +506,17 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
 
 esp_err_t wifi_cfg_ble_backend_start(void)
 {
+    s_advertising_desired = true;
     esp_ble_gap_start_advertising(&adv_params);
     return ESP_OK;
 }
 
 esp_err_t wifi_cfg_ble_backend_stop(void)
 {
+    // Clear desired BEFORE disconnecting so the disconnect handler's
+    // auto-restart path is suppressed.
+    s_advertising_desired = false;
+
     // Disconnect active client
     if (s_profile.connected) {
         esp_ble_gap_disconnect(s_profile.remote_bda);
@@ -502,6 +529,8 @@ esp_err_t wifi_cfg_ble_backend_stop(void)
 
 esp_err_t wifi_cfg_ble_backend_deinit(void)
 {
+    s_advertising_desired = false;
+
     // Disconnect active client
     if (s_profile.connected) {
         esp_ble_gap_disconnect(s_profile.remote_bda);

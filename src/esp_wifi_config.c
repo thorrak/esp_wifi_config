@@ -718,6 +718,9 @@ static void wifi_cfg_task(void *arg)
                     strncpy(disc.ssid, evt.data.disconnect.ssid, sizeof(disc.ssid) - 1);
                     esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_DISCONNECTED, &disc, sizeof(disc));
 
+                    // Push status to subscribed BLE clients
+                    wifi_cfg_ble_notify_status_change();
+
                     // Auto reconnect with reconnect exhaustion
                     if (g_wifi_cfg->config.auto_reconnect && !g_wifi_cfg->connecting) {
                         g_wifi_cfg->reconnect_attempt_count++;
@@ -772,6 +775,10 @@ static void wifi_cfg_task(void *arg)
 
                     // Reset reconnect counter on successful connection
                     g_wifi_cfg->reconnect_attempt_count = 0;
+
+                    // Push status to subscribed BLE clients before any teardown
+                    // so the provisioning client knows the connection succeeded.
+                    wifi_cfg_ble_notify_status_change();
 
                     // Stop provisioning if configured and provisioning is active
                     if (g_wifi_cfg->config.stop_provisioning_on_connect && g_wifi_cfg->provisioning_active) {

@@ -8,7 +8,10 @@
 
 #include "sdkconfig.h"
 
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+// Note: CONFIG_WIFI_CFG_ENABLE_IMPROV is derived inside esp_wifi_config_priv.h
+// from the transport flags, but priv.h hasn't been included yet — gate on the
+// transport flags directly.
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE) || defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
 
 #include "esp_wifi_config_improv.h"
 #include "esp_wifi_config_priv.h"
@@ -511,7 +514,7 @@ esp_err_t wifi_cfg_improv_stop(void)
     return ESP_OK;
 }
 
-#else // CONFIG_WIFI_CFG_ENABLE_IMPROV
+#else // no Improv transport enabled
 
 // Stub implementations when Improv is disabled
 #include <esp_err.h>
@@ -532,4 +535,4 @@ void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
     (void)data; (void)len; (void)response_cb; (void)cb_ctx;
 }
 
-#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV
+#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE || CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL

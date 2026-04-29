@@ -10,7 +10,10 @@
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV) && defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
+// Note: CONFIG_WIFI_CFG_ENABLE_IMPROV is derived from the transport flags inside
+// esp_wifi_config_priv.h, but priv.h hasn't been included yet at this point —
+// gate on the transport flag directly (which always implies IMPROV).
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
 
 #include "esp_wifi_config_improv.h"
 #include "esp_wifi_config_priv.h"
@@ -309,4 +312,4 @@ esp_err_t wifi_cfg_improv_serial_stop(void)
     return ESP_OK;
 }
 
-#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV && CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
+#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
