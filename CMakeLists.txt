@@ -7,6 +7,9 @@ set(SRCS
     "src/esp_wifi_config_http.c"
     "src/esp_wifi_config_dns.c"
     "src/esp_wifi_config_improv.c"
+    # Shared BLE layer — compiled unconditionally so stub no-ops link
+    # when BLE is disabled. Internals are gated on WIFI_CFG_NEED_BLE.
+    "src/esp_wifi_config_ble.c"
 )
 
 set(PRIV_REQUIRES
@@ -39,8 +42,6 @@ endif()
 # BLE stack is needed if either custom BLE or Improv BLE is enabled.
 if(CONFIG_BT_ENABLED AND (CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE OR CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE))
     list(APPEND PRIV_REQUIRES bt)
-    # Shared BLE layer (command routing, JSON protocol, init/deinit)
-    list(APPEND SRCS "src/esp_wifi_config_ble.c")
     # Stack-specific backend
     if(CONFIG_BT_BLUEDROID_ENABLED)
         list(APPEND SRCS "src/esp_wifi_config_ble_bluedroid.c")
