@@ -537,6 +537,17 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         // Stack already running — service-only mode
         s_ble_stack_owned = false;
         ESP_LOGI(TAG, "NimBLE stack already running, registering service only");
+
+        // The host's auto-start (BLE_HS_AUTO_START) has already run ble_gatts_start()
+        // with an empty registration list and freed it via ble_gatts_free_svc_defs().
+        // Reset the ATT database so we can re-register everything we need (GAP +
+        // our custom service) and commit it via ble_gatts_start() below.
+        // ble_gatts_mutable() is true here because we run before any
+        // advertising/connection.
+        int reset_rc = ble_gatts_reset();
+        if (reset_rc != 0) {
+            ESP_LOGW(TAG, "ble_gatts_reset failed, rc=%d", reset_rc);
+        }
     } else {
         // Full stack init
         s_ble_stack_owned = true;
@@ -614,6 +625,19 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         }
     }
 #endif
+
+    // Service-only mode: commit the GATT database now that all services are
+    // registered. In stack-owned mode, ble_gatts_start() runs automatically
+    // when the host task we launch via nimble_port_freertos_init() processes
+    // the auto-enqueued start_stage1 event, so we don't need to call it
+    // explicitly there.
+    if (!s_ble_stack_owned) {
+        int start_rc = ble_gatts_start();
+        if (start_rc != 0) {
+            ESP_LOGE(TAG, "ble_gatts_start (service-only commit) failed, rc=%d", start_rc);
+            return ESP_FAIL;
+        }
+    }
 
     // Create command processing queue and task (runs off nimble_host stack)
     s_cmd_queue = xQueueCreate(BLE_CMD_QUEUE_DEPTH, sizeof(ble_cmd_msg_t));
