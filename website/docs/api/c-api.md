@@ -157,9 +157,20 @@ wifi_cfg_config_t config = {
         .auth_password = "secret",
     },
 
-    // BLE GATT (requires CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y)
+    // BLE GAP name template — used by the Improv BLE host bootstrap
+    // (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y). For Network Provisioning BLE,
+    // use the .prov.service_name override below.
     .ble = {
         .device_name = "ESP32-WiFi-{id}",
+    },
+
+    // ESP-IDF Network Provisioning over BLE
+    // (requires CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y; mutually
+    // exclusive with Improv BLE)
+    .prov = {
+        .service_name      = "PROV_",     // GAP-name prefix
+        .pop               = "1234abcd",  // overrides Kconfig PoP
+        .firmware_version  = "1.0.0",
     },
 
     // Improv WiFi (transports selected via Kconfig: CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL)

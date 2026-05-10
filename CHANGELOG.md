@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [0.1.0] — 2026-05-09 - ESP-IDF Network Provisioning over BLE
+
+### Breaking Changes
+
+- **Custom BLE GATT service removed.** The hand-rolled JSON-over-GATT
+  service (UUID `0xFFE0` / characteristics `0xFFE1`–`0xFFE3`) and the
+  `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE` Kconfig option are gone. ESP-IDF's
+  official `wifi_provisioning` manager (BLE scheme) is now the
+  recommended secure BLE provisioning path. See `MIGRATION.md` for the
+  protocol-level migration plan and the steps for updating downstream
+  client tools.
+- **Minimum ESP-IDF bumped to 5.4.** `idf_component.yml`'s
+  `idf.version` is now `>=5.4`. Prior versions are not supported.
+- **Network Provisioning and Improv BLE are mutually exclusive at
+  Kconfig level.** Both want to own the BLE GAP advertising and the
+  NimBLE/Bluedroid host. Pick one per firmware build. Improv Serial is
+  independent and remains safe alongside Network Provisioning.
+
+### Added
+
+- `esp_wifi_config_prov_ble.c` — wraps `wifi_prov_mgr_*` with the BLE
+  scheme, integrates with the library's lifecycle, and registers four
+  custom protocomm endpoints (`esp-wifi-config-version`,
+  `esp-wifi-config-capabilities`, `esp-wifi-config-vars`,
+  `esp-wifi-config-network-policy`).
+- `wifi_cfg_prov_config_t` runtime overrides for service name, PoP,
+  Security 2 username/salt/verifier, firmware version.
+- New Kconfig options: `WIFI_CFG_ENABLE_NETWORK_PROVISIONING`,
+  `WIFI_CFG_NETWORK_PROVISIONING_BLE`, security version choice,
+  `*_POP`, `*_SECURITY2_USERNAME`, `*_SERVICE_PREFIX`,
+  `*_RESET_ON_FAILURE`, `*_MAX_RETRIES`.
+- ESP-IDF 6.x compatibility shim — uses the in-tree
+  `wifi_provisioning` component on 5.4 and the external
+  `espressif/network_provisioning` managed component on 6.x via a
+  conditional `idf_component.yml` rule.
+
+### Changed
+
+- `examples/with_ble` rewritten to demonstrate Network Provisioning.
+- `examples/with_ble_deinit` switched to Improv BLE (the host-stack
+  handoff pattern doesn't fit `wifi_prov_mgr` cleanly).
+- BLE backends (`esp_wifi_config_ble_nimble.c` /
+  `esp_wifi_config_ble_bluedroid.c`) slimmed to the Improv host
+  bootstrap only — they no longer carry the `0xFFE0` service.
 
 
 ## [0.0.4] — 2026-04-26 - BLE KConfig Updates

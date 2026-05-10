@@ -453,13 +453,66 @@ typedef struct {
 /**
  * @brief BLE configuration
  *
- * Cấu hình BLE GATT interface. Device name hỗ trợ template {id}.
- * BLE interfaces are enabled at compile time via Kconfig
- * (CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE and/or CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE).
+ * Configures the BLE GAP device-name template used by the Improv-WiFi
+ * BLE transport (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE). Template tokens such
+ * as `{id}` are expanded against the WiFi STA MAC.
+ *
+ * For ESP-IDF Network Provisioning BLE
+ * (CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING) the device name is
+ * controlled via @ref wifi_cfg_prov_config_t below — wifi_prov_mgr owns
+ * the GAP namespace while the provisioning manager is active.
  */
 typedef struct {
     const char *device_name;    ///< BLE device name, e.g., "ESP32-WiFi-{id}", default from Kconfig
 } wifi_cfg_ble_config_t;
+
+/**
+ * @brief ESP-IDF Network Provisioning configuration
+ *
+ * Runtime overrides for CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING. All
+ * pointers may be NULL to fall back to Kconfig defaults.
+ *
+ * The library wraps the ESP-IDF wifi_provisioning manager (BLE scheme).
+ * Custom protocomm endpoints are registered automatically:
+ *
+ *   - "esp-wifi-config-version"     — library + IDF + firmware version JSON
+ *   - "esp-wifi-config-capabilities" — feature flags (improv-serial, ap, …)
+ *   - "esp-wifi-config-vars"        — read/write the custom variable store
+ *   - "esp-wifi-config-network-policy" — read provisioning_mode/retry policy
+ *
+ * Provisioning starts/stops via the existing provisioning_mode lifecycle —
+ * the same modes (ALWAYS / ON_FAILURE / WHEN_UNPROVISIONED / MANUAL) drive
+ * the wifi_prov_mgr session.
+ */
+typedef struct {
+    /// Override the BLE GAP service-name prefix. Defaults to
+    /// CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX. The provisioning
+    /// manager appends a MAC-derived tail (e.g. "PROV_ABC123").
+    const char *service_name;
+    /// Optional override for the proof-of-possession (Security 1) /
+    /// SRP password (Security 2). NULL → use Kconfig default.
+    const char *pop;
+    /// Optional override for the SRP username (Security 2 only).
+    /// NULL → use Kconfig default.
+    const char *security2_username;
+    /// Pre-computed SRP6a salt for Security 2. NULL means the library
+    /// falls back to Security 1 (PoP) at runtime, even if Security 2 was
+    /// selected at build time. Use the ESP-IDF helper
+    /// esp_prov_set_protover() / wifi_prov_sec2_get_salt_and_verifier()
+    /// (offline) to derive this from a username + password and bake the
+    /// resulting bytes into firmware. Length must match security2_salt_len.
+    const uint8_t *security2_salt;
+    size_t         security2_salt_len;
+    /// Pre-computed SRP6a verifier for Security 2. See security2_salt.
+    const uint8_t *security2_verifier;
+    size_t         security2_verifier_len;
+    /// Stop wifi_prov_mgr after a successful credential exchange even when
+    /// stop_provisioning_on_connect is false. Useful in MANUAL mode.
+    bool stop_after_success;
+    /// Optional firmware version string surfaced via the
+    /// "esp-wifi-config-version" custom protocomm endpoint.
+    const char *firmware_version;
+} wifi_cfg_prov_config_t;
 
 /**
  * @brief Improv WiFi identify callback
@@ -473,7 +526,10 @@ typedef void (*wifi_cfg_improv_identify_cb_t)(void);
  * @brief Improv WiFi configuration
  *
  * Enables the Improv WiFi standard for provisioning via BLE and/or Serial.
- * Improv BLE coexists with the existing custom BLE GATT service (0xFFE0).
+ * Improv BLE is mutually exclusive with ESP-IDF Network Provisioning over
+ * BLE — both want to own the BLE GAP advertising and the host stack.
+ * Improv Serial is independent of BLE and remains safe alongside Network
+ * Provisioning.
  * Reference: https://www.improv-wifi.com/
  */
 typedef struct {
@@ -538,8 +594,9 @@ typedef struct {
 
     // Interfaces
     wifi_cfg_http_config_t http;        ///< HTTP REST API config
-    wifi_cfg_ble_config_t ble;          ///< BLE GATT config
+    wifi_cfg_ble_config_t ble;          ///< BLE GAP name (Improv BLE)
     wifi_cfg_improv_config_t improv;    ///< Improv WiFi config
+    wifi_cfg_prov_config_t prov;        ///< ESP-IDF Network Provisioning config
 } wifi_cfg_config_t;
 
 // =============================================================================

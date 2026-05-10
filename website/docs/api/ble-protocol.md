@@ -1,136 +1,85 @@
 ---
 sidebar_position: 3
 title: BLE Protocol Reference
-description: BLE GATT service UUIDs, characteristics, JSON command/response format
+description: ESP-IDF Network Provisioning protocol used over BLE, plus custom protocomm endpoints
 ---
 
 # BLE Protocol Reference
 
-This page documents the wire protocol for the custom BLE GATT service. For setup instructions, see [BLE GATT Provisioning](../provisioning/ble-gatt.md).
+:::caution Removed in 0.1.0
+The custom JSON-over-GATT BLE service (UUID `0xFFE0` /
+characteristics `0xFFE1`–`0xFFE3`) that this page used to document has
+been **removed** in favour of ESP-IDF's official Wi-Fi Provisioning
+protocol. See [MIGRATION.md][migrate] for the protocol-level migration
+plan and the steps for updating downstream client tools.
+:::
 
-## Service & Characteristics
+[migrate]: https://github.com/thorrak/esp_wifi_config/blob/main/MIGRATION.md
 
-| UUID | Name | Properties | Description |
-|---|---|---|---|
-| 0xFFE0 | WiFi Service | — | Main service |
-| 0xFFE1 | Status | Read, Notify | Current WiFi status (JSON) |
-| 0xFFE2 | Command | Write | Send JSON command |
-| 0xFFE3 | Response | Notify | Command response (JSON) |
+## What runs over BLE now
 
-The device advertises the WiFi Service UUID (`0xFFE0`), allowing BLE scanners to filter by service UUID.
+The library wraps Espressif's `wifi_prov_mgr` with the BLE scheme. The
+on-air protocol is the same one Espressif's official mobile apps speak,
+so any of the following work out of the box:
 
-## Command Format
+- **iOS / Android**: "ESP BLE Provisioning" by Espressif Systems
+- **Python**: `esp_prov` tool (in `tools/esp_prov/` of any IDF checkout)
+- **Custom apps**: `esp-idf-provisioning-android` /
+  `esp-idf-provisioning-ios` SDKs
 
-Send JSON to the Command characteristic (0xFFE2). Parameters are passed in a `"params"` object:
+For the full Wi-Fi Provisioning over BLE specification (advertising
+format, GAP service UUIDs, protocomm framing) see
+[Espressif's docs][espressif-prov].
 
-```json
-{"cmd": "<command_name>", "params": { ... }}
+[espressif-prov]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/provisioning/provisioning.html
+
+## Library-specific protocomm endpoints
+
+Alongside the standard `prov-config`, `prov-scan`, `prov-session`, etc.,
+the library registers four custom endpoints. These give the
+provisioning client read access to the higher-level state the library
+maintains, and read/write access to the custom variable store.
+
+| Endpoint | Direction | Notes |
+|----------|-----------|-------|
+| `esp-wifi-config-version` | read | JSON: `{lib, idf, app, fw_version, chip}` |
+| `esp-wifi-config-capabilities` | read | JSON: `{capabilities[], max_networks, max_vars}` |
+| `esp-wifi-config-vars` | read/write | JSON request, see schema below |
+| `esp-wifi-config-network-policy` | read | JSON: `{provisioning_mode, retries, …}` |
+
+### `esp-wifi-config-vars` request/response schema
+
+```jsonc
+// list every saved variable
+→ {"op": "list"}
+← {"vars": [{"k": "server_url", "v": "..."}, …]}
+
+// fetch one
+→ {"op": "get", "key": "server_url"}
+← {"key": "server_url", "value": "..."}
+
+// upsert
+→ {"op": "set", "key": "server_url", "value": "https://api.example.com"}
+← {"ok": true}
+
+// delete
+→ {"op": "del", "key": "server_url"}
+← {"ok": true}
 ```
 
-Responses are sent as notifications on the Response characteristic (0xFFE3). Large responses are automatically chunked across multiple notifications.
+Errors are returned as `{"error": "<reason>"}` (e.g. `not_found`,
+`store_full`, `bad_json`, `unknown_op`).
 
-## Commands
+## What was intentionally **not** ported
 
-| Command | Params | Description |
-|---|---|---|
-| `get_status` | (none) | Get connection status |
-| `scan` | (none) | Scan available networks |
-| `list_networks` | (none) | List saved networks |
-| `add_network` | `ssid`, `password`?, `priority`? | Add new network |
-| `update_network` | `ssid`, `password`?, `priority`? | Update saved network |
-| `del_network` | `ssid` | Remove network |
-| `connect` | `ssid`? | Connect (auto or specific SSID) |
-| `disconnect` | (none) | Disconnect |
-| `get_ap_status` | (none) | Get AP status |
-| `start_ap` | `ssid`?, `password`? | Start SoftAP |
-| `stop_ap` | (none) | Stop SoftAP |
-| `get_var` | `key` | Get variable |
-| `set_var` | `key`, `value` | Set variable |
-| `list_vars` | (none) | List all variables |
-| `del_var` | `key` | Delete variable |
-| `factory_reset` | (none) | Factory reset |
+The old custom protocol exposed a number of pre-Wi-Fi management
+operations directly over BLE (`scan`, `add_network`, `connect`,
+`start_ap`, `factory_reset`, etc.). Most of those are already covered by
+the standard provisioning protocol (`prov-scan` and `prov-config`); the
+remainder (factory reset, AP control) are intentionally left to the
+HTTP/REST API or local UI — the BLE provisioning surface is meant to
+get the device on the network, not act as a full management backdoor.
 
-## Example Commands
-
-```json
-{"cmd": "get_status"}
-{"cmd": "scan"}
-{"cmd": "list_networks"}
-{"cmd": "add_network", "params": {"ssid": "MyWiFi", "password": "secret", "priority": 10}}
-{"cmd": "update_network", "params": {"ssid": "MyWiFi", "password": "newpass", "priority": 5}}
-{"cmd": "del_network", "params": {"ssid": "MyWiFi"}}
-{"cmd": "connect", "params": {"ssid": "MyWiFi"}}
-{"cmd": "get_var", "params": {"key": "device_name"}}
-{"cmd": "set_var", "params": {"key": "device_name", "value": "My ESP32"}}
-{"cmd": "list_vars"}
-{"cmd": "del_var", "params": {"key": "device_name"}}
-{"cmd": "factory_reset"}
-```
-
-## Response Format
-
-### Successful Response
-
-```json
-{"status": "ok", "data": { ... }}
-```
-
-### Error Response
-
-```json
-{"status": "error", "error": "Error message"}
-```
-
-## Response Examples
-
-### get_status
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "state": "connected",
-    "ssid": "MyWiFi",
-    "rssi": -65,
-    "quality": 70,
-    "ip": "192.168.1.100",
-    "channel": 6,
-    "netmask": "255.255.255.0",
-    "gateway": "192.168.1.1",
-    "dns": "192.168.1.1",
-    "mac": "AA:BB:CC:DD:EE:FF",
-    "hostname": "esp32-aabbcc",
-    "uptime_ms": 123456,
-    "ap_active": false
-  }
-}
-```
-
-### get_ap_status
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "active": true,
-    "ssid": "ESP32-AABBCC",
-    "ip": "192.168.4.1",
-    "channel": 1,
-    "sta_count": 2
-  }
-}
-```
-
-### list_vars
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "vars": [
-      {"key": "server_url", "value": "https://api.example.com"},
-      {"key": "device_name", "value": "My ESP32"}
-    ]
-  }
-}
-```
+If your application needs a richer command surface during provisioning,
+register additional protocomm endpoints by extending
+`esp_wifi_config_prov_ble.c`.

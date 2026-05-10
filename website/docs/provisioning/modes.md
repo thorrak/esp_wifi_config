@@ -36,9 +36,10 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .provisioning_teardown_delay_ms = 5000,
     .enable_ap = true,
 
-    // BLE interfaces are enabled at compile time via Kconfig:
-    //   CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y  (custom GATT)
-    //   CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y  (Improv standard)
+    // BLE interfaces are enabled at compile time via Kconfig
+    // (mutually exclusive — pick one):
+    //   CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y  (ESP-IDF Wi-Fi Provisioning)
+    //   CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y            (Improv standard)
 });
 ```
 

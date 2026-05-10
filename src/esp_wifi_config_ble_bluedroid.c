@@ -1,16 +1,23 @@
 /**
  * @file esp_wifi_config_ble_bluedroid.c
- * @brief BLE backend using the Bluedroid host stack
+ * @brief Bluedroid host bootstrap for the Improv-WiFi BLE transport
+ *
+ * Brings up the BT controller and Bluedroid stack, registers the GATTS
+ * dispatch callback used by the Improv profile, and drives Improv-compliant
+ * advertising. The custom JSON-over-GATT 0xFFE0 service that previously
+ * lived here has been removed in favour of ESP-IDF Network Provisioning
+ * (see esp_wifi_config_prov_ble.c).
+ *
+ * This file is only compiled when CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE and
+ * CONFIG_BT_BLUEDROID_ENABLED are both set.
  */
 
 #include "sdkconfig.h"
 
-#if (defined(CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE) || defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)) && defined(CONFIG_BT_BLUEDROID_ENABLED)
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE) && defined(CONFIG_BT_BLUEDROID_ENABLED)
 
 #include "esp_wifi_config_ble_int.h"
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
 #include "esp_wifi_config_improv.h"
-#endif
 #include "esp_log.h"
 #include <string.h>
 
@@ -22,154 +29,31 @@
 
 static const char *TAG = "wifi_cfg_ble_bd";
 
-// =============================================================================
-// GATT Table
-// =============================================================================
-
-#define WIFI_SVC_INST_ID        0
-#define PROFILE_APP_IDX         0
-
-enum {
-    IDX_SVC,
-    IDX_CHAR_STATUS,
-    IDX_CHAR_STATUS_VAL,
-    IDX_CHAR_STATUS_CCC,
-    IDX_CHAR_COMMAND,
-    IDX_CHAR_COMMAND_VAL,
-    IDX_CHAR_RESPONSE,
-    IDX_CHAR_RESPONSE_VAL,
-    IDX_CHAR_RESPONSE_CCC,
-    WIFI_IDX_NB,
-};
-
-static uint16_t wifi_handle_table[WIFI_IDX_NB];
-
-static const uint16_t primary_service_uuid = ESP_GATT_UUID_PRI_SERVICE;
-static const uint16_t character_declaration_uuid = ESP_GATT_UUID_CHAR_DECLARE;
-static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
-
-static const uint8_t char_prop_read_notify = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
-static const uint8_t char_prop_write = ESP_GATT_CHAR_PROP_BIT_WRITE;
-
-static const uint16_t wifi_svc_uuid = WIFI_BLE_SVC_UUID;
-static const uint16_t char_status_uuid = WIFI_BLE_CHAR_STATUS_UUID;
-static const uint16_t char_command_uuid = WIFI_BLE_CHAR_COMMAND_UUID;
-static const uint16_t char_response_uuid = WIFI_BLE_CHAR_RESPONSE_UUID;
-
-static uint8_t status_ccc[2] = {0x00, 0x00};
-static uint8_t response_ccc[2] = {0x00, 0x00};
-
-static const esp_gatts_attr_db_t wifi_gatt_db[WIFI_IDX_NB] = {
-    // Service Declaration
-    [IDX_SVC] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&primary_service_uuid, ESP_GATT_PERM_READ,
-         sizeof(uint16_t), sizeof(wifi_svc_uuid), (uint8_t *)&wifi_svc_uuid}
-    },
-
-    // Status Characteristic Declaration
-    [IDX_CHAR_STATUS] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
-         1, 1, (uint8_t *)&char_prop_read_notify}
-    },
-    // Status Characteristic Value
-    [IDX_CHAR_STATUS_VAL] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&char_status_uuid, ESP_GATT_PERM_READ,
-         512, 0, NULL}
-    },
-    // Status CCCD
-    [IDX_CHAR_STATUS_CCC] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid,
-         ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-         sizeof(status_ccc), sizeof(status_ccc), status_ccc}
-    },
-
-    // Command Characteristic Declaration
-    [IDX_CHAR_COMMAND] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
-         1, 1, (uint8_t *)&char_prop_write}
-    },
-    // Command Characteristic Value
-    [IDX_CHAR_COMMAND_VAL] = {
-        {ESP_GATT_RSP_BY_APP},
-        {ESP_UUID_LEN_16, (uint8_t *)&char_command_uuid, ESP_GATT_PERM_WRITE,
-         512, 0, NULL}
-    },
-
-    // Response Characteristic Declaration
-    [IDX_CHAR_RESPONSE] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
-         1, 1, (uint8_t *)&char_prop_read_notify}
-    },
-    // Response Characteristic Value
-    [IDX_CHAR_RESPONSE_VAL] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&char_response_uuid, ESP_GATT_PERM_READ,
-         512, 0, NULL}
-    },
-    // Response CCCD
-    [IDX_CHAR_RESPONSE_CCC] = {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid,
-         ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-         sizeof(response_ccc), sizeof(response_ccc), response_ccc}
-    },
-};
-
-// =============================================================================
-// Profile State
-// =============================================================================
-
-static struct {
-    esp_gatt_if_t gatts_if;
-    uint16_t conn_id;
-    uint16_t mtu;
-    bool connected;
-    esp_bd_addr_t remote_bda;
-} s_profile = {
-    .gatts_if = ESP_GATT_IF_NONE,
-    .mtu = 23,
-    .connected = false,
-};
-
 static char s_device_name[32];
-
-/** true if we initialized the BLE stack ourselves; false if it was already running. */
 static bool s_ble_stack_owned = false;
-
-/** Set true while advertising should be active. The disconnect handler checks
- * this before auto-restarting advertising; a graceful stop clears it first
- * so the link teardown doesn't immediately re-arm the radio. */
 static bool s_advertising_desired = false;
+static bool s_connected = false;
+static esp_bd_addr_t s_remote_bda = {0};
 
 // =============================================================================
-// GAP Event Handler
+// Advertising — Improv layout
 // =============================================================================
-
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-// When Improv is enabled:
-//   Primary adv: Improv 128-bit UUID + service data (state + caps) — spec requires these
-//                MUST NOT be in scan response.
-//   Scan response: device name + custom 16-bit UUID (0xFFE0)
+//
+// Primary adv: Improv 128-bit UUID + service data (state + capabilities).
+// Scan response: device name + nothing else (kept short for compatibility).
 
 static uint8_t improv_adv_svc_uuid128[] = IMPROV_BLE_SVC_UUID_128;
 
-// Service data format: UUID16 (0x4677 LE) + state + capabilities + 4 reserved bytes
 static uint8_t improv_svc_data[] = {
-    0x77, 0x46,                     // UUID16 0x4677 in little-endian
-    IMPROV_STATE_AUTHORIZED,        // Current state (updated at runtime)
-    0x00,                           // Capabilities (updated at runtime)
+    0x77, 0x46,                     // UUID16 0x4677 little-endian
+    IMPROV_STATE_AUTHORIZED,        // Current state (refreshed at runtime)
+    0x00,                           // Capabilities (refreshed at runtime)
     0x00, 0x00, 0x00, 0x00,        // Reserved
 };
 
 static esp_ble_adv_data_t adv_data = {
     .set_scan_rsp = false,
-    .include_name = false,          // Name goes in scan response
+    .include_name = false,
     .include_txpower = false,
     .service_uuid_len = sizeof(improv_adv_svc_uuid128),
     .p_service_uuid = improv_adv_svc_uuid128,
@@ -178,43 +62,12 @@ static esp_ble_adv_data_t adv_data = {
     .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
 };
 
-static uint8_t scan_rsp_custom_uuid[] = {
-    0xE0, 0xFF,  // WIFI_BLE_SVC_UUID (0xFFE0) in little-endian
-};
-
 static esp_ble_adv_data_t scan_rsp_data = {
     .set_scan_rsp = true,
-    .include_name = true,           // Device name in scan response
-    .include_txpower = false,
-    .service_uuid_len = sizeof(scan_rsp_custom_uuid),
-    .p_service_uuid = scan_rsp_custom_uuid,
-    .flag = 0,
-};
-
-#else
-// Without Improv: original layout — name + custom UUID in primary adv
-
-static uint8_t adv_service_uuid[] = {
-    0xE0, 0xFF,  // WIFI_BLE_SVC_UUID (0xFFE0) in little-endian
-};
-
-static esp_ble_adv_data_t adv_data = {
-    .set_scan_rsp = false,
     .include_name = true,
     .include_txpower = false,
-    .min_interval = 0x0006,
-    .max_interval = 0x0010,
-    .appearance = 0x00,
-    .manufacturer_len = 0,
-    .p_manufacturer_data = NULL,
-    .service_data_len = 0,
-    .p_service_data = NULL,
-    .service_uuid_len = sizeof(adv_service_uuid),
-    .p_service_uuid = adv_service_uuid,
-    .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
+    .flag = 0,
 };
-
-#endif
 
 static esp_ble_adv_params_t adv_params = {
     .adv_int_min = 0x20,
@@ -225,22 +78,20 @@ static esp_ble_adv_params_t adv_params = {
     .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
+// =============================================================================
+// GAP Event Handler
+// =============================================================================
+
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     switch (event) {
         case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
             esp_ble_gap_config_adv_data(&scan_rsp_data);
-#else
-            esp_ble_gap_start_advertising(&adv_params);
-#endif
             break;
 
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
         case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
             esp_ble_gap_start_advertising(&adv_params);
             break;
-#endif
 
         case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
             if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
@@ -262,171 +113,42 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 }
 
 // =============================================================================
-// GATTS Event Handler
+// GATTS Dispatcher (forwards to Improv profile)
 // =============================================================================
 
-static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
-                                 esp_ble_gatts_cb_param_t *param)
-{
-    // Filter: only process REG_EVT for our own app, and all other events for our gatts_if
-    if (event == ESP_GATTS_REG_EVT) {
-        if (param->reg.app_id != PROFILE_APP_IDX) return;
-    } else if (s_profile.gatts_if != ESP_GATT_IF_NONE &&
-               gatts_if != s_profile.gatts_if) {
-        return;
-    }
-
-    switch (event) {
-        case ESP_GATTS_REG_EVT:
-            if (param->reg.status == ESP_GATT_OK) {
-                s_profile.gatts_if = gatts_if;
-                esp_ble_gap_set_device_name(s_device_name);
-                esp_ble_gap_config_adv_data(&adv_data);
-                esp_ble_gatts_create_attr_tab(wifi_gatt_db, gatts_if, WIFI_IDX_NB, WIFI_SVC_INST_ID);
-            } else {
-                ESP_LOGE(TAG, "GATT register failed, status %d", param->reg.status);
-            }
-            break;
-
-        case ESP_GATTS_CREAT_ATTR_TAB_EVT:
-            if (param->add_attr_tab.status != ESP_GATT_OK) {
-                ESP_LOGE(TAG, "Create attr table failed, status %d", param->add_attr_tab.status);
-            } else if (param->add_attr_tab.num_handle != WIFI_IDX_NB) {
-                ESP_LOGE(TAG, "Create attr table abnormally, num_handle (%d) != WIFI_IDX_NB (%d)",
-                         param->add_attr_tab.num_handle, WIFI_IDX_NB);
-            } else {
-                memcpy(wifi_handle_table, param->add_attr_tab.handles, sizeof(wifi_handle_table));
-                esp_ble_gatts_start_service(wifi_handle_table[IDX_SVC]);
-                ESP_LOGI(TAG, "GATT service started");
-            }
-            break;
-
-        case ESP_GATTS_CONNECT_EVT:
-            s_profile.conn_id = param->connect.conn_id;
-            s_profile.connected = true;
-            memcpy(s_profile.remote_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-            ESP_LOGI(TAG, "BLE client connected, conn_id %d", param->connect.conn_id);
-
-            wifi_cfg_ble_on_connect();
-
-            // Update connection params for better throughput
-            esp_ble_conn_update_params_t conn_params = {0};
-            memcpy(conn_params.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-            conn_params.latency = 0;
-            conn_params.max_int = 0x20;
-            conn_params.min_int = 0x10;
-            conn_params.timeout = 400;
-            esp_ble_gap_update_conn_params(&conn_params);
-            break;
-
-        case ESP_GATTS_DISCONNECT_EVT:
-            s_profile.connected = false;
-            s_profile.mtu = 23;
-            ESP_LOGI(TAG, "BLE client disconnected");
-
-            wifi_cfg_ble_on_disconnect();
-
-            // Only re-arm advertising on spontaneous disconnects. A graceful
-            // stop clears s_advertising_desired before disconnecting, so this
-            // skips the auto-restart and leaves the radio quiet.
-            if (s_advertising_desired) {
-                esp_ble_gap_start_advertising(&adv_params);
-            }
-            break;
-
-        case ESP_GATTS_WRITE_EVT:
-            if (!param->write.is_prep) {
-                // Handle CCCD writes
-                if (param->write.handle == wifi_handle_table[IDX_CHAR_RESPONSE_CCC]) {
-                    if (param->write.len == 2) {
-                        uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
-                        bool enabled = (descr_value == 0x0001);
-                        wifi_cfg_ble_set_response_notify(enabled);
-                        ESP_LOGI(TAG, "Response notify %s", enabled ? "enabled" : "disabled");
-                    }
-                } else if (param->write.handle == wifi_handle_table[IDX_CHAR_STATUS_CCC]) {
-                    if (param->write.len == 2) {
-                        uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
-                        bool enabled = (descr_value == 0x0001);
-                        wifi_cfg_ble_set_status_notify(enabled);
-                        ESP_LOGI(TAG, "Status notify %s", enabled ? "enabled" : "disabled");
-                    }
-                }
-                // Handle command write
-                else if (param->write.handle == wifi_handle_table[IDX_CHAR_COMMAND_VAL]) {
-                    wifi_cfg_ble_on_command(param->write.value, param->write.len);
-                }
-
-                // Send response if needed
-                if (param->write.need_rsp) {
-                    esp_ble_gatts_send_response(gatts_if, param->write.conn_id,
-                                                 param->write.trans_id, ESP_GATT_OK, NULL);
-                }
-            }
-            break;
-
-        case ESP_GATTS_MTU_EVT:
-            s_profile.mtu = param->mtu.mtu;
-            ESP_LOGI(TAG, "MTU changed to %d", param->mtu.mtu);
-            break;
-
-        default:
-            break;
-    }
-}
-
-// =============================================================================
-// GATTS Dispatcher (fans out to custom + Improv handlers)
-// =============================================================================
-
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
 extern void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                                      esp_ble_gatts_cb_param_t *param);
-#endif
 
 static void gatts_dispatch_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                                     esp_ble_gatts_cb_param_t *param)
 {
-    // Always call the custom BLE handler
-    gatts_event_handler(event, gatts_if, param);
+    // Track connection state for MTU / disconnect dispatch
+    if (event == ESP_GATTS_CONNECT_EVT) {
+        s_connected = true;
+        memcpy(s_remote_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+    } else if (event == ESP_GATTS_DISCONNECT_EVT) {
+        s_connected = false;
+        if (s_advertising_desired) {
+            esp_ble_gap_start_advertising(&adv_params);
+        }
+    }
 
-#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE
-    // Also call the Improv handler — it filters by its own gatts_if/app_id
+    // Improv profile handles its own app registration / characteristic
+    // table via esp_wifi_config_improv_ble.c. It filters by app_id so only
+    // its own events are processed.
     improv_bd_gatts_handler(event, gatts_if, param);
-#endif
 }
 
 // =============================================================================
 // Backend Interface Implementation
 // =============================================================================
 
-esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length)
-{
-    if (s_profile.gatts_if == ESP_GATT_IF_NONE) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    esp_ble_gatts_send_indicate(s_profile.gatts_if, s_profile.conn_id,
-                                 wifi_handle_table[IDX_CHAR_RESPONSE_VAL],
-                                 length, (uint8_t *)data, false);
-    return ESP_OK;
-}
-
-esp_err_t wifi_cfg_ble_backend_notify_status(const uint8_t *data, size_t length)
-{
-    if (s_profile.gatts_if == ESP_GATT_IF_NONE) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    esp_ble_gatts_send_indicate(s_profile.gatts_if, s_profile.conn_id,
-                                 wifi_handle_table[IDX_CHAR_STATUS_VAL],
-                                 length, (uint8_t *)data, false);
-    return ESP_OK;
-}
-
 uint16_t wifi_cfg_ble_backend_get_mtu(void)
 {
-    return s_profile.connected ? s_profile.mtu : 0;
+    // Bluedroid Improv path uses the per-conn MTU tracked inside the Improv
+    // profile. Returning 23 here is a safe lower bound; chunked Improv
+    // responses query the actual MTU from their own state.
+    return s_connected ? 23 : 0;
 }
 
 bool wifi_cfg_ble_backend_is_stack_running(void)
@@ -440,17 +162,13 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
     s_device_name[sizeof(s_device_name) - 1] = '\0';
 
     if (wifi_cfg_ble_backend_is_stack_running()) {
-        // Stack already running — service-only mode
         s_ble_stack_owned = false;
-        ESP_LOGI(TAG, "BLE stack already running, registering service only");
+        ESP_LOGI(TAG, "Bluedroid stack already running, registering service only");
     } else {
-        // Full stack init
         s_ble_stack_owned = true;
 
-        // Release classic BT memory
         ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
-        // Initialize BT controller
         esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
         esp_err_t ret = esp_bt_controller_init(&bt_cfg);
         if (ret != ESP_OK) {
@@ -464,7 +182,6 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
             return ret;
         }
 
-        // Initialize Bluedroid
         ret = esp_bluedroid_init();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Bluedroid init failed: %s", esp_err_to_name(ret));
@@ -478,7 +195,6 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         }
     }
 
-    // Register callbacks (needed in both modes)
     esp_err_t ret = esp_ble_gatts_register_callback(gatts_dispatch_handler);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "GATTS register callback failed: %s", esp_err_to_name(ret));
@@ -491,15 +207,13 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
         return ret;
     }
 
-    // Register application profile (triggers GATT table creation + advertising)
-    ret = esp_ble_gatts_app_register(PROFILE_APP_IDX);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "GATTS app register failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Set MTU
+    esp_ble_gap_set_device_name(s_device_name);
     esp_ble_gatt_set_local_mtu(517);
+
+    // Push initial adv data — Improv adv start fires after scan-rsp set.
+    improv_svc_data[2] = wifi_cfg_improv_get_state();
+    improv_svc_data[3] = wifi_cfg_improv_get_capabilities();
+    esp_ble_gap_config_adv_data(&adv_data);
 
     return ESP_OK;
 }
@@ -507,22 +221,22 @@ esp_err_t wifi_cfg_ble_backend_init(const char *device_name)
 esp_err_t wifi_cfg_ble_backend_start(void)
 {
     s_advertising_desired = true;
-    esp_ble_gap_start_advertising(&adv_params);
+
+    // Refresh adv state byte before re-arming
+    improv_svc_data[2] = wifi_cfg_improv_get_state();
+    improv_svc_data[3] = wifi_cfg_improv_get_capabilities();
+    esp_ble_gap_config_adv_data(&adv_data);
     return ESP_OK;
 }
 
 esp_err_t wifi_cfg_ble_backend_stop(void)
 {
-    // Clear desired BEFORE disconnecting so the disconnect handler's
-    // auto-restart path is suppressed.
     s_advertising_desired = false;
 
-    // Disconnect active client
-    if (s_profile.connected) {
-        esp_ble_gap_disconnect(s_profile.remote_bda);
+    if (s_connected) {
+        esp_ble_gap_disconnect(s_remote_bda);
     }
 
-    // Stop advertising (do NOT unregister GATT app or tear down stack)
     esp_ble_gap_stop_advertising();
     return ESP_OK;
 }
@@ -531,20 +245,12 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
 {
     s_advertising_desired = false;
 
-    // Disconnect active client
-    if (s_profile.connected) {
-        esp_ble_gap_disconnect(s_profile.remote_bda);
+    if (s_connected) {
+        esp_ble_gap_disconnect(s_remote_bda);
     }
 
-    // Stop advertising
     esp_ble_gap_stop_advertising();
 
-    // Unregister GATT app (removes our service)
-    if (s_profile.gatts_if != ESP_GATT_IF_NONE) {
-        esp_ble_gatts_app_unregister(s_profile.gatts_if);
-    }
-
-    // Full stack teardown only if we own it
     if (s_ble_stack_owned) {
         esp_bluedroid_disable();
         esp_bluedroid_deinit();
@@ -552,12 +258,10 @@ esp_err_t wifi_cfg_ble_backend_deinit(void)
         esp_bt_controller_deinit();
     }
 
-    s_profile.gatts_if = ESP_GATT_IF_NONE;
-    s_profile.connected = false;
-    s_profile.mtu = 23;
+    s_connected = false;
     s_ble_stack_owned = false;
 
     return ESP_OK;
 }
 
-#endif // (CUSTOM_BLE || IMPROV_BLE) && BT_BLUEDROID_ENABLED
+#endif // CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE && CONFIG_BT_BLUEDROID_ENABLED

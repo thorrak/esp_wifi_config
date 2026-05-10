@@ -129,9 +129,11 @@ void app_main(void)
             .enable_auth = false,
         },
 
-        // Custom BLE GATT (0xFFE0) is not enabled in this example — only Improv.
-        // To also enable the custom BLE service, set CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y
-        // in sdkconfig and optionally set .ble.device_name here.
+        // Improv BLE owns the BLE host in this example. To use the official
+        // ESP-IDF Network Provisioning over BLE instead, disable
+        // CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE and enable
+        // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING (mutually exclusive).
+        // See the `with_ble` example for that flow.
 
         // Improv WiFi — open standard for browser/app provisioning
         // Transports are selected at compile time via Kconfig:

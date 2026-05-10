@@ -14,9 +14,9 @@ WiFi configuration component for ESP-IDF with multi-network support, auto-reconn
 Set up your device with a workflow that works for you and your users:
 
 - Soft AP + Captive Portal
-- Bluetooth (BLE)
+- ESP-IDF Network/Wi-Fi Provisioning over BLE (replaces the previous custom GATT service)
 - [Improv WiFi](https://www.improv-wifi.com/) - Serial
-- [Improv WiFi](https://www.improv-wifi.com/) - BLE
+- [Improv WiFi](https://www.improv-wifi.com/) - BLE (mutually exclusive with Network Provisioning BLE)
 
 ## Features
 
@@ -24,7 +24,7 @@ Set up your device with a workflow that works for you and your users:
 - Auto-reconnect with exponential backoff and failover
 - SoftAP captive portal (triggers OS popup)
 - Embedded Web UI (Preact, ~10KB gzipped)
-- Serial CLI, BLE GATT, Improv WiFi, REST API
+- Serial CLI, ESP-IDF Network Provisioning over BLE, Improv WiFi, REST API
 - Custom key-value variable storage (NVS) to allow settings configuration during WiFi setup flow
 - Event-driven via [esp_bus](https://components.espressif.com/components/thorrak/esp_bus)
 
@@ -69,7 +69,8 @@ void app_main(void)
 | [with_cli](examples/with_cli/) | Serial console CLI interface |
 | [with_webui](examples/with_webui/) | Embedded Web UI |
 | [with_webui_customize](examples/with_webui_customize/) | Custom frontend from LittleFS |
-| [with_ble](examples/with_ble/) | BLE GATT provisioning |
+| [with_ble](examples/with_ble/) | Network Provisioning over BLE (using `wifi_prov_mgr`) |
+| [with_ble_deinit](examples/with_ble_deinit/) | Improv BLE host-stack handoff to the application |
 | [with_improv](examples/with_improv/) | Improv WiFi (Web Bluetooth / Web Serial) |
 
 ## Documentation
@@ -87,7 +88,9 @@ Point your AI coding assistant at [`configwifi.com/llms.txt`](https://configwifi
 
 ## Dependencies
 
-- ESP-IDF >= 5.0.0
+- ESP-IDF >= 5.4 (was 5.0; the `wifi_provisioning` integration requires 5.4+).
+  ESP-IDF 6.x is supported via `idf_component.yml`'s automatic switch to
+  `espressif/network_provisioning`.
 - [esp_bus](https://components.espressif.com/components/thorrak/esp_bus) (auto-resolved by component manager)
 
 ## Acknowledgments

@@ -1,0 +1,632 @@
+/**
+ * @file esp_wifi_config_prov_ble.c
+ * @brief ESP-IDF Network/Wi-Fi Provisioning backend (BLE scheme)
+ *
+ * Wraps Espressif's wifi_provisioning manager so the library's higher-level
+ * lifecycle (provisioning_mode, retry/backoff, multi-network store, custom
+ * variables, post-provisioning HTTP behaviour) drives a stock, audited
+ * provisioning protocol instead of a hand-rolled JSON-over-GATT service.
+ *
+ * Custom protocomm endpoints (registered automatically):
+ *
+ *   - "esp-wifi-config-version"       — JSON: library/IDF/firmware versions
+ *   - "esp-wifi-config-capabilities"  — JSON: enabled features
+ *   - "esp-wifi-config-vars"          — JSON: read/write the variable store
+ *   - "esp-wifi-config-network-policy"— JSON: provisioning_mode, retries
+ *
+ * The "vars" endpoint follows a small request/response schema:
+ *
+ *   list:                {"op":"list"}                     -> {"vars":[{"k":..,"v":..},..]}
+ *   get a single key:    {"op":"get","key":"foo"}          -> {"key":"foo","value":".."}
+ *   set:                 {"op":"set","key":"foo","value":"bar"} -> {"ok":true}
+ *   delete:              {"op":"del","key":"foo"}          -> {"ok":true}
+ *
+ * The endpoints are deliberately minimal: they expose just enough state
+ * to keep the library's higher-level features useful during provisioning.
+ * They do NOT recreate the old broad pre-WiFi management surface (start
+ * AP, factory reset, scan from the BLE side, etc.) — most of that is
+ * already covered by wifi_prov_mgr's standard endpoints, and the rest can
+ * be reached over the AP/HTTP path that runs alongside.
+ *
+ * IDF version notes
+ * -----------------
+ * On ESP-IDF 5.4 the includes are the in-tree wifi_provisioning component
+ * (`wifi_provisioning/manager.h`, `wifi_provisioning/scheme_ble.h`).
+ *
+ * On ESP-IDF 6.x the in-tree component is being retired in favour of the
+ * external `espressif/network_provisioning` managed component, which has
+ * the same shape but renamed types/functions (`network_prov_mgr_*`,
+ * `wifi_prov_scheme_ble` -> `network_prov_scheme_ble`). The compatibility
+ * macros below isolate the rename so the rest of the file is version-clean.
+ * See MIGRATION.md for the recommended idf_component.yml change.
+ */
+
+#include "sdkconfig.h"
+
+#if defined(CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING) && \
+    defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE)
+
+#include "esp_wifi_config_priv.h"
+#include "esp_log.h"
+#include "esp_idf_version.h"
+#include "esp_mac.h"
+#include "esp_chip_info.h"
+#include "esp_app_desc.h"
+#include "cJSON.h"
+#include <string.h>
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0) && __has_include("network_provisioning/manager.h")
+// IDF 6.x with the migrated managed component.
+#  include "network_provisioning/manager.h"
+#  include "network_provisioning/scheme_ble.h"
+#  define WIFI_PROV_MGR_INIT             network_prov_mgr_init
+#  define WIFI_PROV_MGR_DEINIT           network_prov_mgr_deinit
+#  define WIFI_PROV_MGR_CONFIG_T         network_prov_mgr_config_t
+#  define WIFI_PROV_MGR_START            network_prov_mgr_start_provisioning
+#  define WIFI_PROV_MGR_STOP             network_prov_mgr_stop_provisioning
+#  define WIFI_PROV_MGR_IS_PROVISIONED   network_prov_mgr_is_wifi_provisioned
+#  define WIFI_PROV_MGR_RESET_PROV       network_prov_mgr_reset_provisioning
+#  define WIFI_PROV_MGR_RESET_SM         network_prov_mgr_reset_sm_state_for_reprovision
+#  define WIFI_PROV_MGR_ENDPOINT_CREATE  network_prov_mgr_endpoint_create
+#  define WIFI_PROV_MGR_ENDPOINT_REGISTER network_prov_mgr_endpoint_register
+#  define WIFI_PROV_SCHEME_BLE           network_prov_scheme_ble
+#  define WIFI_PROV_EVENT_BASE           NETWORK_PROV_EVENT
+#  define WIFI_PROV_EVT_INIT             NETWORK_PROV_INIT
+#  define WIFI_PROV_EVT_START            NETWORK_PROV_START
+#  define WIFI_PROV_EVT_END              NETWORK_PROV_END
+#  define WIFI_PROV_EVT_CRED_RECV        NETWORK_PROV_WIFI_CRED_RECV
+#  define WIFI_PROV_EVT_CRED_FAIL        NETWORK_PROV_WIFI_CRED_FAIL
+#  define WIFI_PROV_EVT_CRED_SUCCESS     NETWORK_PROV_WIFI_CRED_SUCCESS
+#  define WIFI_PROV_EVT_DEINIT           NETWORK_PROV_DEINIT
+#  define WIFI_PROV_SECURITY_T           network_prov_security_t
+#  define WIFI_PROV_SECURITY_0           NETWORK_PROV_SECURITY_0
+#  define WIFI_PROV_SECURITY_1           NETWORK_PROV_SECURITY_1
+#  define WIFI_PROV_SECURITY_2           NETWORK_PROV_SECURITY_2
+#  define WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM  NETWORK_PROV_SCHEME_HANDLER_FREE_BTDM
+#  define WIFI_PROV_FAIL_REASON_T        network_prov_wifi_sta_fail_reason_t
+#  define WIFI_PROV_STA_AUTH_ERROR       NETWORK_PROV_WIFI_STA_AUTH_ERROR
+#else
+// IDF 5.x in-tree wifi_provisioning component.
+#  include "wifi_provisioning/manager.h"
+#  include "wifi_provisioning/scheme_ble.h"
+#  define WIFI_PROV_MGR_INIT             wifi_prov_mgr_init
+#  define WIFI_PROV_MGR_DEINIT           wifi_prov_mgr_deinit
+#  define WIFI_PROV_MGR_CONFIG_T         wifi_prov_mgr_config_t
+#  define WIFI_PROV_MGR_START            wifi_prov_mgr_start_provisioning
+#  define WIFI_PROV_MGR_STOP             wifi_prov_mgr_stop_provisioning
+#  define WIFI_PROV_MGR_IS_PROVISIONED   wifi_prov_mgr_is_provisioned
+#  define WIFI_PROV_MGR_RESET_PROV       wifi_prov_mgr_reset_provisioning
+#  define WIFI_PROV_MGR_RESET_SM         wifi_prov_mgr_reset_sm_state_for_reprovision
+#  define WIFI_PROV_MGR_ENDPOINT_CREATE  wifi_prov_mgr_endpoint_create
+#  define WIFI_PROV_MGR_ENDPOINT_REGISTER wifi_prov_mgr_endpoint_register
+#  define WIFI_PROV_SCHEME_BLE           wifi_prov_scheme_ble
+   // WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM comes from scheme_ble.h
+   // unchanged on IDF 5.x, so no rename macro is needed here.
+#  define WIFI_PROV_EVENT_BASE           WIFI_PROV_EVENT
+#  define WIFI_PROV_EVT_INIT             WIFI_PROV_INIT
+#  define WIFI_PROV_EVT_START            WIFI_PROV_START
+#  define WIFI_PROV_EVT_END              WIFI_PROV_END
+#  define WIFI_PROV_EVT_CRED_RECV        WIFI_PROV_CRED_RECV
+#  define WIFI_PROV_EVT_CRED_FAIL        WIFI_PROV_CRED_FAIL
+#  define WIFI_PROV_EVT_CRED_SUCCESS     WIFI_PROV_CRED_SUCCESS
+#  define WIFI_PROV_EVT_DEINIT           WIFI_PROV_DEINIT
+#  define WIFI_PROV_SECURITY_T           wifi_prov_security_t
+#  define WIFI_PROV_SECURITY_0           WIFI_PROV_SECURITY_0
+#  define WIFI_PROV_SECURITY_1           WIFI_PROV_SECURITY_1
+#  define WIFI_PROV_SECURITY_2           WIFI_PROV_SECURITY_2
+#  define WIFI_PROV_FAIL_REASON_T        wifi_prov_sta_fail_reason_t
+#  define WIFI_PROV_STA_AUTH_ERROR       WIFI_PROV_STA_AUTH_ERROR
+#endif
+
+static const char *TAG = "wifi_cfg_prov";
+
+// =============================================================================
+// State
+// =============================================================================
+
+static bool s_prov_initialized = false;     // wifi_prov_mgr_init has been called
+static bool s_prov_active      = false;     // wifi_prov_mgr_start_provisioning succeeded
+static int  s_failed_attempts  = 0;         // counted across CRED_FAIL events
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+static void resolve_service_name(char *out, size_t out_len)
+{
+    const char *prefix = NULL;
+    if (g_wifi_cfg && g_wifi_cfg->config.prov.service_name) {
+        prefix = g_wifi_cfg->config.prov.service_name;
+    }
+    if (!prefix || !prefix[0]) {
+        prefix = CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX;
+    }
+
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(out, out_len, "%s%02X%02X%02X", prefix, mac[3], mac[4], mac[5]);
+}
+
+static const char *resolve_pop(void)
+{
+    if (g_wifi_cfg && g_wifi_cfg->config.prov.pop && g_wifi_cfg->config.prov.pop[0]) {
+        return g_wifi_cfg->config.prov.pop;
+    }
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP
+    if (sizeof(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP) > 1) {
+        return CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP;
+    }
+#endif
+    return NULL;
+}
+
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2
+static const char *resolve_security2_username(void)
+{
+    if (g_wifi_cfg && g_wifi_cfg->config.prov.security2_username &&
+        g_wifi_cfg->config.prov.security2_username[0]) {
+        return g_wifi_cfg->config.prov.security2_username;
+    }
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME
+    return CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME;
+#else
+    return "wificfg";
+#endif
+}
+#endif
+
+static const char *chip_variant_str(void)
+{
+    esp_chip_info_t info;
+    esp_chip_info(&info);
+    switch (info.model) {
+        case CHIP_ESP32:   return "esp32";
+        case CHIP_ESP32S2: return "esp32s2";
+        case CHIP_ESP32S3: return "esp32s3";
+        case CHIP_ESP32C3: return "esp32c3";
+        case CHIP_ESP32C6: return "esp32c6";
+        case CHIP_ESP32H2: return "esp32h2";
+        default:           return "unknown";
+    }
+}
+
+// =============================================================================
+// Custom protocomm endpoints
+// =============================================================================
+//
+// Each endpoint receives a request buffer (raw bytes from the provisioning
+// client) and must allocate the response buffer with malloc; protocomm
+// frees it via free(). All four endpoints exchange small JSON payloads.
+
+#define PROV_ENDPOINT_VERSION       "esp-wifi-config-version"
+#define PROV_ENDPOINT_CAPABILITIES  "esp-wifi-config-capabilities"
+#define PROV_ENDPOINT_VARS          "esp-wifi-config-vars"
+#define PROV_ENDPOINT_NETWORK_POLICY "esp-wifi-config-network-policy"
+
+#define PROV_LIB_VERSION_STRING     "esp_wifi_config 0.1.0"
+
+static esp_err_t make_json_response(cJSON *doc, uint8_t **out, ssize_t *out_len)
+{
+    char *str = cJSON_PrintUnformatted(doc);
+    cJSON_Delete(doc);
+    if (!str) return ESP_ERR_NO_MEM;
+
+    size_t len = strlen(str);
+    *out = (uint8_t *)str;
+    *out_len = (ssize_t)len;
+    return ESP_OK;
+}
+
+static esp_err_t version_endpoint(uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
+                                   uint8_t **outbuf, ssize_t *outlen, void *priv)
+{
+    (void)session_id; (void)inbuf; (void)inlen; (void)priv;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "lib", PROV_LIB_VERSION_STRING);
+    cJSON_AddStringToObject(root, "idf", IDF_VER);
+
+    const esp_app_desc_t *app = esp_app_get_description();
+    if (app) {
+        cJSON_AddStringToObject(root, "app", app->project_name);
+        cJSON_AddStringToObject(root, "fw_version", app->version);
+        cJSON_AddStringToObject(root, "compile_time", app->time);
+    }
+
+    if (g_wifi_cfg && g_wifi_cfg->config.prov.firmware_version) {
+        cJSON_AddStringToObject(root, "firmware_version",
+                                g_wifi_cfg->config.prov.firmware_version);
+    }
+
+    cJSON_AddStringToObject(root, "chip", chip_variant_str());
+    return make_json_response(root, outbuf, outlen);
+}
+
+static esp_err_t capabilities_endpoint(uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
+                                        uint8_t **outbuf, ssize_t *outlen, void *priv)
+{
+    (void)session_id; (void)inbuf; (void)inlen; (void)priv;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *caps = cJSON_AddArrayToObject(root, "capabilities");
+    cJSON_AddItemToArray(caps, cJSON_CreateString("multi-network"));
+    cJSON_AddItemToArray(caps, cJSON_CreateString("custom-vars"));
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
+    cJSON_AddItemToArray(caps, cJSON_CreateString("improv-serial"));
+#endif
+#ifdef CONFIG_WIFI_CFG_ENABLE_WEBUI
+    cJSON_AddItemToArray(caps, cJSON_CreateString("webui"));
+#endif
+#ifdef CONFIG_WIFI_CFG_ENABLE_CLI
+    cJSON_AddItemToArray(caps, cJSON_CreateString("cli"));
+#endif
+    if (g_wifi_cfg && g_wifi_cfg->config.enable_ap) {
+        cJSON_AddItemToArray(caps, cJSON_CreateString("softap"));
+    }
+
+    cJSON_AddNumberToObject(root, "max_networks", WIFI_CFG_MAX_NETWORKS);
+    cJSON_AddNumberToObject(root, "max_vars",     WIFI_CFG_MAX_VARS);
+    return make_json_response(root, outbuf, outlen);
+}
+
+static esp_err_t vars_endpoint(uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
+                                uint8_t **outbuf, ssize_t *outlen, void *priv)
+{
+    (void)session_id; (void)priv;
+
+    if (!inbuf || inlen <= 0) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "error", "empty_request");
+        return make_json_response(root, outbuf, outlen);
+    }
+
+    cJSON *req = cJSON_ParseWithLength((const char *)inbuf, inlen);
+    if (!req) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "error", "bad_json");
+        return make_json_response(root, outbuf, outlen);
+    }
+
+    const char *op = cJSON_GetStringValue(cJSON_GetObjectItem(req, "op"));
+    cJSON *resp = cJSON_CreateObject();
+
+    if (!op || strcmp(op, "list") == 0) {
+        cJSON *arr = cJSON_AddArrayToObject(resp, "vars");
+        wifi_cfg_lock();
+        if (g_wifi_cfg) {
+            for (size_t i = 0; i < g_wifi_cfg->var_count; i++) {
+                cJSON *item = cJSON_CreateObject();
+                cJSON_AddStringToObject(item, "k", g_wifi_cfg->vars[i].key);
+                cJSON_AddStringToObject(item, "v", g_wifi_cfg->vars[i].value);
+                cJSON_AddItemToArray(arr, item);
+            }
+        }
+        wifi_cfg_unlock();
+    } else if (strcmp(op, "get") == 0) {
+        const char *key = cJSON_GetStringValue(cJSON_GetObjectItem(req, "key"));
+        if (!key) {
+            cJSON_AddStringToObject(resp, "error", "missing_key");
+        } else {
+            char val[128] = {0};
+            esp_err_t err = wifi_cfg_get_var(key, val, sizeof(val));
+            if (err != ESP_OK) {
+                cJSON_AddStringToObject(resp, "error", "not_found");
+            } else {
+                cJSON_AddStringToObject(resp, "key", key);
+                cJSON_AddStringToObject(resp, "value", val);
+            }
+        }
+    } else if (strcmp(op, "set") == 0) {
+        const char *key = cJSON_GetStringValue(cJSON_GetObjectItem(req, "key"));
+        const char *value = cJSON_GetStringValue(cJSON_GetObjectItem(req, "value"));
+        if (!key || !value) {
+            cJSON_AddStringToObject(resp, "error", "missing_key_or_value");
+        } else {
+            esp_err_t err = wifi_cfg_set_var(key, value);
+            if (err == ESP_OK) {
+                cJSON_AddBoolToObject(resp, "ok", true);
+            } else {
+                cJSON_AddStringToObject(resp, "error",
+                    (err == ESP_ERR_NO_MEM) ? "store_full" : "rejected");
+            }
+        }
+    } else if (strcmp(op, "del") == 0) {
+        const char *key = cJSON_GetStringValue(cJSON_GetObjectItem(req, "key"));
+        if (!key) {
+            cJSON_AddStringToObject(resp, "error", "missing_key");
+        } else {
+            esp_err_t err = wifi_cfg_del_var(key);
+            cJSON_AddBoolToObject(resp, "ok", err == ESP_OK);
+            if (err != ESP_OK) {
+                cJSON_AddStringToObject(resp, "error", "not_found");
+            }
+        }
+    } else {
+        cJSON_AddStringToObject(resp, "error", "unknown_op");
+    }
+
+    cJSON_Delete(req);
+    return make_json_response(resp, outbuf, outlen);
+}
+
+static const char *prov_mode_str(wifi_provisioning_mode_t mode)
+{
+    switch (mode) {
+        case WIFI_PROV_ALWAYS:             return "always";
+        case WIFI_PROV_ON_FAILURE:         return "on_failure";
+        case WIFI_PROV_WHEN_UNPROVISIONED: return "when_unprovisioned";
+        case WIFI_PROV_MANUAL:             return "manual";
+        default:                           return "unknown";
+    }
+}
+
+static esp_err_t network_policy_endpoint(uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
+                                          uint8_t **outbuf, ssize_t *outlen, void *priv)
+{
+    (void)session_id; (void)inbuf; (void)inlen; (void)priv;
+
+    cJSON *root = cJSON_CreateObject();
+    if (g_wifi_cfg) {
+        cJSON_AddStringToObject(root, "provisioning_mode",
+                                prov_mode_str(g_wifi_cfg->config.provisioning_mode));
+        cJSON_AddNumberToObject(root, "max_retry_per_network",
+                                g_wifi_cfg->config.max_retry_per_network);
+        cJSON_AddNumberToObject(root, "retry_interval_ms",
+                                g_wifi_cfg->config.retry_interval_ms);
+        cJSON_AddNumberToObject(root, "retry_max_interval_ms",
+                                g_wifi_cfg->config.retry_max_interval_ms);
+        cJSON_AddBoolToObject(root, "auto_reconnect",
+                              g_wifi_cfg->config.auto_reconnect);
+        cJSON_AddNumberToObject(root, "max_reconnect_attempts",
+                                g_wifi_cfg->config.max_reconnect_attempts);
+        cJSON_AddNumberToObject(root, "saved_networks", g_wifi_cfg->network_count);
+    }
+    return make_json_response(root, outbuf, outlen);
+}
+
+// =============================================================================
+// Provisioning event handler
+// =============================================================================
+
+static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
+{
+    if (base != WIFI_PROV_EVENT_BASE) return;
+
+    switch (id) {
+        case WIFI_PROV_EVT_INIT:
+            ESP_LOGI(TAG, "Provisioning initialised");
+            break;
+
+        case WIFI_PROV_EVT_START:
+            ESP_LOGI(TAG, "Provisioning started");
+            s_prov_active = true;
+            s_failed_attempts = 0;
+            break;
+
+        case WIFI_PROV_EVT_CRED_RECV: {
+            wifi_sta_config_t *cfg = (wifi_sta_config_t *)data;
+            if (!cfg) break;
+            char ssid[33] = {0};
+            char pass[64] = {0};
+            // wifi_sta_config_t.ssid is fixed-size and may not be NUL-terminated.
+            memcpy(ssid, cfg->ssid, sizeof(cfg->ssid) > 32 ? 32 : sizeof(cfg->ssid));
+            memcpy(pass, cfg->password, sizeof(cfg->password) > 63 ? 63 : sizeof(cfg->password));
+            ESP_LOGI(TAG, "Credentials received for %s", ssid);
+
+            // Persist into the multi-network store. Upsert on duplicate.
+            wifi_network_t net = {0};
+            strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
+            strncpy(net.password, pass, sizeof(net.password) - 1);
+            net.priority = 10;
+            esp_err_t err = wifi_cfg_add_network(&net);
+            if (err == ESP_ERR_INVALID_STATE) {
+                wifi_cfg_update_network(&net);
+            }
+            break;
+        }
+
+        case WIFI_PROV_EVT_CRED_FAIL: {
+            WIFI_PROV_FAIL_REASON_T *reason = (WIFI_PROV_FAIL_REASON_T *)data;
+            ESP_LOGW(TAG, "Provisioning failed, reason=%d",
+                     reason ? (int)*reason : -1);
+            if (reason && *reason == WIFI_PROV_STA_AUTH_ERROR) {
+                ESP_LOGW(TAG, "Bad password — accepting another attempt");
+            }
+            s_failed_attempts++;
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_RESET_ON_FAILURE
+            if (s_failed_attempts >= CONFIG_WIFI_CFG_NETWORK_PROVISIONING_MAX_RETRIES) {
+                ESP_LOGW(TAG, "Too many failed attempts, resetting state machine");
+                WIFI_PROV_MGR_RESET_SM();
+                s_failed_attempts = 0;
+            }
+#endif
+            break;
+        }
+
+        case WIFI_PROV_EVT_CRED_SUCCESS:
+            ESP_LOGI(TAG, "Provisioning credentials accepted");
+            s_failed_attempts = 0;
+            if (g_wifi_cfg && g_wifi_cfg->config.prov.stop_after_success) {
+                WIFI_PROV_MGR_STOP();
+            }
+            break;
+
+        case WIFI_PROV_EVT_END:
+            ESP_LOGI(TAG, "Provisioning finished");
+            s_prov_active = false;
+            // Manager auto-deinits after END; mirror the state.
+            WIFI_PROV_MGR_DEINIT();
+            s_prov_initialized = false;
+            break;
+
+        case WIFI_PROV_EVT_DEINIT:
+            ESP_LOGI(TAG, "Provisioning deinitialised");
+            s_prov_active = false;
+            s_prov_initialized = false;
+            break;
+
+        default:
+            break;
+    }
+}
+
+// =============================================================================
+// Public lifecycle
+// =============================================================================
+
+esp_err_t wifi_cfg_prov_init(void)
+{
+    if (s_prov_initialized) {
+        return ESP_OK;
+    }
+
+    esp_err_t err = esp_event_handler_register(WIFI_PROV_EVENT_BASE,
+                                               ESP_EVENT_ANY_ID,
+                                               &prov_event_handler, NULL);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "register prov event handler: %s", esp_err_to_name(err));
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t wifi_cfg_prov_deinit(void)
+{
+    if (s_prov_active) {
+        WIFI_PROV_MGR_STOP();
+        s_prov_active = false;
+    }
+    if (s_prov_initialized) {
+        WIFI_PROV_MGR_DEINIT();
+        s_prov_initialized = false;
+    }
+    esp_event_handler_unregister(WIFI_PROV_EVENT_BASE,
+                                 ESP_EVENT_ANY_ID,
+                                 &prov_event_handler);
+    return ESP_OK;
+}
+
+bool wifi_cfg_prov_is_active(void)
+{
+    return s_prov_active;
+}
+
+esp_err_t wifi_cfg_prov_start(void)
+{
+    if (s_prov_active) {
+        return ESP_OK;
+    }
+
+    WIFI_PROV_MGR_CONFIG_T cfg = {
+        .scheme = WIFI_PROV_SCHEME_BLE,
+        // Let wifi_prov_mgr release Classic BT memory; we only need BLE.
+        .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM,
+    };
+
+    esp_err_t err = WIFI_PROV_MGR_INIT(cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "wifi_prov_mgr_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    s_prov_initialized = true;
+
+    // Custom protocomm endpoints — declare BEFORE start so the manager
+    // includes them in the initial protocol set. Registration of the
+    // handlers runs after start_provisioning per ESP-IDF guidance.
+    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VERSION);
+    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_CAPABILITIES);
+    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VARS);
+    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_NETWORK_POLICY);
+
+    // Custom 128-bit service UUID is optional; let scheme_ble use its default.
+    // The advertised name is "<service_name>" derived from prefix + MAC.
+    char service_name[32];
+    resolve_service_name(service_name, sizeof(service_name));
+
+    WIFI_PROV_SECURITY_T sec;
+#if defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2)
+    sec = WIFI_PROV_SECURITY_2;
+#elif defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1)
+    sec = WIFI_PROV_SECURITY_1;
+#else
+    sec = WIFI_PROV_SECURITY_0;
+#endif
+
+    const void *sec_params = NULL;
+#if defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2)
+    // SRP6a needs a pre-computed salt + verifier. Apps should derive these
+    // offline using esp-idf-provisioning's helper and embed the result
+    // through wifi_cfg_prov_config_t. If the app didn't supply them, fall
+    // back to Security 1 (PoP) at runtime so unconfigured firmware still
+    // produces a functional provisioning session.
+    static wifi_prov_security2_params_t sec2_params;
+    bool sec2_ready = false;
+    if (g_wifi_cfg &&
+        g_wifi_cfg->config.prov.security2_salt &&
+        g_wifi_cfg->config.prov.security2_salt_len > 0 &&
+        g_wifi_cfg->config.prov.security2_verifier &&
+        g_wifi_cfg->config.prov.security2_verifier_len > 0) {
+        sec2_params.username = resolve_security2_username();
+        sec2_params.salt = g_wifi_cfg->config.prov.security2_salt;
+        sec2_params.salt_len = g_wifi_cfg->config.prov.security2_salt_len;
+        sec2_params.verifier = g_wifi_cfg->config.prov.security2_verifier;
+        sec2_params.verifier_len = g_wifi_cfg->config.prov.security2_verifier_len;
+        sec_params = (const void *)&sec2_params;
+        sec2_ready = true;
+    }
+    if (!sec2_ready) {
+        ESP_LOGW(TAG, "Security 2 selected but no salt/verifier provided — "
+                       "falling back to Security 1 (PoP) for this session.");
+        sec = WIFI_PROV_SECURITY_1;
+        const char *pop = resolve_pop();
+        sec_params = (const void *)pop;
+    }
+#elif defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1)
+    const char *pop = resolve_pop();
+    sec_params = (const void *)pop;
+#endif
+
+    err = WIFI_PROV_MGR_START(sec, sec_params, service_name, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "wifi_prov_mgr_start: %s", esp_err_to_name(err));
+        WIFI_PROV_MGR_DEINIT();
+        s_prov_initialized = false;
+        return err;
+    }
+
+    // Register endpoint handlers AFTER start (per Espressif sample code).
+    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VERSION,       version_endpoint, NULL);
+    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_CAPABILITIES,  capabilities_endpoint, NULL);
+    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VARS,          vars_endpoint, NULL);
+    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_POLICY, network_policy_endpoint, NULL);
+
+    s_prov_active = true;
+    ESP_LOGI(TAG, "Provisioning advertising as %s", service_name);
+    return ESP_OK;
+}
+
+esp_err_t wifi_cfg_prov_stop(void)
+{
+    if (!s_prov_active && !s_prov_initialized) {
+        return ESP_OK;
+    }
+    WIFI_PROV_MGR_STOP();
+    if (s_prov_initialized) {
+        WIFI_PROV_MGR_DEINIT();
+        s_prov_initialized = false;
+    }
+    s_prov_active = false;
+    return ESP_OK;
+}
+
+#else // !(CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING && CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE)
+
+#include "esp_wifi_config_priv.h"
+
+esp_err_t wifi_cfg_prov_init(void)   { return ESP_OK; }
+esp_err_t wifi_cfg_prov_deinit(void) { return ESP_OK; }
+esp_err_t wifi_cfg_prov_start(void)  { return ESP_OK; }
+esp_err_t wifi_cfg_prov_stop(void)   { return ESP_OK; }
+bool      wifi_cfg_prov_is_active(void) { return false; }
+
+#endif

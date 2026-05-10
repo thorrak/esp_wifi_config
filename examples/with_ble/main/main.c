@@ -1,11 +1,20 @@
 /**
  * @file main.c
- * @brief ESP WiFi Config - BLE Example
+ * @brief ESP WiFi Config — Network Provisioning over BLE example
  *
- * This example demonstrates WiFi Config with BLE GATT interface:
- * - Configure WiFi networks via BLE from smartphone or Python CLI
- * - Enable HTTP REST API for web-based configuration
- * - Enable captive portal for initial setup
+ * Demonstrates WiFi Config with the official ESP-IDF wifi_provisioning
+ * manager (BLE scheme):
+ *
+ *   - Provision the device using Espressif's "ESP BLE Provisioning"
+ *     mobile app (iOS/Android) or `idf.py monitor` + a custom client
+ *   - HTTP REST API stays available for management after provisioning
+ *   - Captive-portal SoftAP runs as an additional provisioning fallback
+ *
+ * The legacy custom BLE GATT (UUID 0xFFE0) interface that this example
+ * previously demonstrated has been removed in favour of the standardised
+ * provisioning protocol. See MIGRATION.md for the protocol-level migration
+ * notes if you have client tools that still talk the old JSON-over-GATT
+ * format.
  */
 
 #include <stdio.h>
@@ -95,9 +104,14 @@ void app_main(void)
             .enable_auth = false,
         },
 
-        // BLE GATT configuration (enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y in sdkconfig)
-        .ble = {
-            .device_name = NULL,  // Use Kconfig default: "ESP32-WiFi-{id}"
+        // Network Provisioning is enabled via
+        // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y in sdkconfig.
+        // Optional runtime overrides — leaving NULL uses the Kconfig
+        // defaults (service prefix "PROV_", PoP "abcd1234").
+        .prov = {
+            .service_name = NULL,
+            .pop = NULL,
+            .firmware_version = "1.0.0",
         },
     };
 
@@ -107,12 +121,13 @@ void app_main(void)
         return;
     }
 
-    ESP_LOGI(TAG, "WiFi Config initialized with BLE");
+    ESP_LOGI(TAG, "WiFi Config initialized with Network Provisioning over BLE");
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Configuration options:");
-    ESP_LOGI(TAG, "  1. BLE: Use Python CLI or smartphone app");
-    ESP_LOGI(TAG, "     python wifi_ble_cli.py scan");
-    ESP_LOGI(TAG, "     python wifi_ble_cli.py add \"SSID\" \"password\"");
+    ESP_LOGI(TAG, "  1. BLE: Use the 'ESP BLE Provisioning' app");
+    ESP_LOGI(TAG, "     - Scan for 'PROV_xxxxxx'");
+    ESP_LOGI(TAG, "     - Use Proof-of-Possession 'abcd1234' (override via Kconfig)");
+    ESP_LOGI(TAG, "     - Pick a Wi-Fi network and enter its password");
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "  2. Captive Portal: Connect to AP 'ESP_xxxx'");
     ESP_LOGI(TAG, "     Then visit http://192.168.4.1/api/wifi/");
@@ -120,12 +135,12 @@ void app_main(void)
 
     // Wait for connection
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    ret = wifi_cfg_wait_connected(30000);
+    ret = wifi_cfg_wait_connected(60000);
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected successfully!");
     } else {
-        ESP_LOGW(TAG, "WiFi connection timeout - use BLE or captive portal to configure");
+        ESP_LOGW(TAG, "WiFi connection timeout - use BLE provisioning or captive portal");
     }
 
     // Main loop

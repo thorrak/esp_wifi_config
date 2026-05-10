@@ -18,7 +18,7 @@ A standalone version of this questionnaire is available at [/llms-onboarding.txt
 
 Every project using ESP WiFi Config needs:
 
-1. **ESP-IDF >= 5.0.0** installed and configured
+1. **ESP-IDF >= 5.4** installed and configured (5.0.0 was supported by 0.0.x; the new Network Provisioning integration in 0.1.0 needs 5.4 or newer)
 2. **NVS flash** initialized before calling `wifi_cfg_init()`
 3. **esp_bus** initialized before calling `wifi_cfg_init()`
 
@@ -63,15 +63,15 @@ This affects project setup but not runtime code.
 |---|---|---|---|
 | **SoftAP + Captive Portal** | Device creates a WiFi AP; user connects and configures via browser popup | Nothing extra | (none — runtime `enable_ap = true`) |
 | **Web UI** | Embedded Preact frontend served on the captive portal (richer than plain API) | SoftAP enabled | `CONFIG_WIFI_CFG_ENABLE_WEBUI=y` |
-| **BLE GATT** | Configure via Bluetooth (smartphone app or Python CLI) | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y` + BT stack |
-| **Improv WiFi (BLE)** | Open standard provisioning via Chrome/Edge Web Bluetooth or ESPHome app | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y` + BT stack |
+| **Network Provisioning (BLE)** | Provision via Espressif's official "ESP BLE Provisioning" app or `esp_prov` Python tool | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y` + BT stack |
+| **Improv WiFi (BLE)** | Open standard provisioning via Chrome/Edge Web Bluetooth or ESPHome app | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y` + BT stack — **mutually exclusive** with Network Provisioning BLE |
 | **Improv WiFi (Serial)** | Open standard provisioning via Chrome/Edge Web Serial | UART access | `CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y` |
 | **CLI** | Serial console commands (`wifi status`, `wifi scan`, etc.) | ESP Console REPL init in app code | `CONFIG_WIFI_CFG_ENABLE_CLI=y` |
 | **None** | No provisioning — device only connects to hardcoded/NVS networks | — | — |
 
 **If "None" is selected:** Skip Q4–Q8, jump to Q9.
 
-**Guidance for the user:** Most consumer IoT devices want **SoftAP + Captive Portal** at minimum. Adding **BLE** or **Improv BLE** gives a smoother mobile experience. **Improv Serial** is useful for development/flashing workflows. **CLI** is primarily for development/debugging.
+**Guidance for the user:** Most consumer IoT devices want **SoftAP + Captive Portal** at minimum. Adding **Network Provisioning BLE** (Espressif's standard apps) or **Improv BLE** (Web Bluetooth / ESPHome ecosystem) gives a smoother mobile experience — pick one, they cannot both ship in the same firmware. **Improv Serial** is useful for development/flashing workflows. **CLI** is primarily for development/debugging.
 
 ### Q4: When should provisioning activate?
 
@@ -100,22 +100,26 @@ Only ask about interfaces selected in Q3.
 | AP Password | `""` (open network) | Set a password for a secured AP; must be 8+ characters if non-empty |
 | AP IP | `"192.168.4.1"` | Only change if it conflicts with the user's network |
 
-#### Q5b: BLE settings (if BLE selected)
+#### Q5b: BLE settings (if Network Provisioning BLE or Improv BLE selected)
 
 > Do you want to customize the BLE device name?
 
-| Setting | Default | Notes |
-|---|---|---|
-| Device name | `"ESP32-WiFi-{id}"` (from Kconfig) | `{id}` replaced with last 3 MAC bytes |
+| Setting | Used by | Default | Notes |
+|---|---|---|---|
+| `.prov.service_name` | Network Provisioning BLE | `"PROV_"` (from Kconfig) | Manager appends a per-device tail derived from the WiFi MAC (e.g. `"PROV_AB12CD"`) |
+| `.prov.pop` | Network Provisioning BLE Security 1 | `"abcd1234"` (from Kconfig) | Override per device for production |
+| `.ble.device_name` | Improv BLE GAP advertising | `"ESP32-WiFi-{id}"` | `{id}` replaced with last 3 MAC bytes |
 
 > Which Bluetooth stack do you prefer?
 
 | Stack | Kconfig | Flash / RAM | Notes |
 |---|---|---|---|
-| **Bluedroid** | `CONFIG_BT_BLUEDROID_ENABLED=y` | ~100KB / ~40KB | ESP-IDF default, required for Improv BLE |
-| **NimBLE** | `CONFIG_BT_NIMBLE_ENABLED=y` | ~50KB / ~20KB | Lighter, but **not compatible with Improv BLE** |
+| **NimBLE** | `CONFIG_BT_NIMBLE_ENABLED=y` | ~50 KB / ~20 KB | Recommended; supported by both Network Provisioning and Improv. |
+| **Bluedroid** | `CONFIG_BT_BLUEDROID_ENABLED=y` | ~100 KB / ~40 KB | Also supported by both. Heavier but the long-standing ESP-IDF default. |
 
-**Important:** If the user selected Improv BLE in Q3, they **must** use Bluedroid.
+Improv BLE works with NimBLE and Bluedroid. Network Provisioning BLE
+works with both as well (the manager itself selects the host based on
+the active Kconfig).
 
 #### Q5c: Improv settings (if Improv selected)
 
@@ -247,16 +251,24 @@ Build the sdkconfig from Q3 and Q5 answers:
 # === Always required ===
 # (none — defaults work for basic WiFi)
 
-# === BLE (if Q3 includes BLE or Improv BLE) ===
+# === BLE host (if Q3 includes any BLE provisioning) ===
 CONFIG_BT_ENABLED=y
-CONFIG_BT_BLUEDROID_ENABLED=y          # or CONFIG_BT_NIMBLE_ENABLED=y (see Q5b)
-# CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144  # only if NimBLE
-CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y       # if custom BLE GATT selected
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y  # BLE adds ~100KB flash
+CONFIG_BT_NIMBLE_ENABLED=y                  # or CONFIG_BT_BLUEDROID_ENABLED=y
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144  # only if NimBLE
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y   # BLE adds ~100KB flash
 
-# === Improv (if Q3 includes Improv) ===
-CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y    # if Improv BLE selected
-# CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y  # if Improv Serial selected
+# === Network Provisioning BLE (if selected; mutually exclusive with Improv BLE) ===
+CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX="PROV_"
+
+# === Improv BLE (if selected; mutually exclusive with Network Provisioning) ===
+# CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
+
+# === Improv Serial (independent of BLE — safe to combine with Network Provisioning) ===
+# CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y
 
 # === Web UI (if Q3 includes Web UI) ===
 CONFIG_WIFI_CFG_ENABLE_WEBUI=y
@@ -340,9 +352,19 @@ void app_main(void)
         //     .auth_password = "changeme",    // Q10
         // },
 
-        // -- BLE (Q3 + Q5b) — enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y --
+        // -- Network Provisioning BLE (Q3 + Q5b)
+        // Enabled via CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
+        // .prov = {
+        //     .service_name      = "PROV_",     // GAP-name prefix (default from Kconfig)
+        //     .pop               = "1234abcd",  // overrides Kconfig PoP
+        //     .firmware_version  = "1.0.0",
+        // },
+
+        // -- Improv BLE GAP name (Q3 + Q5b) --
+        // Used by the Improv host bootstrap when CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y.
+        // For Network Provisioning BLE the GAP name is controlled via .prov.service_name
         // .ble = {
-        //     .device_name = "ESP32-WiFi-{id}",  // Q5b
+        //     .device_name = "ESP32-WiFi-{id}",
         // },
 
         // -- Improv (Q3 + Q5c + Q5d) --
@@ -403,8 +425,8 @@ void app_main(void)
 3. **BLE requires Bluetooth enabled**: `CONFIG_BT_ENABLED=y` and either `CONFIG_BT_BLUEDROID_ENABLED=y` or `CONFIG_BT_NIMBLE_ENABLED=y`.
 4. **BLE needs larger partition table**: Use `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` when enabling BLE.
 5. **NimBLE needs stack size**: Set `CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144` when using NimBLE.
-6. **Improv BLE requires Bluedroid**: NimBLE is not compatible with the Improv BLE transport.
-7. **Improv BLE is independent**: Improv BLE no longer requires `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y`. The BLE stack is initialized automatically when either BLE interface is enabled.
+6. **Improv BLE works with both NimBLE and Bluedroid**: previous releases were Bluedroid-only — that limitation is gone.
+7. **Network Provisioning BLE and Improv BLE are mutually exclusive**: `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` and `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` cannot be enabled together — they each want to own the BLE GAP advertising and the host stack. Improv Serial is independent of BLE and remains safe alongside Network Provisioning.
 8. **Default networks are seeds**: They're only written to NVS on first boot. After that, NVS is the source of truth.
 9. **ESP32 is 2.4GHz only**: The device cannot connect to 5GHz WiFi networks.
 10. **Subscribe to events before init**: Call `esp_bus_sub()` before `wifi_cfg_init()` to catch events fired during initialization.

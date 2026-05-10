@@ -50,9 +50,17 @@ extern "C" {
 #endif
 #endif
 
-// Convenience: BLE stack is needed if either custom BLE or Improv BLE is enabled
-#if defined(CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE) || defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
+// Convenience: BLE stack bootstrap (NimBLE/Bluedroid) is owned by this
+// library when Improv BLE is enabled. When Network Provisioning BLE is
+// enabled, wifi_prov_mgr owns the BLE stack instead.
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE)
 #define WIFI_CFG_NEED_BLE 1
+#endif
+
+// True when *any* BLE-based provisioning is compiled in. Used by the
+// lifecycle to decide whether to start/stop a BLE provisioning interface.
+#if defined(CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE) || defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE)
+#define WIFI_CFG_HAS_BLE_PROVISIONING 1
 #endif
 
 #define WIFI_CFG_DEFAULT_AP_SSID "ESP32-Config"
@@ -264,12 +272,6 @@ void wifi_cfg_start_provisioning(void);
 // Stop all provisioning interfaces, transition HTTP per post-prov mode
 void wifi_cfg_stop_provisioning(void);
 
-// =============================================================================
-// BLE Start/Stop (advertising control without full init/deinit)
-// =============================================================================
-
-esp_err_t wifi_cfg_ble_start(void);
-esp_err_t wifi_cfg_ble_stop(void);
 
 // =============================================================================
 // HTTP Handler Registration
@@ -321,15 +323,27 @@ esp_err_t wifi_cfg_cli_init(void);
 esp_err_t wifi_cfg_webui_init(httpd_handle_t httpd);
 
 // =============================================================================
-// BLE Functions (esp_wifi_config_ble.c)
+// BLE Functions (esp_wifi_config_ble.c — Improv host shim)
+//
+// These delegate to wifi_cfg_ble_backend_* in the NimBLE/Bluedroid backend
+// when CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE is set. They are no-ops in builds
+// where Improv BLE is disabled.
 // =============================================================================
 
 esp_err_t wifi_cfg_ble_init(void);
 esp_err_t wifi_cfg_ble_deinit(void);
+esp_err_t wifi_cfg_ble_start(void);
+esp_err_t wifi_cfg_ble_stop(void);
 
-// Push current WiFi status to subscribed BLE clients (no-op if no client/notify).
-// Safe to call when BLE is disabled — provides a stub.
-void wifi_cfg_ble_notify_status_change(void);
+// =============================================================================
+// Network Provisioning (esp_wifi_config_prov_ble.c)
+// =============================================================================
+
+esp_err_t wifi_cfg_prov_init(void);
+esp_err_t wifi_cfg_prov_deinit(void);
+esp_err_t wifi_cfg_prov_start(void);
+esp_err_t wifi_cfg_prov_stop(void);
+bool      wifi_cfg_prov_is_active(void);
 
 // =============================================================================
 // Utility Functions

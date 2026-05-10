@@ -43,16 +43,33 @@ Serves a custom frontend from a LittleFS partition instead of the embedded UI. R
 
 ## [with_ble](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_ble)
 
-BLE GATT provisioning using Bluedroid. Requires `CONFIG_BT_ENABLED=y`, `CONFIG_BT_BLUEDROID_ENABLED=y`, and `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` (BLE adds ~100KB flash). Testable with the included [Python CLI tool](https://github.com/thorrak/esp_wifi_config/tree/main/tools/wifi_ble_cli).
+BLE provisioning using ESP-IDF's official Wi-Fi Provisioning manager
+(NimBLE host, Security 1 + Proof-of-Possession). Provision via the
+"ESP BLE Provisioning" mobile app (iOS / Android), the `esp_prov`
+Python tool, or any client built on the
+`esp-idf-provisioning-{android,ios}` SDKs. Requires
+`CONFIG_BT_ENABLED=y`, a NimBLE or Bluedroid host, and
+`CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` (BLE adds ~100 KB flash).
 
 ---
 
 ## [with_ble_deinit](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_ble_deinit)
 
-Demonstrates app-owned BLE stack with NimBLE. The app initializes NimBLE first, then WiFi Config registers only its GATT service (service-only mode). After provisioning, `wifi_cfg_deinit()` removes the WiFi Config service while NimBLE stays running for the app's own BLE services.
+Demonstrates app-owned BLE stack with NimBLE using the **Improv BLE**
+host bootstrap. The app initialises NimBLE first, then WiFi Config
+registers only its Improv GATT service (service-only mode). After
+provisioning, `wifi_cfg_deinit()` removes the WiFi Config service
+while NimBLE stays running for the app's own BLE services. Network
+Provisioning BLE manages its own host lifecycle and isn't suitable for
+this particular handoff pattern.
 
 ---
 
 ## [with_improv](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_improv)
 
-Improv WiFi standard provisioning alongside custom BLE GATT and captive portal. Supports Web Bluetooth (Chrome/Edge at [improv-wifi.com](https://www.improv-wifi.com/)), the ESPHome companion app, and optional Web Serial. Both the Improv service and custom BLE service (0xFFE0) advertise simultaneously.
+Improv WiFi standard provisioning over BLE and (optionally) Serial.
+Supports Web Bluetooth (Chrome/Edge at [improv-wifi.com](https://www.improv-wifi.com/)),
+the ESPHome companion app, and Web Serial. Mutually exclusive with
+Network Provisioning BLE — pick one BLE protocol per firmware build.
+Improv Serial is independent of BLE and remains safe alongside Network
+Provisioning.

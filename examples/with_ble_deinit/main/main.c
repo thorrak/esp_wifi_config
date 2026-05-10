@@ -329,8 +329,13 @@ void app_main(void)
             .enable_auth = false,
         },
 
-        // WiFi Config will detect NimBLE already running and use service-only mode
-        // (enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y in sdkconfig)
+        // WiFi Config will detect NimBLE already running and use service-only mode.
+        // The example uses Improv BLE (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y in
+        // sdkconfig) because the Improv host bootstrap supports the
+        // service-only handoff that this example demonstrates. ESP-IDF
+        // Network Provisioning manages its own BLE host lifecycle and
+        // doesn't fit the same handoff pattern — see the with_ble example
+        // for the recommended provisioning flow.
         .ble = {
             .device_name = NULL,
         },

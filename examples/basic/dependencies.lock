@@ -2,15 +2,15 @@ dependencies:
   esp_wifi_config:
     dependencies: []
     source:
-      path: /Users/tuan/Projects/2025/me/esp/esp_wifi_config
+      path: /Users/jbeeler/VSCodeProjects/esp_wifi_config
       type: local
-    version: 1.0.0
+    version: 0.1.0
   idf:
     source:
       type: idf
-    version: 5.3.4
+    version: 5.4.3
   thorrak/esp_bus:
-    component_hash: e78c5ae0f388a278258e4c7ca15b7e6a937e6aca0228ff49686836d2724c4727
+    component_hash: 605ccb6d50f533093df2ebae17cf82e21d79d3e2f1add5afe2c78e9620ab94a0
     dependencies:
     - name: idf
       require: private
@@ -31,6 +31,6 @@ direct_dependencies:
 - esp_wifi_config
 - idf
 - thorrak/esp_bus
-manifest_hash: 32476368e7dbed34a9310c734a20980e4826147a64bb7bf4707c32e41e322e3b
+manifest_hash: 417525f6297dc6d938761f8056d7903e0e58eb4856487ca649ca53a00ecd9170
 target: esp32s3
 version: 2.0.0

@@ -6,7 +6,18 @@ description: Open-standard provisioning via Web Bluetooth and Web Serial
 
 # Improv WiFi
 
-[Improv WiFi](https://www.improv-wifi.com/) is an open standard by ESPHome for provisioning IoT devices over BLE or Serial using web browsers and companion apps. It coexists with the custom BLE GATT service (0xFFE0) — both are advertised simultaneously.
+[Improv WiFi](https://www.improv-wifi.com/) is an open standard by ESPHome for provisioning IoT devices over BLE or Serial using web browsers and companion apps.
+
+:::note Mutually exclusive with Network Provisioning BLE
+`CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` and
+`CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` cannot both be enabled in
+a single firmware build — they each want to own the BLE GAP advertising
+and the NimBLE/Bluedroid host. Pick the protocol that matches your
+provisioning client tooling, or ship two firmware variants.
+
+Improv **Serial** (`CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL`) is independent
+of BLE and remains safe to enable alongside Network Provisioning BLE.
+:::
 
 ## Enabling Improv
 
@@ -69,15 +80,15 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 | Get Device Info | 0x03 | Returns firmware name, version, chip, device name |
 | Get WiFi Networks | 0x04 | Triggers a WiFi scan and returns results |
 
-## Coexistence with Custom BLE
-
-When both custom BLE (`CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y`) and Improv BLE (`CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y`) are active:
-
-- The custom service (UUID `0xFFE0`) is in the primary advertising packet
-- The Improv service (UUID `00467768-6228-2272-4663-277478268000`) is in the scan response
-- Both services share the same BLE connection and stack instance
-- A BLE scanner (e.g., nRF Connect) will show both services on the device
-
 ## BLE Stack Requirements
 
-Improv BLE requires the same Bluetooth stack (`CONFIG_BT_ENABLED=y` + a host stack) as the [custom BLE GATT](./ble-gatt.md) interface, but does **not** require `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE`. The BLE stack is initialized automatically when Improv BLE is enabled. See the [with_improv example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_improv) for a complete sdkconfig.
+Improv BLE requires `CONFIG_BT_ENABLED=y` and a NimBLE or Bluedroid host
+stack. The BLE stack is initialised automatically when Improv BLE is
+enabled — the library does not need any other Kconfig opt-in. See the
+[with_improv example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_improv)
+for a complete sdkconfig.
+
+If you need the official ESP-IDF provisioning protocol instead of
+Improv (e.g. for use with the Espressif "ESP BLE Provisioning" mobile
+apps), see [BLE Provisioning](./ble-gatt.md). The two are mutually
+exclusive at compile time.
