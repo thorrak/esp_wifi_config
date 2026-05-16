@@ -32,18 +32,15 @@ Configure via `idf.py menuconfig` → WiFi Config, or set in `sdkconfig.defaults
 
 ## Network Provisioning (BLE)
 
+Only two Kconfig symbols gate Network Provisioning — everything else
+(security version, PoP, device name template, SRP6a username,
+auto-reset behaviour, retry threshold) is plain runtime configuration
+on `wifi_cfg_prov_config_t`. See [C API → `.prov`](./c-api#prov-network-provisioning).
+
 | Option | Default | Description |
 |---|---|---|
 | `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` | n | Enable ESP-IDF Wi-Fi/Network Provisioning manager |
 | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE` | y | Use the BLE scheme (currently the only transport supported by this library) |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_0` | n | Security 0 (no encryption — testing only) |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1` | y | Security 1 (Curve25519 + AES-CTR with PoP) |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2` | n | Security 2 (SRP6a; requires app-supplied salt+verifier) |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP` | "abcd1234" | Default Security 1 Proof-of-Possession |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME` | "wificfg" | Default Security 2 SRP username |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME` | "PROV_{id}" | Default BLE GAP name template (supports `{id}` token) |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_RESET_ON_FAILURE` | y | Erase prov state after N failed attempts |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_MAX_RETRIES` | 3 | Failed-attempt limit before reset |
 
 The previous custom BLE GATT option (`WIFI_CFG_ENABLE_CUSTOM_BLE`) has
 been **removed** in 0.1.0. See [MIGRATION.md][migrate] for upgrade
@@ -82,10 +79,12 @@ CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
 CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
 ```
+
+Pair this sdkconfig with the runtime parameters (security version, PoP,
+etc.) in your `wifi_cfg_init()` call — see the [C API
+reference](./c-api#prov-network-provisioning).
 
 ### WiFi + Network Provisioning over BLE (Bluedroid)
 
@@ -94,8 +93,6 @@ CONFIG_BT_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=y
 CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
 ```
 

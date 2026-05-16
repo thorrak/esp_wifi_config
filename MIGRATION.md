@@ -26,14 +26,16 @@ provisioning path.
 
 ### What changed (Kconfig)
 
+Only two Network Provisioning Kconfig symbols exist now — everything
+else (security version, PoP, device name template, SRP6a username,
+auto-reset behaviour, retry threshold) is plain runtime configuration on
+`wifi_cfg_prov_config_t`:
+
 | Old | New |
 |-----|-----|
 | `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y` | `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y` |
 | `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=n` (Improv only) | unchanged — `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y` |
-| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y` |
-| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_{0,1,2}` |
-| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="abcd1234"` |
-| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"` |
+| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y` (BLE transport) |
 
 `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` and
 `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` are now **mutually exclusive** — both
@@ -63,22 +65,22 @@ a combined "BLE" menu.
 
 ### What changed (`wifi_cfg_config_t` shape)
 
-The struct gained a `.prov` sub-block for ESP-IDF Network Provisioning
-runtime overrides. The full shape:
+The struct gained a `.prov` sub-block that carries the full runtime
+configuration for ESP-IDF Network Provisioning. The full shape:
 
 ```c
 typedef struct {
     // BLE identity / discovery
-    const char    *device_name;          // supports {id} token (was: service_name prefix)
+    const char    *device_name;          // supports {id} token; NULL → "PROV_{id}"
     const uint8_t *service_uuid128;      // optional 128-bit GATT UUID
     const uint8_t *manufacturer_data;
     size_t         manufacturer_data_len;
     const uint8_t *random_addr;          // optional 6-byte BLE address
 
     // Security
-    wifi_cfg_prov_security_t  security;  // _DEFAULT uses Kconfig choice
-    const char    *pop;
-    const char    *security2_username;
+    wifi_cfg_prov_security_t  security;  // _DEFAULT → Security 1
+    const char    *pop;                  // NULL/"" → no PoP
+    const char    *security2_username;   // NULL → "wificfg"
     const uint8_t *security2_salt;
     size_t         security2_salt_len;
     const uint8_t *security2_verifier;
@@ -92,6 +94,8 @@ typedef struct {
     uint32_t       cleanup_delay_ms;     // protocomm grace period
     uint32_t       wifi_conn_attempts;   // 0 = infinite
     bool           stop_after_success;
+    bool           reset_on_failure;     // erase prov state after N failed creds
+    uint8_t        max_failed_attempts;  // 0 → 3 (used when reset_on_failure)
 
     // App metadata
     const char    *firmware_version;
@@ -141,8 +145,8 @@ behaviour, `.prov.device_name` is a full name template that supports the
 
 ### What changed (runtime API)
 
-The public `wifi_cfg_init()` config keeps its existing fields. A new
-optional `prov` block is available for runtime overrides:
+The public `wifi_cfg_init()` config keeps its existing fields. The new
+`.prov` block carries every runtime parameter for Network Provisioning:
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
@@ -150,11 +154,13 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .stop_provisioning_on_connect = true,
 
     .prov = {
-        .device_name        = "PROV_{id}", // GAP name template (default from Kconfig)
-        .pop                = "1234abcd",  // override Kconfig default
-        .security           = WIFI_CFG_PROV_SECURITY_1,  // override Kconfig choice
-        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // default — free BT after prov
-        .wifi_conn_attempts = 5,           // give up after 5 failed STA attempts
+        .device_name        = "PROV_{id}",          // GAP name template
+        .security           = WIFI_CFG_PROV_SECURITY_1,
+        .pop                = "1234abcd",           // Security 1 PoP
+        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // free BT after prov
+        .wifi_conn_attempts = 5,                    // give up after 5 STA tries
+        .reset_on_failure   = true,                 // accept retries without reboot
+        .max_failed_attempts = 3,
         .firmware_version   = "1.0.0",
         .on_credentials_received = on_creds,
     },
@@ -171,8 +177,8 @@ unchanged — `wifi_prov_mgr` is driven by the same state machine.
 `.prov.device_name` is a **template**, not a prefix. The old
 `.ble.device_name` semantics ("string + MAC suffix") changed to "explicit
 `{id}` token" — matching `.improv.ble_device_name`. If you were relying
-on the old Kconfig prefix `"PROV_"` to auto-append MAC bytes, update it
-to `"PROV_{id}"` (the new default). A literal `"PROV_"` with no `{id}`
+on the old prefix `"PROV_"` to auto-append MAC bytes, set the field to
+`"PROV_{id}"` (the library default). A literal `"PROV_"` with no `{id}`
 will now advertise as `"PROV_"` with no per-device suffix.
 
 #### Provisioning teardown lifecycle
@@ -219,9 +225,9 @@ The `CRED_FAIL` reason is `WIFI_PROV_STA_AUTH_ERROR` (1) for bad
 password and `WIFI_PROV_STA_AP_NOT_FOUND` (0) for SSID-not-visible — the
 two cases an app typically needs to distinguish to drive a "retry" vs
 "re-scan" UI. After failure the manager remains running and accepts
-fresh credentials without rebooting (it auto-resets the state machine
-after `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_MAX_RETRIES` failed
-attempts — default 3).
+fresh credentials without rebooting; if you set `.prov.reset_on_failure
+= true`, the state machine is reset after `.prov.max_failed_attempts`
+(default 3) consecutive failures.
 
 ### Init-time validation (new failure mode)
 
@@ -265,10 +271,11 @@ extern const uint8_t sec2_verifier[];
 
 ### Two field semantics worth flagging
 
-**`.prov.security == 0` means "use Kconfig", not "Security 0".**
-`WIFI_CFG_PROV_SECURITY_DEFAULT` is the zero value, so omitting the
-field in a designated initialiser preserves the Kconfig choice. The
-explicit security-zero option is `WIFI_CFG_PROV_SECURITY_0` (= 1).
+**`.prov.security == 0` means "library default", not "Security 0".**
+`WIFI_CFG_PROV_SECURITY_DEFAULT` is the zero value and resolves to
+Security 1, so omitting the field in a designated initialiser gives you
+Security 1. The explicit security-zero option is `WIFI_CFG_PROV_SECURITY_0`
+(= 1).
 
 **`.prov.security2_username` is informational only.** The SRP6a
 username flows from the *client* during the handshake; the device
@@ -412,20 +419,19 @@ ordering required by `wifi_prov_mgr` automatically.
    - CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y
    + CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
    + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
-   + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
-   + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
-   + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"
    ```
 
-   Note the `{id}` token in the device-name default. If you were
-   carrying a custom `SERVICE_PREFIX="MyApp_"`, rewrite it as
-   `DEVICE_NAME="MyApp_{id}"` to preserve the per-device MAC suffix.
+   Everything else (security version, PoP, device-name template,
+   auto-reset behaviour, etc.) is set on `wifi_cfg_prov_config_t` in
+   step 4.
 
-4. **(Optional) Set runtime overrides** in `wifi_cfg_init()`. See the
-   struct shape under "What changed (`wifi_cfg_config_t` shape)" for
-   the full list — common ones: `pop`, `device_name`, `security`,
-   `memory_policy`, `wifi_conn_attempts`, the event callbacks, and
-   `custom_endpoints` for app-specific protocomm channels.
+4. **Set runtime parameters** in `wifi_cfg_init()`. See the struct
+   shape under "What changed (`wifi_cfg_config_t` shape)" for the full
+   list — typical fields: `device_name` (e.g. `"MyApp_{id}"` to keep a
+   per-device MAC suffix), `security`, `pop`, `memory_policy`,
+   `wifi_conn_attempts`, `reset_on_failure`, `max_failed_attempts`, the
+   event callbacks, and `custom_endpoints` for app-specific protocomm
+   channels.
 
 5. **Subscribe to the new provisioning events** if your app reacts to
    credential delivery/failure/success — see "Provisioning event

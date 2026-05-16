@@ -53,7 +53,7 @@ The two BLE channels (this library's BLE and Improv WiFi BLE) are mutually exclu
 Because the BLE channel uses **Espressif's `wifi_provisioning` component** as its transport, the on-the-wire protocol is the standard Espressif one:
 
 - **Espressif-compatible clients work out of the box.** "ESP BLE Provisioning" mobile apps, the `esp_prov` Python tool in any ESP-IDF checkout, and the `esp-idf-provisioning-android` / `-ios` SDKs all pair with devices running this library.
-- **Security 1 (PoP)** and **Security 2 (SRP6a)** handshakes are both supported. Note that Espressif's apps expect a PoP key to be set (default: 'abcd1234')
+- **Security 1 (PoP)** and **Security 2 (SRP6a)** handshakes are both supported. Set `prov.pop` (Security 1) or `prov.security2_salt` / `prov.security2_verifier` (Security 2) in your `wifi_cfg_init()` call — the example uses `"abcd1234"` so Espressif's apps pair out of the box.
 - The standard `prov-config` / `prov-scan` endpoints behave exactly as Espressif's clients expect.
 
 What `wifi_provisioning` does on its own is hand a single set of credentials to `esp_wifi` once, over BLE (or SoftAP). It has no opinion about what happens before, after, or alongside that handoff. This library wraps `wifi_provisioning` for the BLE handshake and adds everything else:

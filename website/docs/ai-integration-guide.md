@@ -106,8 +106,10 @@ Only ask about interfaces selected in Q3.
 
 | Setting | Used by | Default | Notes |
 |---|---|---|---|
-| `.prov.device_name` | Network Provisioning BLE | `"PROV_{id}"` (from Kconfig) | GAP name template; `{id}` replaced with last 3 MAC bytes (e.g. `"PROV_AB12CD"`) |
-| `.prov.pop` | Network Provisioning BLE Security 1 | `"abcd1234"` (from Kconfig) | Override per device for production |
+| `.prov.device_name` | Network Provisioning BLE | `"PROV_{id}"` | GAP name template; `{id}` replaced with last 3 MAC bytes (e.g. `"PROV_AB12CD"`) |
+| `.prov.security` | Network Provisioning BLE | `WIFI_CFG_PROV_SECURITY_1` | `_DEFAULT` resolves to Security 1. Set `_SECURITY_2` for SRP6a (also requires `security2_salt`/`_verifier`). |
+| `.prov.pop` | Network Provisioning BLE Security 1 | (none — NULL means no-PoP) | Set a per-device secret for production |
+| `.prov.reset_on_failure` / `.max_failed_attempts` | Network Provisioning BLE | `false` / `0` | Set `reset_on_failure=true, max_failed_attempts=3` to accept fresh credentials after a wrong password without rebooting |
 | `.prov.memory_policy` | Network Provisioning BLE | `WIFI_CFG_PROV_MEM_FREE_BTDM` | Bluetooth memory cleanup policy on prov deinit. Use `_FREE_BLE` if the app needs Classic BT after prov, `_FREE_BT` if it needs BLE, `_KEEP_ALL` if the app owns the BT stack. See [C API → Bluetooth memory policy](api/c-api). |
 | `.improv.ble_device_name` | Improv BLE GAP advertising | `"ESP32-WiFi-{id}"` | `{id}` replaced with last 3 MAC bytes |
 
@@ -259,11 +261,10 @@ CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144  # only if NimBLE
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y   # BLE adds ~100KB flash
 
 # === Network Provisioning BLE (if selected; mutually exclusive with Improv BLE) ===
+# Security version, PoP, and device-name template are set on
+# wifi_cfg_prov_config_t in your wifi_cfg_init() call — not in sdkconfig.
 CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"
 
 # === Improv BLE (if selected; mutually exclusive with Network Provisioning) ===
 # CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
@@ -356,12 +357,14 @@ void app_main(void)
         // -- Network Provisioning BLE (Q3 + Q5b)
         // Enabled via CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
         // .prov = {
-        //     .device_name        = "PROV_{id}",  // GAP-name template (default from Kconfig)
-        //     .pop                = "1234abcd",   // overrides Kconfig PoP
-        //     .security           = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT keeps Kconfig
-        //     .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
-        //     .wifi_conn_attempts = 5,            // 0 = infinite
-        //     .firmware_version   = "1.0.0",
+        //     .device_name         = "PROV_{id}", // GAP-name template (NULL → "PROV_{id}")
+        //     .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
+        //     .pop                 = "1234abcd",  // Security 1 PoP (NULL → no PoP)
+        //     .memory_policy       = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
+        //     .wifi_conn_attempts  = 5,           // 0 = infinite
+        //     .reset_on_failure    = true,        // accept retries without reboot
+        //     .max_failed_attempts = 3,           // 0 → library default (3)
+        //     .firmware_version    = "1.0.0",
         // },
 
         // -- Improv (Q3 + Q5b + Q5c + Q5d) --

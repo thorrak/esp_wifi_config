@@ -38,12 +38,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   custom protocomm endpoints (`esp-wifi-config-version`,
   `esp-wifi-config-capabilities`, `esp-wifi-config-vars`,
   `esp-wifi-config-network-policy`).
-- `wifi_cfg_prov_config_t` runtime overrides for service name, PoP,
-  Security 2 username/salt/verifier, firmware version.
-- New Kconfig options: `WIFI_CFG_ENABLE_NETWORK_PROVISIONING`,
-  `WIFI_CFG_NETWORK_PROVISIONING_BLE`, security version choice,
-  `*_POP`, `*_SECURITY2_USERNAME`, `*_SERVICE_PREFIX`,
-  `*_RESET_ON_FAILURE`, `*_MAX_RETRIES`.
+- `wifi_cfg_prov_config_t` carries the full runtime configuration:
+  `device_name`, `security` version, `pop`, `security2_username`,
+  Security 2 salt/verifier, `reset_on_failure`, `max_failed_attempts`,
+  `firmware_version`, and the rest of the BLE / lifecycle / endpoint
+  knobs. Only two Kconfig options remain:
+  `WIFI_CFG_ENABLE_NETWORK_PROVISIONING` (gates the code) and
+  `WIFI_CFG_NETWORK_PROVISIONING_BLE` (selects the BLE transport).
 - ESP-IDF 6.x compatibility shim — uses the in-tree
   `wifi_provisioning` component on 5.4 and the external
   `espressif/network_provisioning` managed component on 6.x via a

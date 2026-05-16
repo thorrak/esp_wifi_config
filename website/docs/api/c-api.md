@@ -162,14 +162,16 @@ wifi_cfg_config_t config = {
     // exclusive with Improv BLE)
     .prov = {
         .device_name        = "PROV_{id}",  // GAP-name template (supports {id})
-        .pop                = "1234abcd",   // overrides Kconfig PoP
-        .security           = WIFI_CFG_PROV_SECURITY_1,  // _DEFAULT uses Kconfig
+        .security           = WIFI_CFG_PROV_SECURITY_1,  // _DEFAULT → Security 1
+        .pop                = "1234abcd",   // Security 1 PoP
         .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // see below
         .wifi_conn_attempts = 5,            // 0 = infinite (legacy default)
+        .reset_on_failure   = true,         // accept retries without reboot
+        .max_failed_attempts = 3,           // 0 → library default (3)
         .firmware_version   = "1.0.0",
     },
 
-    // Improv WiFi (transports selected via Kconfig: CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL).
+    // Improv WiFi (transports gated by Kconfig: CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL).
     // `ble_device_name` is the BLE GAP advertised name (what scanners show);
     // `device_name` is the human-readable name reported via the Improv
     // Device-Info RPC (what the Improv companion app shows after connect).
@@ -185,27 +187,31 @@ wifi_cfg_config_t config = {
 wifi_cfg_init(&config);
 ```
 
-## Network Provisioning configuration (`wifi_cfg_prov_config_t`)
+## Network Provisioning configuration (`wifi_cfg_prov_config_t`) {#prov-network-provisioning}
 
-The `.prov` sub-struct wraps every runtime override the ESP-IDF
-`wifi_provisioning` manager (BLE scheme) accepts. Every field is
-optional — leaving zero/NULL falls back to the Kconfig default.
+The `.prov` sub-struct carries every runtime parameter for the ESP-IDF
+`wifi_provisioning` manager (BLE scheme). Only `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING`
+and `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE` are set via Kconfig;
+everything below is plain runtime configuration. Zero/NULL fields fall
+back to the library defaults documented in the table.
 
 | Field | Purpose |
 |-------|---------|
-| `device_name` | BLE GAP advertised name template. Supports `{id}` (expanded to the last 3 bytes of the STA MAC). NULL → `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME` (default `"PROV_{id}"`). |
+| `device_name` | BLE GAP advertised name template. Supports `{id}` (expanded to the last 3 bytes of the STA MAC). NULL → `"PROV_{id}"`. |
 | `service_uuid128` | Optional 16-byte 128-bit GATT service UUID. NULL → IDF default. Espressif recommends a product-specific UUID. |
 | `manufacturer_data` / `_len` | Optional bytes appended to the BLE scan response. Total must fit in 31 bytes alongside the device name. |
 | `random_addr` | Optional 6-byte static random BLE address. |
-| `security` | `WIFI_CFG_PROV_SECURITY_{0,1,2,DEFAULT}`. DEFAULT uses Kconfig. |
-| `pop` | Security 1 proof-of-possession. NULL → Kconfig. |
-| `security2_username` | Security 2 SRP6a username. NULL → Kconfig. |
+| `security` | `WIFI_CFG_PROV_SECURITY_{0,1,2,DEFAULT}`. DEFAULT → Security 1. |
+| `pop` | Security 1 proof-of-possession. NULL or empty → no PoP. |
+| `security2_username` | Security 2 SRP6a username. NULL → `"wificfg"`. |
 | `security2_salt` / `_verifier` (+ lens) | Pre-computed SRP6a parameters. Required when Security 2 is selected — `wifi_cfg_init()` returns `ESP_ERR_INVALID_ARG` if missing. |
 | `memory_policy` | Bluetooth memory cleanup policy on provisioning deinit. See below. |
 | `keep_ble_on_after_stop` | If true, BLE stays advertising after the manager stops. Useful when the app takes over BLE post-provisioning. |
 | `cleanup_delay_ms` | Grace period the manager observes between stop and protocomm teardown. 0 → 1000 ms. Min 100 ms. |
 | `wifi_conn_attempts` | STA connection attempts before CRED_FAIL. 0 → infinite (legacy default). A bounded value gives the manager a chance to report failure cleanly. |
 | `stop_after_success` | Stop the manager on CRED_SUCCESS even when `stop_provisioning_on_connect` is false (useful in MANUAL mode). |
+| `reset_on_failure` | If true, reset the state machine after `max_failed_attempts` consecutive credential failures so a fresh attempt can be accepted without rebooting. |
+| `max_failed_attempts` | Threshold used when `reset_on_failure` is true. 0 → library default (3). |
 | `firmware_version` | Surfaced via the built-in `esp-wifi-config-version` endpoint. |
 | `app_infos` / `_count` | Optional metadata published via the standard `proto-ver` endpoint (label "prov" is reserved). |
 | `custom_endpoints` / `_count` | Additional protocomm endpoints registered alongside the library's four built-in endpoints. |

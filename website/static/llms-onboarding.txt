@@ -267,12 +267,15 @@ There are two categories of configuration flags:
 
     CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y   (if Network Provisioning over BLE selected)
     CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y      (paired with the above)
-    CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
-    CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<secret>"
     CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y      (if Improv BLE selected — mutually exclusive with Network Provisioning BLE)
     CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y   (if Improv Serial selected — independent of BLE)
     CONFIG_WIFI_CFG_ENABLE_WEBUI=y           (if Web UI selected)
     CONFIG_WIFI_CFG_ENABLE_CLI=y             (if CLI selected)
+
+    NOTE: For Network Provisioning, the security version, PoP, device-name
+    template, SRP6a username, and auto-reset behaviour are set on
+    wifi_cfg_prov_config_t at runtime — NOT in sdkconfig. See FILE 2
+    (main.c) for the .prov struct fields.
 
 Include ONLY the lines needed for the user's selected interfaces.
 Do not include lines for features that aren't enabled.

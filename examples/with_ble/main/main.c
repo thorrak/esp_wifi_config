@@ -106,12 +106,14 @@ void app_main(void)
 
         // Network Provisioning is enabled via
         // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y in sdkconfig.
-        // Optional runtime overrides — leaving NULL uses the Kconfig
-        // defaults (device name "PROV_{id}", PoP "abcd1234").
+        // All other parameters now live in this struct.
         .prov = {
-            .device_name = NULL,
-            .pop = NULL,
+            .device_name = "PROV_{id}",
+            .security = WIFI_CFG_PROV_SECURITY_1,
+            .pop = "abcd1234",
             .firmware_version = "1.0.0",
+            .reset_on_failure = true,
+            .max_failed_attempts = 3,
         },
     };
 
@@ -126,7 +128,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Configuration options:");
     ESP_LOGI(TAG, "  1. BLE: Use the 'ESP BLE Provisioning' app");
     ESP_LOGI(TAG, "     - Scan for 'PROV_xxxxxx'");
-    ESP_LOGI(TAG, "     - Use Proof-of-Possession 'abcd1234' (override via Kconfig)");
+    ESP_LOGI(TAG, "     - Use Proof-of-Possession 'abcd1234' (set in main.c)");
     ESP_LOGI(TAG, "     - Pick a Wi-Fi network and enter its password");
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "  2. Captive Portal: Connect to AP 'ESP_xxxx'");

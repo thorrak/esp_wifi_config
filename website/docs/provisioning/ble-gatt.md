@@ -30,16 +30,11 @@ how to update existing client tools.
 ```kconfig
 CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
-
-# Security version — 1 (PoP) is the default and works with all clients.
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="abcd1234"
-
-# Optional: BLE-advertised name. Supports the {id} token, expanded
-# against the last 3 bytes of the STA MAC — devices appear as e.g.
-# "PROV_AB12CD".
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"
 ```
+
+That's the whole Kconfig surface. Security version, PoP, device-name
+template, and the rest of the runtime parameters are set on
+`wifi_cfg_prov_config_t` in step 3 below.
 
 Mutually exclusive with `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` — both want
 to own the BLE GAP advertising and the host stack.
@@ -63,12 +58,14 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .provisioning_teardown_delay_ms = 5000,
 
     .prov = {
-        .device_name        = "PROV_{id}",  // GAP name template (supports {id})
-        .pop                = "1234abcd",   // override Kconfig PoP
-        .security           = WIFI_CFG_PROV_SECURITY_1,  // _DEFAULT uses Kconfig
-        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
-        .wifi_conn_attempts = 5,            // 0 = infinite
-        .firmware_version   = "1.0.0",
+        .device_name         = "PROV_{id}", // GAP name template (supports {id})
+        .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
+        .pop                 = "1234abcd",  // Security 1 PoP (NULL/"" → no PoP)
+        .memory_policy       = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
+        .wifi_conn_attempts  = 5,           // 0 = infinite
+        .reset_on_failure    = true,        // accept retries without reboot
+        .max_failed_attempts = 3,           // 0 → library default (3)
+        .firmware_version    = "1.0.0",
     },
 });
 ```
@@ -92,7 +89,7 @@ delay) and the BLE host is torn down.
 | Version | Handshake | Setup cost |
 |---------|-----------|-----------|
 | Security 0 | none (plaintext) | none — testing only |
-| Security 1 | Curve25519 + AES-CTR with PoP | set a string in Kconfig / runtime |
+| Security 1 | Curve25519 + AES-CTR with PoP | set `prov.pop` (or leave NULL for no-PoP mode) |
 | Security 2 | SRP6a (salted authenticated key exchange) | requires pre-computed `salt` + `verifier` |
 
 For Security 2, derive the `salt` / `verifier` offline using
@@ -116,9 +113,9 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 });
 ```
 
-If Security 2 is selected at build time but no salt/verifier is provided
-at runtime, the library logs a warning and falls back to Security 1
-using the configured PoP for that session.
+If `prov.security` is set to `WIFI_CFG_PROV_SECURITY_2` but no
+salt/verifier is provided, `wifi_cfg_init()` returns
+`ESP_ERR_INVALID_ARG` — the library does not silently fall back.
 
 ## Custom protocomm endpoints
 

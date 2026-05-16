@@ -462,10 +462,11 @@ typedef struct {
  * AES-CTR. Security 2 uses SRP6a with a salted authenticated key exchange
  * and AES-GCM — the production-recommended option.
  *
- * Use WIFI_CFG_PROV_SECURITY_DEFAULT to fall back to the Kconfig choice.
+ * Use WIFI_CFG_PROV_SECURITY_DEFAULT to fall back to the library default
+ * (currently Security 1 — works with or without a PoP).
  */
 typedef enum {
-    WIFI_CFG_PROV_SECURITY_DEFAULT = 0, ///< Use Kconfig WIFI_CFG_NETWORK_PROVISIONING_SECURITY_*
+    WIFI_CFG_PROV_SECURITY_DEFAULT = 0, ///< Library default (Security 1)
     WIFI_CFG_PROV_SECURITY_0,           ///< Plaintext (testing only)
     WIFI_CFG_PROV_SECURITY_1,           ///< X25519 + PoP + AES-CTR
     WIFI_CFG_PROV_SECURITY_2,           ///< SRP6a + AES-GCM (recommended)
@@ -571,8 +572,8 @@ typedef void (*wifi_cfg_prov_on_creds_success_t)(void *ctx);
 /**
  * @brief ESP-IDF Network Provisioning configuration
  *
- * Runtime overrides for CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING. Most
- * fields fall back to a Kconfig or sensible default when zero/NULL.
+ * Runtime configuration for CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING.
+ * Zero/NULL fields fall back to library defaults documented per-field.
  *
  * The library wraps the ESP-IDF wifi_provisioning manager (BLE scheme).
  * Custom protocomm endpoints are registered automatically:
@@ -591,9 +592,8 @@ typedef void (*wifi_cfg_prov_on_creds_success_t)(void *ctx);
 typedef struct {
     // ── BLE identity / discovery ─────────────────────────────────────────
     /// BLE GAP device name. Supports the `{id}` token (expanded against the
-    /// WiFi STA MAC, last 3 bytes as hex). NULL → Kconfig default
-    /// (`WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME`, typically "PROV_{id}").
-    /// Example: "MyDevice-{id}" → "MyDevice-ABC123".
+    /// WiFi STA MAC, last 3 bytes as hex). NULL → library default
+    /// "PROV_{id}". Example: "MyDevice-{id}" → "MyDevice-ABC123".
     const char *device_name;
     /// Optional 16-byte (128-bit) BLE service UUID to advertise. NULL →
     /// IDF default (`0000ffff-0000-1000-8000-00805f9b34fb`). Espressif
@@ -612,14 +612,14 @@ typedef struct {
 
     // ── Security ─────────────────────────────────────────────────────────
     /// Security version to negotiate. WIFI_CFG_PROV_SECURITY_DEFAULT → use
-    /// the Kconfig WIFI_CFG_NETWORK_PROVISIONING_SECURITY_* choice.
+    /// the library default (currently Security 1).
     wifi_cfg_prov_security_t security;
-    /// Proof-of-possession for Security 1. NULL → Kconfig
-    /// WIFI_CFG_NETWORK_PROVISIONING_POP. Empty string → no-PoP mode.
+    /// Proof-of-possession for Security 1. NULL or empty → no-PoP mode.
     /// Ignored for Security 0 and Security 2.
     const char *pop;
-    /// SRP6a username (I) for Security 2. NULL → Kconfig
-    /// WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME.
+    /// SRP6a username (I) for Security 2. The provisioning client must use
+    /// the same value (the salt/verifier below were derived from this
+    /// username + password offline). NULL → "wificfg".
     const char *security2_username;
     /// Pre-computed SRP6a salt for Security 2. Required when Security 2
     /// is selected — wifi_cfg_init() returns ESP_ERR_INVALID_ARG if
@@ -657,6 +657,14 @@ typedef struct {
     /// stop_provisioning_on_connect is false. Useful in MANUAL mode where
     /// the library doesn't drive provisioning teardown automatically.
     bool stop_after_success;
+    /// If true, reset the provisioning state machine after
+    /// max_failed_attempts consecutive credential failures so a fresh
+    /// attempt can be accepted without rebooting. Recommended for the
+    /// "re-provisioning just works after a wrong password" UX.
+    bool reset_on_failure;
+    /// Failed-attempt threshold used when reset_on_failure is true.
+    /// 0 → library default (3).
+    uint8_t max_failed_attempts;
 
     // ── App metadata (proto-ver endpoint) ───────────────────────────────
     /// Optional firmware version string surfaced via the built-in

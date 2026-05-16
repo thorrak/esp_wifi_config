@@ -159,26 +159,15 @@ static const char *resolve_device_name_template(void)
     if (g_wifi_cfg && g_wifi_cfg->config.prov.device_name && g_wifi_cfg->config.prov.device_name[0]) {
         return g_wifi_cfg->config.prov.device_name;
     }
-#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME
-    if (sizeof(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME) > 1) {
-        return CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME;
-    }
-#endif
     return "PROV_{id}";
 }
 
 static const char *resolve_pop(void)
 {
-    // .prov.pop precedence: NULL falls through to Kconfig; an empty
-    // string is an explicit "disable PoP" override that wins over Kconfig.
-    if (g_wifi_cfg && g_wifi_cfg->config.prov.pop) {
-        return g_wifi_cfg->config.prov.pop[0] ? g_wifi_cfg->config.prov.pop : NULL;
+    // NULL or empty string both mean "no PoP".
+    if (g_wifi_cfg && g_wifi_cfg->config.prov.pop && g_wifi_cfg->config.prov.pop[0]) {
+        return g_wifi_cfg->config.prov.pop;
     }
-#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP
-    if (sizeof(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP) > 1) {
-        return CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP;
-    }
-#endif
     return NULL;
 }
 
@@ -197,17 +186,10 @@ static WIFI_PROV_SECURITY_T resolve_security(void)
 
     switch (want) {
         case WIFI_CFG_PROV_SECURITY_0: return WIFI_PROV_SECURITY_0;
-        case WIFI_CFG_PROV_SECURITY_1: return WIFI_PROV_SECURITY_1;
         case WIFI_CFG_PROV_SECURITY_2: return WIFI_PROV_SECURITY_2;
+        case WIFI_CFG_PROV_SECURITY_1:
         case WIFI_CFG_PROV_SECURITY_DEFAULT:
-        default:
-#if defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2)
-            return WIFI_PROV_SECURITY_2;
-#elif defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1)
-            return WIFI_PROV_SECURITY_1;
-#else
-            return WIFI_PROV_SECURITY_0;
-#endif
+        default:                       return WIFI_PROV_SECURITY_1;
     }
 }
 
@@ -271,15 +253,9 @@ esp_err_t wifi_cfg_prov_validate(const wifi_cfg_prov_config_t *prov)
     if (!prov) return ESP_OK;
 
     // Security 2 needs a salt + verifier; we don't silently fall back.
-    bool wants_security2 =
-        (prov->security == WIFI_CFG_PROV_SECURITY_2) ||
-#if defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2)
-        (prov->security == WIFI_CFG_PROV_SECURITY_DEFAULT);
-#else
-        false;
-#endif
-
-    if (wants_security2) {
+    // DEFAULT resolves to Security 1, so only an explicit Security 2 needs
+    // these checks.
+    if (prov->security == WIFI_CFG_PROV_SECURITY_2) {
         bool have_salt     = prov->security2_salt && prov->security2_salt_len > 0;
         bool have_verifier = prov->security2_verifier && prov->security2_verifier_len > 0;
         if (!have_salt || !have_verifier) {
@@ -558,13 +534,14 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                 ESP_LOGW(TAG, "Bad password — accepting another attempt");
             }
             s_failed_attempts++;
-#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_RESET_ON_FAILURE
-            if (s_failed_attempts >= CONFIG_WIFI_CFG_NETWORK_PROVISIONING_MAX_RETRIES) {
-                ESP_LOGW(TAG, "Too many failed attempts, resetting state machine");
-                WIFI_PROV_MGR_RESET_SM();
-                s_failed_attempts = 0;
+            if (prov_cfg && prov_cfg->reset_on_failure) {
+                int limit = prov_cfg->max_failed_attempts ? prov_cfg->max_failed_attempts : 3;
+                if (s_failed_attempts >= limit) {
+                    ESP_LOGW(TAG, "Too many failed attempts, resetting state machine");
+                    WIFI_PROV_MGR_RESET_SM();
+                    s_failed_attempts = 0;
+                }
             }
-#endif
             esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROV_CRED_FAIL, &reason_val, sizeof(reason_val));
             if (prov_cfg && prov_cfg->on_credentials_failed) {
                 prov_cfg->on_credentials_failed(reason_val, prov_cfg->event_ctx);
