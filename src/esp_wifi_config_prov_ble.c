@@ -55,6 +55,7 @@
 #include "esp_chip_info.h"
 #include "esp_app_desc.h"
 #include "esp_bt.h"
+#include "esp_coexist.h"
 #include "cJSON.h"
 #include <string.h>
 
@@ -147,6 +148,7 @@ static const char *TAG = "wifi_cfg_prov";
 static bool s_prov_initialized = false;     // wifi_prov_mgr_init has been called
 static bool s_prov_active      = false;     // wifi_prov_mgr_start_provisioning succeeded
 static int  s_failed_attempts  = 0;         // counted across CRED_FAIL events
+static bool s_coex_pref_set    = false;     // tracks whether we biased coex toward BT
 
 // =============================================================================
 // Resolve helpers (config → effective value with Kconfig fallback)
@@ -167,8 +169,10 @@ static const char *resolve_device_name_template(void)
 
 static const char *resolve_pop(void)
 {
-    if (g_wifi_cfg && g_wifi_cfg->config.prov.pop && g_wifi_cfg->config.prov.pop[0]) {
-        return g_wifi_cfg->config.prov.pop;
+    // .prov.pop precedence: NULL falls through to Kconfig; an empty
+    // string is an explicit "disable PoP" override that wins over Kconfig.
+    if (g_wifi_cfg && g_wifi_cfg->config.prov.pop) {
+        return g_wifi_cfg->config.prov.pop[0] ? g_wifi_cfg->config.prov.pop : NULL;
     }
 #ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP
     if (sizeof(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP) > 1) {
@@ -590,6 +594,14 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                 WIFI_PROV_MGR_DEINIT();
                 s_prov_initialized = false;
             }
+            // Coex bias was raised in favour of BT during provisioning so
+            // BLE GATT survives concurrent Wi-Fi scans (see wifi_cfg_prov_start).
+            // The BLE link is no longer load-bearing here — restore balanced
+            // arbitration so post-provisioning Wi-Fi throughput isn't penalised.
+            if (s_coex_pref_set) {
+                esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+                s_coex_pref_set = false;
+            }
             break;
 
         case WIFI_PROV_EVT_DEINIT:
@@ -632,6 +644,12 @@ esp_err_t wifi_cfg_prov_deinit(void)
     if (s_prov_initialized) {
         WIFI_PROV_MGR_DEINIT();
         s_prov_initialized = false;
+    }
+    // Force-teardown path: WIFI_PROV_EVT_END may not get a chance to run, so
+    // restore coex here too. No-op if already restored by the event handler.
+    if (s_coex_pref_set) {
+        esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+        s_coex_pref_set = false;
     }
     esp_event_handler_unregister(WIFI_PROV_EVENT_BASE,
                                  ESP_EVENT_ANY_ID,
@@ -744,11 +762,27 @@ esp_err_t wifi_cfg_prov_start(void)
     wifi_cfg_expand_template(resolve_device_name_template(),
                              device_name, sizeof(device_name));
 
+    // Bias Wi-Fi/BT coexistence toward BT for the duration of provisioning.
+    // The iOS "ESP BLE Provisioning" app drives a full-channel active Wi-Fi
+    // scan over the prov-scan endpoint; with balanced coex on the single
+    // 2.4 GHz transceiver the scan starves BLE LL packets long enough to
+    // trip the link supervision timeout (HCI 0x08), and the iOS app appears
+    // to hang on the "Scanning for WiFi" screen. PREFER_BT keeps the GATT
+    // link alive through the scan window. Restored to BALANCE in
+    // WIFI_PROV_EVT_END once protocomm has fully torn down.
+    if (esp_coex_preference_set(ESP_COEX_PREFER_BT) == ESP_OK) {
+        s_coex_pref_set = true;
+    }
+
     err = WIFI_PROV_MGR_START(sec, sec_params, device_name, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "wifi_prov_mgr_start: %s", esp_err_to_name(err));
         WIFI_PROV_MGR_DEINIT();
         s_prov_initialized = false;
+        if (s_coex_pref_set) {
+            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+            s_coex_pref_set = false;
+        }
         return err;
     }
 

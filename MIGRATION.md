@@ -40,6 +40,27 @@ provisioning path.
 want to own the BLE GAP advertising and the NimBLE/Bluedroid host. Pick
 the one that matches your provisioning client tooling.
 
+#### Provisioning Kconfig menu
+
+The pre-0.1.0 single switch (originally `WIFI_MGR_ENABLE_BLE`, then
+`CONFIG_WIFI_CFG_ENABLE_BLE`, then `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE`)
+gated the now-removed custom 0xFFE0 BLE service. 0.1.0 keeps the
+BLE-provisioning surface as three independent Kconfig options under the
+**Provisioning** menu:
+
+| Option | What it enables |
+|--------|-----------------|
+| `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` | ESP-IDF `wifi_prov_mgr` over BLE — the replacement for the custom 0xFFE0 service. |
+| `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` | Improv BLE transport (Web Bluetooth / ESPHome companion). Mutually exclusive with Network Provisioning (one BLE host). |
+| `CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL` | Improv Serial transport over UART. Independent of either BLE option, but mutually exclusive with `CONFIG_WIFI_CFG_ENABLE_CLI` (one console UART). |
+
+If your existing sdkconfig already carries
+`# CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE is not set` /
+`# CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL is not set` lines, those are
+the same Improv options that existed in 0.0.x — Kconfig just lists
+them beside the new Network Provisioning switch now rather than under
+a combined "BLE" menu.
+
 ### What changed (`wifi_cfg_config_t` shape)
 
 The struct gained a `.prov` sub-block for ESP-IDF Network Provisioning

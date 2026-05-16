@@ -28,6 +28,9 @@ set(PRIV_REQUIRES
     bt
     protocomm
     wifi_provisioning
+    # esp_coex exposes esp_coex_preference_set(), called from the prov-BLE
+    # backend to bias arbitration toward BT during the iOS prov-scan window.
+    esp_coex
 )
 
 set(EMBED_FILES)
