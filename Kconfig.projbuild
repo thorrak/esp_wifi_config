@@ -235,6 +235,7 @@ menu "WiFi Config"
         config WIFI_CFG_ENABLE_IMPROV_SERIAL
             bool "Enable Improv Serial transport"
             default n
+            depends on !WIFI_CFG_ENABLE_CLI
             help
                 Enable the Improv WiFi Serial transport over UART.
                 Uses the Improv Serial framing protocol.
@@ -242,6 +243,11 @@ menu "WiFi Config"
 
                 Independent of BLE — safe to enable alongside Network
                 Provisioning BLE.
+
+                Mutually exclusive with WIFI_CFG_ENABLE_CLI: both want to
+                own the console UART (the CLI prints human-readable
+                output via esp_console while Improv Serial frames binary
+                bytes on the same stream), so only one can be active.
 
         config WIFI_MGR_IMPROV_SERIAL_UART_NUM
             int "Improv Serial UART port number"
