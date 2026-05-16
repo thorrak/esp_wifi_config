@@ -33,12 +33,90 @@ provisioning path.
 | _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y` |
 | _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_{0,1,2}` |
 | _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="abcd1234"` |
-| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX="PROV_"` |
+| _none_ | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"` |
 
 `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` and
 `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` are now **mutually exclusive** — both
 want to own the BLE GAP advertising and the NimBLE/Bluedroid host. Pick
 the one that matches your provisioning client tooling.
+
+### What changed (`wifi_cfg_config_t` shape)
+
+The struct gained a `.prov` sub-block for ESP-IDF Network Provisioning
+runtime overrides. The full shape:
+
+```c
+typedef struct {
+    // BLE identity / discovery
+    const char    *device_name;          // supports {id} token (was: service_name prefix)
+    const uint8_t *service_uuid128;      // optional 128-bit GATT UUID
+    const uint8_t *manufacturer_data;
+    size_t         manufacturer_data_len;
+    const uint8_t *random_addr;          // optional 6-byte BLE address
+
+    // Security
+    wifi_cfg_prov_security_t  security;  // _DEFAULT uses Kconfig choice
+    const char    *pop;
+    const char    *security2_username;
+    const uint8_t *security2_salt;
+    size_t         security2_salt_len;
+    const uint8_t *security2_verifier;
+    size_t         security2_verifier_len;
+
+    // BLE lifecycle
+    wifi_cfg_prov_memory_policy_t memory_policy;  // FREE_BTDM/FREE_BLE/FREE_BT/KEEP_ALL
+    bool           keep_ble_on_after_stop;
+
+    // Provisioning lifecycle
+    uint32_t       cleanup_delay_ms;     // protocomm grace period
+    uint32_t       wifi_conn_attempts;   // 0 = infinite
+    bool           stop_after_success;
+
+    // App metadata
+    const char    *firmware_version;
+    const wifi_cfg_prov_app_info_t *app_infos;
+    size_t         app_info_count;
+
+    // Custom protocomm endpoints
+    const wifi_cfg_prov_custom_endpoint_t *custom_endpoints;
+    size_t         custom_endpoint_count;
+
+    // Event callbacks (also fired on esp_bus)
+    wifi_cfg_prov_on_creds_recv_t    on_credentials_received;
+    wifi_cfg_prov_on_creds_fail_t    on_credentials_failed;
+    wifi_cfg_prov_on_creds_success_t on_credentials_success;
+    void          *event_ctx;
+} wifi_cfg_prov_config_t;
+```
+
+The old `wifi_cfg_ble_config_t` and its top-level `.ble` field are
+**gone**. Its only remaining purpose was to set the Improv BLE GAP
+advertised name, so the field moved to `.improv.ble_device_name`:
+
+```diff
+ wifi_cfg_init(&(wifi_cfg_config_t){
+     .provisioning_mode = WIFI_PROV_ON_FAILURE,
+-    .ble = {
+-        .device_name = "MyDevice-{id}",
+-    },
++    .improv = {
++        .ble_device_name = "MyDevice-{id}",
++    },
+ });
+```
+
+If you set `.ble.device_name` while building a Network Provisioning BLE
+firmware (Improv disabled), the field was being silently ignored —
+`wifi_prov_mgr` derives its GAP name from `wifi_cfg_prov_config_t.device_name`.
+Use `.prov.device_name` instead. Unlike the old prefix-with-MAC-tail
+behaviour, `.prov.device_name` is a full name template that supports the
+`{id}` token, matching the rest of the library:
+
+```c
+.prov = {
+    .device_name = "MyDevice-{id}",  // becomes "MyDevice-ABC123"
+}
+```
 
 ### What changed (runtime API)
 
@@ -51,10 +129,13 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .stop_provisioning_on_connect = true,
 
     .prov = {
-        .service_name      = "PROV_",     // GAP name prefix (default from Kconfig)
-        .pop               = "1234abcd",  // override Kconfig default
-        .firmware_version  = "1.0.0",
-        .stop_after_success = false,
+        .device_name        = "PROV_{id}", // GAP name template (default from Kconfig)
+        .pop                = "1234abcd",  // override Kconfig default
+        .security           = WIFI_CFG_PROV_SECURITY_1,  // override Kconfig choice
+        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // default — free BT after prov
+        .wifi_conn_attempts = 5,           // give up after 5 failed STA attempts
+        .firmware_version   = "1.0.0",
+        .on_credentials_received = on_creds,
     },
 });
 ```
@@ -63,6 +144,143 @@ The lifecycle (`provisioning_mode`, `stop_provisioning_on_connect`,
 `provisioning_teardown_delay_ms`, retry/backoff, multi-network store,
 custom variables, captive portal, post-provisioning HTTP behaviour) is
 unchanged — `wifi_prov_mgr` is driven by the same state machine.
+
+#### Device-name template
+
+`.prov.device_name` is a **template**, not a prefix. The old
+`.ble.device_name` semantics ("string + MAC suffix") changed to "explicit
+`{id}` token" — matching `.improv.ble_device_name`. If you were relying
+on the old Kconfig prefix `"PROV_"` to auto-append MAC bytes, update it
+to `"PROV_{id}"` (the new default). A literal `"PROV_"` with no `{id}`
+will now advertise as `"PROV_"` with no per-device suffix.
+
+#### Provisioning teardown lifecycle
+
+The library now calls `wifi_prov_mgr_disable_auto_stop()` unconditionally
+so that the library lifecycle (`stop_provisioning_on_connect` +
+`provisioning_teardown_delay_ms`) is the sole driver of when the
+manager tears down. The new `.prov.cleanup_delay_ms` controls only the
+protocomm grace window between the library's stop request and protocomm
+shutdown (default 1000 ms, minimum 100 ms enforced by ESP-IDF).
+
+If your existing code subscribes to `WIFI_PROV_EVT_END` directly, note
+that END now fires only after the library has called stop — not
+automatically after `CRED_SUCCESS` as in stock wifi_prov_mgr.
+
+### Provisioning event surface
+
+Two parallel notification paths, both fire for every event — use
+whichever suits the app. The bus events route through `esp_bus`; the
+struct callbacks fire inline and require no extra dependency. The
+library is moving toward making `esp_bus` optional, so new code that
+needs to stay portable should prefer the struct callbacks.
+
+```c
+// Bus event names (subscribe with esp_bus_sub)
+WIFI_CFG_EVT_PROVISIONING_STARTED   // no data
+WIFI_CFG_EVT_PROVISIONING_STOPPED   // no data
+WIFI_CFG_EVT_PROV_CRED_RECV         // data: wifi_cfg_prov_creds_t
+WIFI_CFG_EVT_PROV_CRED_FAIL         // data: int (wifi_prov_sta_fail_reason_t)
+WIFI_CFG_EVT_PROV_CRED_SUCCESS      // no data
+
+// Struct callbacks (wired through .prov in wifi_cfg_init)
+typedef void (*wifi_cfg_prov_on_creds_recv_t)(const wifi_cfg_prov_creds_t *creds, void *ctx);
+typedef void (*wifi_cfg_prov_on_creds_fail_t)(int reason, void *ctx);
+typedef void (*wifi_cfg_prov_on_creds_success_t)(void *ctx);
+
+typedef struct {
+    char ssid[33];      // NUL-terminated
+    char password[64];
+} wifi_cfg_prov_creds_t;
+```
+
+The `CRED_FAIL` reason is `WIFI_PROV_STA_AUTH_ERROR` (1) for bad
+password and `WIFI_PROV_STA_AP_NOT_FOUND` (0) for SSID-not-visible — the
+two cases an app typically needs to distinguish to drive a "retry" vs
+"re-scan" UI. After failure the manager remains running and accepts
+fresh credentials without rebooting (it auto-resets the state machine
+after `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_MAX_RETRIES` failed
+attempts — default 3).
+
+### Init-time validation (new failure mode)
+
+`wifi_cfg_init()` now runs `wifi_cfg_prov_validate()` against the
+`.prov` block and returns an error early instead of failing later at
+provisioning time. The validator currently enforces:
+
+| Condition | Behavior | Return |
+|-----------|----------|--------|
+| Security 2 selected (runtime or Kconfig) but `security2_salt` / `_verifier` missing | Hard fail at init | `ESP_ERR_INVALID_ARG` |
+| `manufacturer_data_len > 25` (won't fit BLE scan response) | Hard fail at init | `ESP_ERR_INVALID_ARG` |
+
+The Security 2 case is a **behavior change**: 0.0.4's predecessor
+silently fell back to Security 1 with PoP when the SRP6a parameters
+were missing. The new code refuses to boot so the misconfiguration is
+visible during development. To derive the salt/verifier offline:
+
+```bash
+python $IDF_PATH/tools/esp_prov/esp_prov.py \
+    --transport ble --service_name dummy \
+    --sec_ver 2 --sec2_gen_cred --sec2_usr <username> --sec2_pwd <password>
+```
+
+The tool prints a `salt[]` and `verifier[]` C array snippet you copy
+into firmware. (The `--service_name` and `--transport` flags are
+required by the tool but irrelevant for the offline derivation path.)
+Then wire them into the prov config:
+
+```c
+extern const uint8_t sec2_salt[];     // from the helper output
+extern const uint8_t sec2_verifier[];
+
+.prov = {
+    .security              = WIFI_CFG_PROV_SECURITY_2,
+    .security2_salt        = sec2_salt,
+    .security2_salt_len    = sizeof(sec2_salt),
+    .security2_verifier    = sec2_verifier,
+    .security2_verifier_len= sizeof(sec2_verifier),
+},
+```
+
+### Two field semantics worth flagging
+
+**`.prov.security == 0` means "use Kconfig", not "Security 0".**
+`WIFI_CFG_PROV_SECURITY_DEFAULT` is the zero value, so omitting the
+field in a designated initialiser preserves the Kconfig choice. The
+explicit security-zero option is `WIFI_CFG_PROV_SECURITY_0` (= 1).
+
+**`.prov.security2_username` is informational only.** The SRP6a
+username flows from the *client* during the handshake; the device
+never reads this field. It's kept so the app can echo the expected
+username through its own UI (custom endpoint, captive portal, etc.)
+and so firmware reads as self-documenting. The actual binding between
+username and on-device verifier was established offline when the
+salt/verifier were derived.
+
+### Bluetooth memory policy
+
+The library wraps wifi_prov_mgr's BLE memory-cleanup event handler in a
+`.prov.memory_policy` enum. Pick based on what the app needs from
+Bluetooth **after** provisioning ends:
+
+| App keeps using… | Set `memory_policy` to | Result |
+|---|---|---|
+| Nothing (BLE-only provisioning, no post-prov BT) | `WIFI_CFG_PROV_MEM_FREE_BTDM` (default) | Releases ~80 KB of BT + BLE memory |
+| Classic BT (A2DP, SPP, HFP, …) | `WIFI_CFG_PROV_MEM_FREE_BLE` | Frees BLE only; Classic BT survives |
+| BLE (custom GATT, beacon, scanner) | `WIFI_CFG_PROV_MEM_FREE_BT` | Frees Classic BT only; BLE survives |
+| Both (app owns the BT stack already) | `WIFI_CFG_PROV_MEM_KEEP_ALL` | Frees nothing |
+
+The library also auto-detects the "app already brought up Bluetooth"
+case (BT controller already enabled at start) and forces `KEEP_ALL`
+with a log warning, since freeing memory underneath an active host
+would fault.
+
+**Behavior change from 0.0.4**: the old custom BLE service did not free
+any BT memory on tear-down — it just stopped advertising. The new
+default (`FREE_BTDM`) reclaims ~80 KB but breaks any post-prov BT use.
+If your existing firmware calls Classic BT or BLE APIs after WiFi is
+provisioned, set `memory_policy` explicitly. Default-zero will crash
+inside the controller.
 
 ### What changed (BLE protocol)
 
@@ -85,25 +303,89 @@ those clients:
 
 | Endpoint | Direction | Payload |
 |----------|-----------|---------|
-| `esp-wifi-config-version` | read | `{"lib": ..., "idf": ..., "fw_version": ...}` |
-| `esp-wifi-config-capabilities` | read | `{"capabilities": [...], "max_networks": N}` |
-| `esp-wifi-config-vars` | read/write | see `esp_wifi_config_prov_ble.c` schema |
-| `esp-wifi-config-network-policy` | read | provisioning_mode + retry config |
+| `esp-wifi-config-version` | read | `{"lib","idf","app","fw_version","compile_time","firmware_version","chip"}` |
+| `esp-wifi-config-capabilities` | read | `{"capabilities":[...],"max_networks":N,"max_vars":M}` |
+| `esp-wifi-config-vars` | read/write | request/response schema below |
+| `esp-wifi-config-network-policy` | read | `{"provisioning_mode","max_retry_per_network","retry_interval_ms","retry_max_interval_ms","auto_reconnect","max_reconnect_attempts","saved_networks"}` |
 
-These replace the old `set_var` / `get_var` / `list_vars` / `get_status`
-JSON commands. The old commands for direct WiFi management
-(`scan` / `add_network` / `connect` / `start_ap` / etc.) are not
-recreated — `wifi_prov_mgr` already covers them via standard endpoints
-(`prov-scan`, `prov-config`).
+The `esp-wifi-config-vars` endpoint speaks a small JSON op/key/value
+protocol — every request is a JSON object with an `"op"` field:
+
+```
+// list
+request:  {"op":"list"}
+response: {"vars":[{"k":"key1","v":"value1"},...]}
+
+// get one
+request:  {"op":"get","key":"foo"}
+response: {"key":"foo","value":"bar"}            // or {"error":"not_found"}
+
+// set / upsert
+request:  {"op":"set","key":"foo","value":"bar"}
+response: {"ok":true}                            // or {"error":"store_full"|"rejected"}
+
+// delete
+request:  {"op":"del","key":"foo"}
+response: {"ok":true}                            // or {"error":"not_found"}
+```
+
+These four endpoints replace the old `set_var` / `get_var` / `list_vars`
+/ `get_status` JSON commands. The old commands for direct WiFi
+management (`scan` / `add_network` / `connect` / `start_ap` / etc.) are
+not recreated — `wifi_prov_mgr` already covers them via standard
+endpoints (`prov-scan`, `prov-config`).
+
+### Custom protocomm endpoints (replacement for 0xFFE1–0xFFE3)
+
+Firmware that exposed app-specific characteristics on the old 0xFFE0
+service can now register additional protocomm endpoints alongside the
+four built-in ones via `.prov.custom_endpoints`:
+
+```c
+static esp_err_t my_cloud_token_handler(uint32_t session_id,
+        const uint8_t *inbuf, ssize_t inlen,
+        uint8_t **outbuf, ssize_t *outlen, void *user_ctx)
+{
+    // Read inbuf (raw bytes from client), allocate response with malloc.
+    // protocomm frees *outbuf via free() after delivery.
+    const char *resp = "{\"ok\":true}";
+    *outbuf = (uint8_t *)strdup(resp);
+    *outlen = strlen(resp);
+    return ESP_OK;
+}
+
+static const wifi_cfg_prov_custom_endpoint_t my_endpoints[] = {
+    { .name = "my-cloud-token", .handler = my_cloud_token_handler, .user_ctx = NULL },
+};
+
+.prov = {
+    .custom_endpoints      = my_endpoints,
+    .custom_endpoint_count = sizeof(my_endpoints) / sizeof(my_endpoints[0]),
+},
+```
+
+Endpoint names are published as part of the provisioning protocol; the
+ESP-IDF Provisioning mobile SDKs and the `esp-prov` tool address them
+by name. The library handles the create-before-start / register-after-start
+ordering required by `wifi_prov_mgr` automatically.
 
 ### How to migrate downstream firmware
 
-1. Pick a security version. The default is Security 1 (Curve25519 +
-   AES-CTR with a static PoP). Security 2 (SRP6a) is supported but
-   requires you to embed pre-computed `salt` / `verifier` bytes via
-   `wifi_cfg_prov_config_t`.
+1. **Pick a security version.** The default is Security 1
+   (Curve25519 + AES-CTR with a static PoP). Security 2 (SRP6a) is
+   supported but requires you to embed pre-computed `salt` / `verifier`
+   bytes via `wifi_cfg_prov_config_t` — `wifi_cfg_init()` now refuses to
+   boot if Security 2 is selected without them (see "Init-time
+   validation" above).
 
-2. Update `sdkconfig.defaults`:
+2. **Decide what BLE memory you need after provisioning.** If the app
+   uses Bluetooth post-provisioning (Classic BT profiles, custom GATT
+   services, BLE scanning), set `.prov.memory_policy` explicitly — the
+   default `FREE_BTDM` will fault the controller if BT is touched after
+   provisioning ends. See the decision tree under "Bluetooth memory
+   policy" above.
+
+3. **Update `sdkconfig.defaults`:**
 
    ```diff
    - CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y
@@ -111,18 +393,42 @@ recreated — `wifi_prov_mgr` already covers them via standard endpoints
    + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
    + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
    + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
+   + CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"
    ```
 
-3. (Optional) Set `prov.pop` / `prov.service_name` in your
-   `wifi_cfg_init()` config if you want runtime overrides per device.
+   Note the `{id}` token in the device-name default. If you were
+   carrying a custom `SERVICE_PREFIX="MyApp_"`, rewrite it as
+   `DEVICE_NAME="MyApp_{id}"` to preserve the per-device MAC suffix.
 
-4. Replace any custom BLE client tooling with one of the standard
-   ESP-IDF provisioning clients listed above. If you need to keep
-   talking to your existing fleet, keep the old library pinned at
-   `0.0.4` until you can roll out the firmware that includes the new
-   provisioning stack.
+4. **(Optional) Set runtime overrides** in `wifi_cfg_init()`. See the
+   struct shape under "What changed (`wifi_cfg_config_t` shape)" for
+   the full list — common ones: `pop`, `device_name`, `security`,
+   `memory_policy`, `wifi_conn_attempts`, the event callbacks, and
+   `custom_endpoints` for app-specific protocomm channels.
 
-5. Rebuild. The library now requires **ESP-IDF 5.4 or newer**.
+5. **Subscribe to the new provisioning events** if your app reacts to
+   credential delivery/failure/success — see "Provisioning event
+   surface" above. Both `esp_bus` events and struct callbacks fire for
+   every event.
+
+6. **Replace any custom BLE client tooling** with one of the standard
+   ESP-IDF provisioning clients (ESP BLE Provisioning app,
+   `esp-idf-provisioning-android/ios`, or `esp-prov`). If you need to
+   keep talking to your existing fleet, pin the old library at `0.0.4`
+   until firmware rollout completes.
+
+7. **Rebuild.** The library now requires **ESP-IDF 5.4 or newer**.
+
+### ESP-IDF version support
+
+| IDF | wifi_prov_mgr source | Notes |
+|-----|----------------------|-------|
+| 5.4+ | In-tree `wifi_provisioning` component | Default path. `CMakeLists.txt` lists `PRIV_REQUIRES wifi_provisioning`. |
+| 6.0+ | External `espressif/network_provisioning` managed component | Same shape, renamed types (`wifi_prov_mgr_*` → `network_prov_mgr_*`). `idf_component.yml` pulls it in with an `idf_version >=6.0` rule; a compile-time switch in `esp_wifi_config_prov_ble.c` handles the symbol rename. On IDF 6 you must also swap `PRIV_REQUIRES wifi_provisioning` to `network_provisioning` in `CMakeLists.txt`. |
+
+If you encounter build errors against an early IDF 6.x preview where
+the managed component shape diverges from the shim, please file an
+issue.
 
 ### Build matrix verified
 
@@ -131,31 +437,10 @@ ESP32-S3 target across these example combinations:
 
 | Example | BLE provisioning | Improv | Result |
 |---------|------------------|--------|--------|
-| `basic` | none | none | OK (~890 KB app) |
+| `basic` | none | none | OK (~825 KB app) |
 | `with_ble` | Network Provisioning, NimBLE | none | OK (~1.07 MB app) |
 | `with_improv` | none | Improv BLE (Bluedroid) + Improv Serial | OK |
 | `with_ble_deinit` | none | Improv BLE (NimBLE) | OK |
-
-The `wifi_prov_mgr_*` symbols are pulled from the in-tree
-`wifi_provisioning` component in IDF 5.x and from the
-`espressif/network_provisioning` managed component in IDF 6.x. The
-compile-time switch in `esp_wifi_config_prov_ble.c` covers the symbol
-rename; the build-system requires-list (`PRIV_REQUIRES wifi_provisioning`
-in `CMakeLists.txt`) will need to be swapped for `network_provisioning`
-on IDF 6.x — see the comment in `CMakeLists.txt` for context.
-
-### ESP-IDF 6.x note
-
-ESP-IDF 6.x retires the in-tree `wifi_provisioning` component in favour
-of the external `espressif/network_provisioning` managed component (same
-shape, renamed types: `wifi_prov_mgr_*` → `network_prov_mgr_*`). The
-library handles both via a thin compat shim in
-`esp_wifi_config_prov_ble.c`; `idf_component.yml` lists
-`espressif/network_provisioning` with an `idf_version >=6.0` rule so it
-is only pulled in on IDF 6+.
-
-If you encounter build errors against an early IDF 6.x preview where the
-managed component shape diverges from the shim, please file an issue.
 
 ---
 
@@ -249,7 +534,7 @@ Types that previously used `wifi_mgr_` now use `wifi_cfg_`. The main config stru
 | `wifi_manager_config_t` | `wifi_cfg_config_t` |
 | `wifi_mgr_ap_config_t` | `wifi_cfg_ap_config_t` |
 | `wifi_mgr_http_config_t` | `wifi_cfg_http_config_t` |
-| `wifi_mgr_ble_config_t` | `wifi_cfg_ble_config_t` |
+| `wifi_mgr_ble_config_t` | _removed in 0.1.0; was renamed to `wifi_cfg_ble_config_t`, then folded into `wifi_cfg_improv_config_t.ble_device_name`_ |
 | `wifi_mgr_http_hook_t` | `wifi_cfg_http_hook_t` |
 | `wifi_mgr_var_validator_t` | `wifi_cfg_var_validator_t` |
 
@@ -290,8 +575,8 @@ All menuconfig options changed from `WIFI_MGR_` to `WIFI_CFG_`. If you reference
 | `WIFI_MGR_ENABLE_CLI` | `WIFI_CFG_ENABLE_CLI` |
 | `WIFI_MGR_ENABLE_WEBUI` | `WIFI_CFG_ENABLE_WEBUI` |
 | `WIFI_MGR_WEBUI_CUSTOM_PATH` | `WIFI_CFG_WEBUI_CUSTOM_PATH` |
-| `WIFI_MGR_ENABLE_BLE` | `WIFI_CFG_ENABLE_CUSTOM_BLE` |
-| `WIFI_MGR_BLE_DEVICE_NAME` | Removed — use `wifi_cfg_config_t.ble.device_name` |
+| `WIFI_MGR_ENABLE_BLE` | _removed in 0.1.0; was `WIFI_CFG_ENABLE_CUSTOM_BLE`; replaced by `WIFI_CFG_ENABLE_NETWORK_PROVISIONING` or `WIFI_CFG_ENABLE_IMPROV_BLE`_ |
+| `WIFI_MGR_BLE_DEVICE_NAME` | Removed — use `wifi_cfg_config_t.improv.ble_device_name` (0.1.0+) |
 
 General rule: find-and-replace `WIFI_MGR_` with `WIFI_CFG_` in sdkconfig files and C code.
 
@@ -314,18 +599,18 @@ CONFIG_WIFI_CFG_ENABLE_BLE=y
 CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y
 ```
 
-The `enable` field has been removed from `wifi_cfg_ble_config_t`. BLE is now enabled entirely at compile time via Kconfig. The `device_name` field remains.
+The `enable` field has been removed from `wifi_cfg_ble_config_t`. BLE is now enabled entirely at compile time via Kconfig. The `device_name` field has since (as of 0.1.0) moved under `wifi_cfg_improv_config_t.ble_device_name`:
 
 ```c
-// Old
+// Old (esp_wifi_manager and esp_wifi_config 0.0.x)
 .ble = {
     .enable = true,
     .device_name = "ESP32-WiFi-{id}",
 },
 
-// New
-.ble = {
-    .device_name = "ESP32-WiFi-{id}",
+// New (esp_wifi_config 0.1.0+)
+.improv = {
+    .ble_device_name = "ESP32-WiFi-{id}",
 },
 ```
 

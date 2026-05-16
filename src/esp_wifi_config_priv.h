@@ -345,6 +345,12 @@ esp_err_t wifi_cfg_prov_start(void);
 esp_err_t wifi_cfg_prov_stop(void);
 bool      wifi_cfg_prov_is_active(void);
 
+// Validate provisioning config before initialization. Called from
+// wifi_cfg_init(). Catches misconfiguration (e.g. Security 2 without
+// salt/verifier, oversized manufacturer data) at boot rather than at
+// provisioning time.
+esp_err_t wifi_cfg_prov_validate(const wifi_cfg_prov_config_t *prov);
+
 // =============================================================================
 // Utility Functions
 // =============================================================================

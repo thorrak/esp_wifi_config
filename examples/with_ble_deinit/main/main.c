@@ -332,12 +332,24 @@ void app_main(void)
         // WiFi Config will detect NimBLE already running and use service-only mode.
         // The example uses Improv BLE (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y in
         // sdkconfig) because the Improv host bootstrap supports the
-        // service-only handoff that this example demonstrates. ESP-IDF
-        // Network Provisioning manages its own BLE host lifecycle and
-        // doesn't fit the same handoff pattern — see the with_ble example
-        // for the recommended provisioning flow.
-        .ble = {
-            .device_name = NULL,
+        // service-only handoff that this example demonstrates — the
+        // library registers its GATT service into the app's NimBLE stack
+        // and removes only the service on deinit.
+        //
+        // ESP-IDF Network Provisioning is also compatible with an
+        // app-owned BLE stack: set
+        //   .prov.memory_policy          = WIFI_CFG_PROV_MEM_KEEP_ALL,
+        //   .prov.keep_ble_on_after_stop = true,
+        // and the manager will neither free BT memory nor stop the host
+        // when it deinitialises. The library also auto-detects this case
+        // (BT controller already enabled at start) and overrides
+        // memory_policy to KEEP_ALL with a log warning. Network
+        // Provisioning still installs its own GATT service rather than
+        // sharing the app's, so the handoff semantics differ slightly
+        // from the Improv pattern shown here — see the with_ble example
+        // for the standard Network Provisioning flow.
+        .improv = {
+            .ble_device_name = NULL,  // use Kconfig default ("ESP32-WiFi-{id}")
         },
     };
 

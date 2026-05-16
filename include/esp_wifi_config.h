@@ -235,6 +235,9 @@ extern "C" {
 // Events - Provisioning
 #define WIFI_CFG_EVT_PROVISIONING_STARTED  "provisioning_started"  ///< Provisioning interfaces started (AP/BLE)
 #define WIFI_CFG_EVT_PROVISIONING_STOPPED  "provisioning_stopped"  ///< Provisioning interfaces stopped
+#define WIFI_CFG_EVT_PROV_CRED_RECV        "prov_cred_recv"        ///< BLE prov client sent credentials (data: wifi_cfg_prov_creds_t)
+#define WIFI_CFG_EVT_PROV_CRED_FAIL        "prov_cred_fail"        ///< STA connect with provisioned creds failed (data: int reason)
+#define WIFI_CFG_EVT_PROV_CRED_SUCCESS     "prov_cred_success"     ///< STA connect with provisioned creds succeeded (no data)
 
 /**
  * @brief Helper macro tạo request pattern
@@ -451,67 +454,239 @@ typedef struct {
 } wifi_cfg_http_config_t;
 
 /**
- * @brief BLE configuration
+ * @brief Protocomm security version
  *
- * Configures the BLE GAP device-name template used by the Improv-WiFi
- * BLE transport (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE). Template tokens such
- * as `{id}` are expanded against the WiFi STA MAC.
+ * Selects which security protocol the provisioning manager negotiates with
+ * the client. Security 0 is plaintext (testing only). Security 1 uses an
+ * X25519 key exchange with an optional proof-of-possession string and
+ * AES-CTR. Security 2 uses SRP6a with a salted authenticated key exchange
+ * and AES-GCM — the production-recommended option.
  *
- * For ESP-IDF Network Provisioning BLE
- * (CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING) the device name is
- * controlled via @ref wifi_cfg_prov_config_t below — wifi_prov_mgr owns
- * the GAP namespace while the provisioning manager is active.
+ * Use WIFI_CFG_PROV_SECURITY_DEFAULT to fall back to the Kconfig choice.
+ */
+typedef enum {
+    WIFI_CFG_PROV_SECURITY_DEFAULT = 0, ///< Use Kconfig WIFI_CFG_NETWORK_PROVISIONING_SECURITY_*
+    WIFI_CFG_PROV_SECURITY_0,           ///< Plaintext (testing only)
+    WIFI_CFG_PROV_SECURITY_1,           ///< X25519 + PoP + AES-CTR
+    WIFI_CFG_PROV_SECURITY_2,           ///< SRP6a + AES-GCM (recommended)
+} wifi_cfg_prov_security_t;
+
+/**
+ * @brief Bluetooth memory cleanup policy on provisioning deinit
+ *
+ * Controls how much of the Bluetooth controller/host the wifi_prov_mgr
+ * releases when it deinitialises. Pick the policy that matches what the
+ * rest of the application needs from Bluetooth after provisioning ends.
+ *
+ *   - FREE_BTDM — release everything (Classic BT + BLE memory). Use this
+ *     when the device does not use Bluetooth post-provisioning. This is
+ *     the default and reclaims the most RAM.
+ *   - FREE_BLE  — release BLE memory only; keep Classic BT controller
+ *     memory. Use when the application still needs Classic BT (A2DP, SPP,
+ *     HFP, etc.) after provisioning. Available only on chips that support
+ *     Classic BT (ESP32; not C-series or H-series).
+ *   - FREE_BT   — release Classic BT memory only; keep BLE alive. Use
+ *     when the application still needs BLE (custom GATT service, beacon,
+ *     scanner) after provisioning.
+ *   - KEEP_ALL  — release nothing. Use when the application brought up
+ *     the BLE stack itself before calling wifi_cfg_init() and owns the
+ *     full lifecycle. The library also auto-detects this case (BT
+ *     controller already enabled) and overrides to KEEP_ALL with a log
+ *     warning to prevent freeing memory the app still uses.
+ *
+ * Setting the wrong policy can crash the app — picking FREE_BTDM and then
+ * calling a Classic BT function afterwards will fault inside the BT
+ * controller.
+ */
+typedef enum {
+    WIFI_CFG_PROV_MEM_FREE_BTDM = 0,  ///< Release Classic BT + BLE memory (default)
+    WIFI_CFG_PROV_MEM_FREE_BLE,       ///< Release BLE memory; keep Classic BT
+    WIFI_CFG_PROV_MEM_FREE_BT,        ///< Release Classic BT memory; keep BLE
+    WIFI_CFG_PROV_MEM_KEEP_ALL,       ///< Release nothing (app manages lifecycle)
+} wifi_cfg_prov_memory_policy_t;
+
+/**
+ * @brief WiFi credentials received via provisioning
+ *
+ * Passed to WIFI_CFG_EVT_PROV_CRED_RECV subscribers and to the
+ * on_credentials_received callback. SSID is NUL-terminated.
  */
 typedef struct {
-    const char *device_name;    ///< BLE device name, e.g., "ESP32-WiFi-{id}", default from Kconfig
-} wifi_cfg_ble_config_t;
+    char ssid[33];
+    char password[64];
+} wifi_cfg_prov_creds_t;
+
+/**
+ * @brief Custom protocomm endpoint handler signature
+ *
+ * Mirrors protocomm_req_handler_t. The handler must allocate `*outbuf` with
+ * malloc; protocomm frees it via free().
+ */
+typedef esp_err_t (*wifi_cfg_prov_endpoint_handler_t)(
+    uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
+    uint8_t **outbuf, ssize_t *outlen, void *user_ctx);
+
+/**
+ * @brief Custom protocomm endpoint definition
+ *
+ * Registered alongside the library's built-in endpoints during
+ * wifi_cfg_prov_start(). The endpoint name is published as part of the
+ * provisioning protocol; clients address it by name.
+ */
+typedef struct {
+    const char *name;                            ///< Endpoint name (e.g. "my-cloud-token")
+    wifi_cfg_prov_endpoint_handler_t handler;    ///< Protocomm handler
+    void *user_ctx;                              ///< Passed to handler as the last arg
+} wifi_cfg_prov_custom_endpoint_t;
+
+/**
+ * @brief Application metadata surfaced via the proto-ver endpoint
+ *
+ * The provisioning manager publishes this on the unencrypted "proto-ver"
+ * endpoint so clients can branch on product/version/capabilities before
+ * any security handshake. Each entry is one JSON object in the response.
+ *
+ * Do not use the label "prov" — the manager reserves it for its own
+ * version/capability metadata.
+ */
+typedef struct {
+    const char *label;                  ///< JSON key (e.g. "my_app")
+    const char *version;                ///< Version string
+    const char *const *capabilities;    ///< Array of capability strings
+    size_t capability_count;
+} wifi_cfg_prov_app_info_t;
+
+/**
+ * @brief Provisioning event callbacks
+ *
+ * Optional struct callbacks invoked alongside the corresponding esp_bus
+ * events (WIFI_CFG_EVT_PROV_CRED_*). Use whichever path fits the app —
+ * struct callbacks for direct in-process notification, bus events for
+ * cross-module routing. Both fire for every event.
+ */
+typedef void (*wifi_cfg_prov_on_creds_recv_t)(const wifi_cfg_prov_creds_t *creds, void *ctx);
+typedef void (*wifi_cfg_prov_on_creds_fail_t)(int reason, void *ctx);
+typedef void (*wifi_cfg_prov_on_creds_success_t)(void *ctx);
 
 /**
  * @brief ESP-IDF Network Provisioning configuration
  *
- * Runtime overrides for CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING. All
- * pointers may be NULL to fall back to Kconfig defaults.
+ * Runtime overrides for CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING. Most
+ * fields fall back to a Kconfig or sensible default when zero/NULL.
  *
  * The library wraps the ESP-IDF wifi_provisioning manager (BLE scheme).
  * Custom protocomm endpoints are registered automatically:
  *
- *   - "esp-wifi-config-version"     — library + IDF + firmware version JSON
+ *   - "esp-wifi-config-version"      — library + IDF + firmware version JSON
  *   - "esp-wifi-config-capabilities" — feature flags (improv-serial, ap, …)
- *   - "esp-wifi-config-vars"        — read/write the custom variable store
+ *   - "esp-wifi-config-vars"         — read/write the custom variable store
  *   - "esp-wifi-config-network-policy" — read provisioning_mode/retry policy
+ *
+ * Additional endpoints can be supplied via `custom_endpoints`.
  *
  * Provisioning starts/stops via the existing provisioning_mode lifecycle —
  * the same modes (ALWAYS / ON_FAILURE / WHEN_UNPROVISIONED / MANUAL) drive
  * the wifi_prov_mgr session.
  */
 typedef struct {
-    /// Override the BLE GAP service-name prefix. Defaults to
-    /// CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX. The provisioning
-    /// manager appends a MAC-derived tail (e.g. "PROV_ABC123").
-    const char *service_name;
-    /// Optional override for the proof-of-possession (Security 1) /
-    /// SRP password (Security 2). NULL → use Kconfig default.
+    // ── BLE identity / discovery ─────────────────────────────────────────
+    /// BLE GAP device name. Supports the `{id}` token (expanded against the
+    /// WiFi STA MAC, last 3 bytes as hex). NULL → Kconfig default
+    /// (`WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME`, typically "PROV_{id}").
+    /// Example: "MyDevice-{id}" → "MyDevice-ABC123".
+    const char *device_name;
+    /// Optional 16-byte (128-bit) BLE service UUID to advertise. NULL →
+    /// IDF default (`0000ffff-0000-1000-8000-00805f9b34fb`). Espressif
+    /// recommends setting a product-specific UUID for production.
+    const uint8_t *service_uuid128;
+    /// Optional manufacturer-specific data appended to the BLE scan
+    /// response. Must fit alongside the device name: typically
+    /// `len + 2 < 31 - (name_len + 2)`. Oversized data is truncated by
+    /// the BLE stack.
+    const uint8_t *manufacturer_data;
+    size_t         manufacturer_data_len;
+    /// Optional 6-byte static random BLE address. NULL → use the
+    /// controller's default (public) address. Useful when a fresh BLE
+    /// identity is desired so phones treat the device as new.
+    const uint8_t *random_addr;
+
+    // ── Security ─────────────────────────────────────────────────────────
+    /// Security version to negotiate. WIFI_CFG_PROV_SECURITY_DEFAULT → use
+    /// the Kconfig WIFI_CFG_NETWORK_PROVISIONING_SECURITY_* choice.
+    wifi_cfg_prov_security_t security;
+    /// Proof-of-possession for Security 1. NULL → Kconfig
+    /// WIFI_CFG_NETWORK_PROVISIONING_POP. Empty string → no-PoP mode.
+    /// Ignored for Security 0 and Security 2.
     const char *pop;
-    /// Optional override for the SRP username (Security 2 only).
-    /// NULL → use Kconfig default.
+    /// SRP6a username (I) for Security 2. NULL → Kconfig
+    /// WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME.
     const char *security2_username;
-    /// Pre-computed SRP6a salt for Security 2. NULL means the library
-    /// falls back to Security 1 (PoP) at runtime, even if Security 2 was
-    /// selected at build time. Use the ESP-IDF helper
-    /// esp_prov_set_protover() / wifi_prov_sec2_get_salt_and_verifier()
-    /// (offline) to derive this from a username + password and bake the
-    /// resulting bytes into firmware. Length must match security2_salt_len.
+    /// Pre-computed SRP6a salt for Security 2. Required when Security 2
+    /// is selected — wifi_cfg_init() returns ESP_ERR_INVALID_ARG if
+    /// missing. Derive offline via wifi_prov_sec2_get_salt_and_verifier()
+    /// and embed the bytes in firmware.
     const uint8_t *security2_salt;
     size_t         security2_salt_len;
     /// Pre-computed SRP6a verifier for Security 2. See security2_salt.
     const uint8_t *security2_verifier;
     size_t         security2_verifier_len;
-    /// Stop wifi_prov_mgr after a successful credential exchange even when
-    /// stop_provisioning_on_connect is false. Useful in MANUAL mode.
+
+    // ── BLE lifecycle ────────────────────────────────────────────────────
+    /// Bluetooth memory release policy when the provisioning manager
+    /// deinitialises. See wifi_cfg_prov_memory_policy_t for the trade-offs.
+    /// 0 → FREE_BTDM (default).
+    wifi_cfg_prov_memory_policy_t memory_policy;
+    /// Keep BLE advertising alive after the manager stops. Translates to
+    /// wifi_prov_mgr_keep_ble_on(true). Must be set before start. Useful
+    /// when the application takes over BLE for its own services after
+    /// provisioning ends.
+    bool keep_ble_on_after_stop;
+
+    // ── Provisioning lifecycle ───────────────────────────────────────────
+    /// Grace period the manager observes between a stop request and
+    /// protocomm shutdown, in ms. Lets the client read final status before
+    /// the transport disappears. 0 → 1000 ms (library default). Values
+    /// below 100 ms are clamped to 100 ms by ESP-IDF.
+    uint32_t cleanup_delay_ms;
+    /// WiFi connection attempts after credentials are applied. 0 →
+    /// infinite (ESP-IDF legacy default). A bounded value (e.g. 5) lets
+    /// the manager surface CRED_FAIL after a wrong-password loop instead
+    /// of retrying forever.
+    uint32_t wifi_conn_attempts;
+    /// Stop wifi_prov_mgr immediately on CRED_SUCCESS even when
+    /// stop_provisioning_on_connect is false. Useful in MANUAL mode where
+    /// the library doesn't drive provisioning teardown automatically.
     bool stop_after_success;
-    /// Optional firmware version string surfaced via the
-    /// "esp-wifi-config-version" custom protocomm endpoint.
+
+    // ── App metadata (proto-ver endpoint) ───────────────────────────────
+    /// Optional firmware version string surfaced via the built-in
+    /// "esp-wifi-config-version" endpoint (separate from app_infos which
+    /// targets the standard proto-ver endpoint).
     const char *firmware_version;
+    /// Optional application metadata entries written into the manager's
+    /// proto-ver JSON. The label "prov" is reserved by ESP-IDF.
+    const wifi_cfg_prov_app_info_t *app_infos;
+    size_t app_info_count;
+
+    // ── Custom protocomm endpoints ──────────────────────────────────────
+    /// Optional list of custom endpoints to register in addition to the
+    /// library's four built-in endpoints. The library calls endpoint_create
+    /// before start and endpoint_register after start per ESP-IDF guidance.
+    const wifi_cfg_prov_custom_endpoint_t *custom_endpoints;
+    size_t custom_endpoint_count;
+
+    // ── Event callbacks ─────────────────────────────────────────────────
+    /// Fired when the provisioning client delivers WiFi credentials. Runs
+    /// before the library persists the credentials to NVS.
+    wifi_cfg_prov_on_creds_recv_t    on_credentials_received;
+    /// Fired when the STA fails to connect with the supplied credentials.
+    /// `reason` is the wifi_prov_sta_fail_reason_t value cast to int.
+    wifi_cfg_prov_on_creds_fail_t    on_credentials_failed;
+    /// Fired when the STA connects successfully with the supplied
+    /// credentials and the manager accepts them.
+    wifi_cfg_prov_on_creds_success_t on_credentials_success;
+    /// User pointer passed to every callback above.
+    void *event_ctx;
 } wifi_cfg_prov_config_t;
 
 /**
@@ -537,7 +712,16 @@ typedef struct {
     int serial_baud_rate;                     ///< Baud rate (default 115200)
     const char *firmware_name;                ///< Reported in Device Info RPC
     const char *firmware_version;             ///< Reported in Device Info RPC
-    const char *device_name;                  ///< Reported device name
+    const char *device_name;                  ///< Reported by the Improv Device-Info RPC (shown in the companion app after connect)
+    /// BLE GAP advertised name template — what BLE scanners (LightBlue,
+    /// nRF Connect, the OS Bluetooth picker) show. Supports the `{id}`
+    /// token (expanded against the WiFi STA MAC). Default: Kconfig
+    /// `WIFI_CFG_DEFAULT_BLE_DEVICE_NAME` ("ESP32-WiFi-{id}").
+    ///
+    /// Distinct from `device_name` above: that field surfaces only after
+    /// an Improv client has already connected; this one is what gets the
+    /// user to pick the right device from the BLE scan list.
+    const char *ble_device_name;
     wifi_cfg_improv_identify_cb_t on_identify; ///< Optional identify callback
 } wifi_cfg_improv_config_t;
 
@@ -594,7 +778,6 @@ typedef struct {
 
     // Interfaces
     wifi_cfg_http_config_t http;        ///< HTTP REST API config
-    wifi_cfg_ble_config_t ble;          ///< BLE GAP name (Improv BLE)
     wifi_cfg_improv_config_t improv;    ///< Improv WiFi config
     wifi_cfg_prov_config_t prov;        ///< ESP-IDF Network Provisioning config
 } wifi_cfg_config_t;

@@ -90,4 +90,6 @@ Enable the embedded Web UI with `CONFIG_WIFI_CFG_ENABLE_WEBUI=y` in your sdkconf
 - Custom variable editing
 - AP configuration
 
-For custom frontends, see the [with_webui_customize example](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_webui_customize).
+To ship your own frontend instead — branded HTML, a different
+framework, or extra screens served from LittleFS/SPIFFS — see the
+[Custom Web UI guide](../guides/custom-webui.md).

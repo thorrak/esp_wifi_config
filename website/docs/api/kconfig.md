@@ -39,9 +39,9 @@ Configure via `idf.py menuconfig` → WiFi Config, or set in `sdkconfig.defaults
 | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_0` | n | Security 0 (no encryption — testing only) |
 | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1` | y | Security 1 (Curve25519 + AES-CTR with PoP) |
 | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_2` | n | Security 2 (SRP6a; requires app-supplied salt+verifier) |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP` | "abcd1234" | Proof-of-Possession / SRP password |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME` | "wificfg" | Security 2 SRP username |
-| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX` | "PROV_" | BLE GAP name prefix |
+| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP` | "abcd1234" | Default Security 1 Proof-of-Possession |
+| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY2_USERNAME` | "wificfg" | Default Security 2 SRP username |
+| `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME` | "PROV_{id}" | Default BLE GAP name template (supports `{id}` token) |
 | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_RESET_ON_FAILURE` | y | Erase prov state after N failed attempts |
 | `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_MAX_RETRIES` | 3 | Failed-attempt limit before reset |
 

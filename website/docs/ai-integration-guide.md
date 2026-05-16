@@ -106,9 +106,10 @@ Only ask about interfaces selected in Q3.
 
 | Setting | Used by | Default | Notes |
 |---|---|---|---|
-| `.prov.service_name` | Network Provisioning BLE | `"PROV_"` (from Kconfig) | Manager appends a per-device tail derived from the WiFi MAC (e.g. `"PROV_AB12CD"`) |
+| `.prov.device_name` | Network Provisioning BLE | `"PROV_{id}"` (from Kconfig) | GAP name template; `{id}` replaced with last 3 MAC bytes (e.g. `"PROV_AB12CD"`) |
 | `.prov.pop` | Network Provisioning BLE Security 1 | `"abcd1234"` (from Kconfig) | Override per device for production |
-| `.ble.device_name` | Improv BLE GAP advertising | `"ESP32-WiFi-{id}"` | `{id}` replaced with last 3 MAC bytes |
+| `.prov.memory_policy` | Network Provisioning BLE | `WIFI_CFG_PROV_MEM_FREE_BTDM` | Bluetooth memory cleanup policy on prov deinit. Use `_FREE_BLE` if the app needs Classic BT after prov, `_FREE_BT` if it needs BLE, `_KEEP_ALL` if the app owns the BT stack. See [C API → Bluetooth memory policy](api/c-api). |
+| `.improv.ble_device_name` | Improv BLE GAP advertising | `"ESP32-WiFi-{id}"` | `{id}` replaced with last 3 MAC bytes |
 
 > Which Bluetooth stack do you prefer?
 
@@ -262,7 +263,7 @@ CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="<your-secret>"
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX="PROV_"
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"
 
 # === Improv BLE (if selected; mutually exclusive with Network Provisioning) ===
 # CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
@@ -355,24 +356,24 @@ void app_main(void)
         // -- Network Provisioning BLE (Q3 + Q5b)
         // Enabled via CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
         // .prov = {
-        //     .service_name      = "PROV_",     // GAP-name prefix (default from Kconfig)
-        //     .pop               = "1234abcd",  // overrides Kconfig PoP
-        //     .firmware_version  = "1.0.0",
+        //     .device_name        = "PROV_{id}",  // GAP-name template (default from Kconfig)
+        //     .pop                = "1234abcd",   // overrides Kconfig PoP
+        //     .security           = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT keeps Kconfig
+        //     .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
+        //     .wifi_conn_attempts = 5,            // 0 = infinite
+        //     .firmware_version   = "1.0.0",
         // },
 
-        // -- Improv BLE GAP name (Q3 + Q5b) --
-        // Used by the Improv host bootstrap when CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y.
-        // For Network Provisioning BLE the GAP name is controlled via .prov.service_name
-        // .ble = {
-        //     .device_name = "ESP32-WiFi-{id}",
-        // },
-
-        // -- Improv (Q3 + Q5c + Q5d) --
-        // Transports selected at compile time via Kconfig (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL)
+        // -- Improv (Q3 + Q5b + Q5c + Q5d) --
+        // Transports selected at compile time via Kconfig (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL).
+        // .ble_device_name controls the BLE GAP advertised name (what BLE
+        // scanners display). .device_name is what the Improv companion app
+        // shows once it has connected.
         // .improv = {
-        //     .firmware_name = "my_project",       // Q5c
-        //     .firmware_version = "1.0.0",         // Q5c
-        //     .device_name = "My Device",          // Q5c
+        //     .ble_device_name = "ESP32-WiFi-{id}",  // Q5b
+        //     .firmware_name = "my_project",         // Q5c
+        //     .firmware_version = "1.0.0",           // Q5c
+        //     .device_name = "My Device",            // Q5c
         // },
 
         // -- Custom variables (Q9) --

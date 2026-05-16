@@ -75,7 +75,25 @@ You can manually stop the library-owned HTTP server:
 esp_err_t err = wifi_cfg_stop_http();
 ```
 
-This only works if the library owns the server (i.e., you did not pass an existing `httpd_handle_t`) and provisioning is not currently active.
+This returns `ESP_ERR_INVALID_STATE` and refuses to act if any of the following apply:
+
+- You passed an existing `httpd_handle_t` (the library never tears down a server it doesn't own — it only deregisters its own URI handlers).
+- Provisioning is currently active.
+- The reconnect constraint applies: `enable_ap = true` AND `on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` AND `max_reconnect_attempts > 0`. The SoftAP might need to restart later after a post-connect disconnect, and it requires the HTTP server alive.
+
+## Automatic HTTPD Teardown
+
+When `http_post_prov_mode = WIFI_HTTP_DISABLED`, the library also tries to fully stop the HTTPD server (not just deregister handlers) — but only when it's safe. The decision depends on three factors: who owns the server, whether provisioning might restart, and whether the SoftAP might need to come back up after a post-connect disconnect.
+
+| Provisioning mode | Library owns HTTPD | Shared HTTPD (you passed `.http.httpd`) |
+|---|---|---|
+| `WIFI_PROV_WHEN_UNPROVISIONED` | Auto-teardown after transition* | Deregister handlers only — your server stays running |
+| `WIFI_PROV_MANUAL` | Keep server alive; you call `wifi_cfg_stop_http()` explicitly* | Deregister handlers only |
+| `WIFI_PROV_ALWAYS` / `WIFI_PROV_ON_FAILURE` | Keep server alive (provisioning may restart) | Deregister handlers only |
+
+\* **Reconnect constraint**: If `enable_ap = true` AND `on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` AND `max_reconnect_attempts > 0`, auto-teardown is suppressed even in `WHEN_UNPROVISIONED`/`MANUAL` mode. The SoftAP may need to restart after a post-connect disconnect, and it requires the HTTP server. In that case the library deregisters its handlers but leaves the server running.
+
+The rules are conservative — the library never tears down a server it can't bring back up cleanly later.
 
 ## Authentication
 

@@ -22,6 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   Kconfig level.** Both want to own the BLE GAP advertising and the
   NimBLE/Bluedroid host. Pick one per firmware build. Improv Serial is
   independent and remains safe alongside Network Provisioning.
+- **`wifi_cfg_ble_config_t` removed; `.ble.device_name` moved to
+  `.improv.ble_device_name`.** With the custom 0xFFE0 service gone the
+  field only applied to the Improv BLE host bootstrap, but its
+  top-level placement implied it controlled BLE for Network
+  Provisioning too (it never did — `wifi_prov_mgr` owns its own GAP
+  name). Move it under `.improv` where it actually applies, alongside
+  `.improv.device_name` (which is the post-connect Device-Info RPC
+  value, not the GAP advertised name).
 
 ### Added
 

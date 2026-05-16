@@ -29,7 +29,7 @@ esp_err_t wifi_cfg_ble_init(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    const char *name_template = g_wifi_cfg->config.ble.device_name;
+    const char *name_template = g_wifi_cfg->config.improv.ble_device_name;
     if (!name_template || !name_template[0]) {
         name_template = WIFI_CFG_DEFAULT_BLE_DEVICE_NAME;
     }

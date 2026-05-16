@@ -37,7 +37,9 @@ Enables the embedded Preact Web UI (~10KB gzipped) with `CONFIG_WIFI_CFG_ENABLE_
 
 ## [with_webui_customize](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_webui_customize)
 
-Serves a custom frontend from a LittleFS partition instead of the embedded UI. Requires a custom partition table with a 512KB LittleFS partition and `CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH="/littlefs"`. Falls back to the embedded UI if no custom files are found.
+Serves a custom frontend from a LittleFS partition instead of the embedded UI. Requires a custom partition table with a 512 KB LittleFS partition and `CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH="/littlefs"`. With the custom path set, the embedded Preact assets are excluded from the build — your filesystem image must provide `index.html`, `assets/app.js` (or `.js.gz`), and `assets/index.css` (or `.css.gz`).
+
+See the [Custom Web UI guide](./guides/custom-webui.md) for the full workflow (partition table, Vite config, gzip handling, captive-portal interaction).
 
 ---
 

@@ -72,5 +72,5 @@ After a post-connect disconnect, the library retries up to `max_reconnect_attemp
 
 | `on_reconnect_exhausted` | Behavior |
 |---|---|
-| `WIFI_RECONNECT_PROVISION` | Re-enter provisioning mode so the user can reconfigure |
-| `WIFI_RECONNECT_RESTART` | Reboot the device via `esp_restart()` |
+| `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | Re-enter provisioning mode so the user can reconfigure |
+| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | Reboot the device via `esp_restart()` |

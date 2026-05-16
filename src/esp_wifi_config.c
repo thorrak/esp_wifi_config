@@ -217,6 +217,14 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     if (g_wifi_cfg->config.retry_max_interval_ms == 0) {
         g_wifi_cfg->config.retry_max_interval_ms = 60000;  // 60 seconds max backoff
     }
+
+    // Validate provisioning config (e.g. Security 2 needs salt+verifier).
+    // Fail at boot rather than at provisioning time so the developer sees
+    // the error during initial integration.
+    ret = wifi_cfg_prov_validate(&g_wifi_cfg->config.prov);
+    if (ret != ESP_OK) {
+        goto cleanup;
+    }
     
     // Init NVS
     ret = wifi_cfg_nvs_init();

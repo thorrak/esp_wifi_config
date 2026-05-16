@@ -35,9 +35,10 @@ CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SECURITY_1=y
 CONFIG_WIFI_CFG_NETWORK_PROVISIONING_POP="abcd1234"
 
-# Optional: BLE-advertised name prefix. The manager appends a
-# MAC-derived suffix, so devices appear as e.g. "PROV_AB12CD".
-CONFIG_WIFI_CFG_NETWORK_PROVISIONING_SERVICE_PREFIX="PROV_"
+# Optional: BLE-advertised name. Supports the {id} token, expanded
+# against the last 3 bytes of the STA MAC — devices appear as e.g.
+# "PROV_AB12CD".
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_DEVICE_NAME="PROV_{id}"
 ```
 
 Mutually exclusive with `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` — both want
@@ -62,9 +63,12 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .provisioning_teardown_delay_ms = 5000,
 
     .prov = {
-        .service_name      = "PROV_",     // override Kconfig prefix
-        .pop               = "1234abcd",  // override Kconfig PoP
-        .firmware_version  = "1.0.0",
+        .device_name        = "PROV_{id}",  // GAP name template (supports {id})
+        .pop                = "1234abcd",   // override Kconfig PoP
+        .security           = WIFI_CFG_PROV_SECURITY_1,  // _DEFAULT uses Kconfig
+        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
+        .wifi_conn_attempts = 5,            // 0 = infinite
+        .firmware_version   = "1.0.0",
     },
 });
 ```

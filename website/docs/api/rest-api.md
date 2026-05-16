@@ -66,6 +66,8 @@ Response:
 }
 ```
 
+`state` is one of: `"connected"`, `"connecting"`, `"disconnected"`.
+
 ### Scan Networks
 
 ```bash
@@ -83,6 +85,8 @@ Response:
   ]
 }
 ```
+
+`auth` is one of: `"OPEN"`, `"WEP"`, `"WPA"`, `"WPA2"`, `"WPA3"`, `"WPA/WPA2"`, `"UNKNOWN"`.
 
 ### Add Network
 

@@ -42,7 +42,7 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 
     // What to do after reconnect retries are exhausted
     .max_reconnect_attempts = 10,        // 0 = infinite
-    .on_reconnect_exhausted = WIFI_RECONNECT_PROVISION,
+    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,
 });
 ```
 
@@ -59,10 +59,21 @@ After a successful connection is lost (post-connect disconnect), the library ret
 
 | `on_reconnect_exhausted` | Behavior |
 |---|---|
-| `WIFI_RECONNECT_PROVISION` | Re-enter provisioning mode so the user can reconfigure |
-| `WIFI_RECONNECT_RESTART` | Reboot the device via `esp_restart()` |
+| `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | Re-enter provisioning mode so the user can reconfigure |
+| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | Reboot the device via `esp_restart()` |
 
 Set `max_reconnect_attempts = 0` for infinite retries (never exhausted).
+
+### Counter Semantics
+
+`max_reconnect_attempts` counts consecutive failed reconnects since the last successful connection. The counter resets to zero on:
+
+- A successful STA connection (the `GOT_IP` event).
+- Escalation to provisioning (`WIFI_ON_RECONNECT_EXHAUSTED_PROVISION`). The device has entered a new state and the user may be actively configuring a different network, so fresh retries are warranted.
+
+After escalation to provisioning, the library continues retrying the saved networks in the background. If reconnection succeeds while provisioning is up, the provisioning interfaces are torn down following the same `stop_provisioning_on_connect` + `provisioning_teardown_delay_ms` flow as initial provisioning.
+
+`WIFI_ON_RECONNECT_EXHAUSTED_RESTART` works with any `provisioning_mode` — use it for devices that must maintain connectivity and prefer a clean reboot over degraded operation.
 
 ## Managing Networks at Runtime
 
@@ -102,6 +113,6 @@ boot → evaluate provisioning_mode →
 Post-connect disconnect:
   1. Auto-reconnect up to max_reconnect_attempts (0 = infinite)
   2. If exhausted → on_reconnect_exhausted action:
-     a. WIFI_RECONNECT_PROVISION → re-enter provisioning
-     b. WIFI_RECONNECT_RESTART → esp_restart()
+     a. WIFI_ON_RECONNECT_EXHAUSTED_PROVISION → re-enter provisioning
+     b. WIFI_ON_RECONNECT_EXHAUSTED_RESTART → esp_restart()
 ```
