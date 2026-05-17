@@ -679,7 +679,20 @@ static void wifi_cfg_task(void *arg)
                     // Provisioning mode state machine
                     switch (g_wifi_cfg->config.provisioning_mode) {
                         case WIFI_PROV_ALWAYS:
+                            // WIFI_PROV_ALWAYS is currently disabled:
+                            // wifi_cfg_start_provisioning() eventually calls
+                            // wifi_prov_mgr_start_provisioning(), which calls
+                            // nimble_port_init(). If the application has already
+                            // initialized the BLE stack, that call fails. Revisit
+                            // once we have an in-tree BLE provisioning path that
+                            // doesn't depend on Espressif's wifi_provisioning
+                            // component. Until then, treat ALWAYS like MANUAL
+                            // (connect only; provisioning must be started explicitly).
+                            ESP_LOGW(TAG, "WIFI_PROV_ALWAYS is disabled (BLE stack conflict); "
+                                          "treating as WIFI_PROV_MANUAL");
+#if 0
                             wifi_cfg_start_provisioning();
+#endif
                             if (g_wifi_cfg->network_count > 0) {
                                 wifi_cfg_start_connect_sequence();
                             }
@@ -764,27 +777,41 @@ static void wifi_cfg_task(void *arg)
                             if (g_wifi_cfg->config.on_reconnect_exhausted == WIFI_ON_RECONNECT_EXHAUSTED_RESTART) {
                                 ESP_LOGW(TAG, "Reconnect attempts exhausted, restarting device");
                                 esp_restart();
-                            } else {
-                                // PROVISION: start provisioning and reset counters
-                                ESP_LOGW(TAG, "Reconnect attempts exhausted, starting provisioning");
-                                g_wifi_cfg->reconnect_attempt_count = 0;
-                                g_wifi_cfg->retry_count = 0;
-                                wifi_cfg_send_event(WM_INT_EVT_START_PROVISIONING);
                             }
-                        } else {
-                            // Normal exponential backoff reconnect
-                            uint32_t base = g_wifi_cfg->config.retry_interval_ms;
-                            uint32_t max_delay = g_wifi_cfg->config.retry_max_interval_ms;
-                            uint32_t delay = base << g_wifi_cfg->retry_count;
-                            if (delay > max_delay || delay < base) delay = max_delay;
 
-                            ESP_LOGI(TAG, "Auto-reconnect in %lu ms (attempt %d)",
-                                     (unsigned long)delay, g_wifi_cfg->retry_count + 1);
-                            g_wifi_cfg->retry_count++;
-
-                            vTaskDelay(pdMS_TO_TICKS(delay));
-                            wifi_cfg_start_connect_sequence();
+                            // WIFI_ON_RECONNECT_EXHAUSTED_PROVISION is currently disabled:
+                            // wifi_cfg_start_provisioning() eventually calls
+                            // wifi_prov_mgr_start_provisioning(), which calls
+                            // nimble_port_init(). If the application has already
+                            // initialized the BLE stack, that call fails. Revisit
+                            // once we have an in-tree BLE provisioning path that
+                            // doesn't depend on Espressif's wifi_provisioning
+                            // component. Until then, treat PROVISION as
+                            // "continue retrying indefinitely" (equivalent to
+                            // max_reconnect_attempts = 0).
+                            ESP_LOGW(TAG, "WIFI_ON_RECONNECT_EXHAUSTED_PROVISION is disabled "
+                                          "(BLE stack conflict); continuing to retry");
+                            g_wifi_cfg->reconnect_attempt_count = 0;
+#if 0
+                            // Original behavior preserved for future re-enable:
+                            g_wifi_cfg->retry_count = 0;
+                            wifi_cfg_send_event(WM_INT_EVT_START_PROVISIONING);
+                            break;
+#endif
                         }
+
+                        // Normal exponential backoff reconnect
+                        uint32_t base = g_wifi_cfg->config.retry_interval_ms;
+                        uint32_t max_delay = g_wifi_cfg->config.retry_max_interval_ms;
+                        uint32_t delay = base << g_wifi_cfg->retry_count;
+                        if (delay > max_delay || delay < base) delay = max_delay;
+
+                        ESP_LOGI(TAG, "Auto-reconnect in %lu ms (attempt %d)",
+                                 (unsigned long)delay, g_wifi_cfg->retry_count + 1);
+                        g_wifi_cfg->retry_count++;
+
+                        vTaskDelay(pdMS_TO_TICKS(delay));
+                        wifi_cfg_start_connect_sequence();
                     }
                     break;
                 }

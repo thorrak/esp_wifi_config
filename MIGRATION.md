@@ -194,6 +194,44 @@ If your existing code subscribes to `WIFI_PROV_EVT_END` directly, note
 that END now fires only after the library has called stop — not
 automatically after `CRED_SUCCESS` as in stock wifi_prov_mgr.
 
+### Disabled provisioning-mode and exhaustion-action values
+
+Two `wifi_cfg_config_t` enum values are now no-ops. Both remain in the
+public API (so existing initialisers still compile), but the underlying
+provisioning-start path is bypassed and a warning is logged at runtime:
+
+| Field | Value | New behavior | Equivalent to |
+|---|---|---|---|
+| `.provisioning_mode` | `WIFI_PROV_ALWAYS` | Connect only — provisioning never auto-starts at boot | `WIFI_PROV_MANUAL` |
+| `.on_reconnect_exhausted` | `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | Reset the counter and keep retrying with normal backoff | `max_reconnect_attempts = 0` |
+
+**Why**: both code paths call `wifi_cfg_start_provisioning()`, which
+eventually calls `wifi_prov_mgr_start_provisioning()` inside the IDF
+`wifi_provisioning` component, which in turn calls `nimble_port_init()`.
+If the application has already initialised the BLE stack — either
+before `wifi_cfg_init()` runs or as part of its own runtime — that call
+fails and the device ends up unable to re-enter provisioning. The
+disabled paths are preserved behind `#if 0` in `src/esp_wifi_config.c`
+and may be re-enabled if/when the library grows its own BLE
+provisioning transport that doesn't depend on Espressif's
+`wifi_provisioning` component.
+
+**What to do**: if your existing config used either value, switch to a
+supported one:
+
+```diff
+ wifi_cfg_init(&(wifi_cfg_config_t){
+-    .provisioning_mode      = WIFI_PROV_ALWAYS,
++    .provisioning_mode      = WIFI_PROV_MANUAL,
++    // or WIFI_PROV_ON_FAILURE / WIFI_PROV_WHEN_UNPROVISIONED — none
++    // of these auto-start provisioning at boot when a network is saved
+     ...
+-    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,
++    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,
++    // or leave .max_reconnect_attempts = 0 to retry forever
+ });
+```
+
 ### Provisioning event surface
 
 Two parallel notification paths, both fire for every event — use

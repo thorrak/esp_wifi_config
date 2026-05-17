@@ -399,7 +399,7 @@ typedef struct {
  * with a single enum governing startup behavior for all provisioning interfaces.
  */
 typedef enum {
-    WIFI_PROV_ALWAYS,             ///< Start provisioning at init, regardless of state
+    WIFI_PROV_ALWAYS,             ///< [DISABLED] Start provisioning at init, regardless of state. Currently treated as WIFI_PROV_MANUAL — see note in esp_wifi_config.c.
     WIFI_PROV_ON_FAILURE,         ///< Start when unprovisioned OR all networks fail to connect
     WIFI_PROV_WHEN_UNPROVISIONED, ///< Start only if no saved networks exist
     WIFI_PROV_MANUAL,             ///< Only via explicit API call (e.g., button press)
@@ -409,7 +409,7 @@ typedef enum {
  * @brief Action to take when max_reconnect_attempts is exhausted after a post-connect disconnect
  */
 typedef enum {
-    WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,  ///< Start provisioning interfaces + keep retrying
+    WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,  ///< [DISABLED] Start provisioning + keep retrying. Currently treated as "continue retrying indefinitely" — see note in esp_wifi_config.c.
     WIFI_ON_RECONNECT_EXHAUSTED_RESTART,    ///< Restart the device (esp_restart)
 } wifi_reconnect_exhausted_action_t;
 
