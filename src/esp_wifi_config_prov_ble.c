@@ -764,10 +764,18 @@ esp_err_t wifi_cfg_prov_start(void)
     // to hang on the "Scanning for WiFi" screen. PREFER_BT keeps the GATT
     // link alive through the scan window. Restored to BALANCE in
     // WIFI_PROV_EVT_END once protocomm has fully torn down.
-    if (esp_coex_preference_set(ESP_COEX_PREFER_BT) == ESP_OK) {
-        s_coex_pref_set = true;
+    {
+        esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_BT);
+        if (coex_err == ESP_OK) {
+            s_coex_pref_set = true;
+            ESP_LOGI(TAG, "coex preference set to PREFER_BT");
+        } else {
+            ESP_LOGW(TAG, "coex preference set returned %s (0x%x); BLE may starve during Wi-Fi scan",
+                     esp_err_to_name(coex_err), coex_err);
+        }
     }
 
+    ESP_LOGI(TAG, "starting prov mgr: sec=%d device=%s", (int)sec, device_name);
     err = WIFI_PROV_MGR_START(sec, sec_params, device_name, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "wifi_prov_mgr_start: %s", esp_err_to_name(err));
