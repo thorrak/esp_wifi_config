@@ -65,7 +65,7 @@ a combined "BLE" menu.
 
 ### What changed (`wifi_cfg_config_t` shape)
 
-The struct gained a `.prov` sub-block that carries the full runtime
+The struct gained a `.prov_ble` sub-block that carries the full runtime
 configuration for ESP-IDF Network Provisioning. The full shape:
 
 ```c
@@ -133,12 +133,12 @@ advertised name, so the field moved to `.improv.ble_device_name`:
 If you set `.ble.device_name` while building a Network Provisioning BLE
 firmware (Improv disabled), the field was being silently ignored —
 `wifi_prov_mgr` derives its GAP name from `wifi_cfg_prov_config_t.device_name`.
-Use `.prov.device_name` instead. Unlike the old prefix-with-MAC-tail
-behaviour, `.prov.device_name` is a full name template that supports the
+Use `.prov_ble.device_name` instead. Unlike the old prefix-with-MAC-tail
+behaviour, `.prov_ble.device_name` is a full name template that supports the
 `{id}` token, matching the rest of the library:
 
 ```c
-.prov = {
+.prov_ble = {
     .device_name = "MyDevice-{id}",  // becomes "MyDevice-ABC123"
 }
 ```
@@ -146,14 +146,14 @@ behaviour, `.prov.device_name` is a full name template that supports the
 ### What changed (runtime API)
 
 The public `wifi_cfg_init()` config keeps its existing fields. The new
-`.prov` block carries every runtime parameter for Network Provisioning:
+`.prov_ble` block carries every runtime parameter for Network Provisioning:
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
     .provisioning_mode = WIFI_PROV_ON_FAILURE,
     .stop_provisioning_on_connect = true,
 
-    .prov = {
+    .prov_ble = {
         .device_name        = "PROV_{id}",          // GAP name template
         .security           = WIFI_CFG_PROV_SECURITY_1,
         .pop                = "1234abcd",           // Security 1 PoP
@@ -174,7 +174,7 @@ unchanged — `wifi_prov_mgr` is driven by the same state machine.
 
 #### Device-name template
 
-`.prov.device_name` is a **template**, not a prefix. The old
+`.prov_ble.device_name` is a **template**, not a prefix. The old
 `.ble.device_name` semantics ("string + MAC suffix") changed to "explicit
 `{id}` token" — matching `.improv.ble_device_name`. If you were relying
 on the old prefix `"PROV_"` to auto-append MAC bytes, set the field to
@@ -186,7 +186,7 @@ will now advertise as `"PROV_"` with no per-device suffix.
 The library now calls `wifi_prov_mgr_disable_auto_stop()` unconditionally
 so that the library lifecycle (`stop_provisioning_on_connect` +
 `provisioning_teardown_delay_ms`) is the sole driver of when the
-manager tears down. The new `.prov.cleanup_delay_ms` controls only the
+manager tears down. The new `.prov_ble.cleanup_delay_ms` controls only the
 protocomm grace window between the library's stop request and protocomm
 shutdown (default 1000 ms, minimum 100 ms enforced by ESP-IDF).
 
@@ -210,7 +210,7 @@ WIFI_CFG_EVT_PROV_CRED_RECV         // data: wifi_cfg_prov_creds_t
 WIFI_CFG_EVT_PROV_CRED_FAIL         // data: int (wifi_prov_sta_fail_reason_t)
 WIFI_CFG_EVT_PROV_CRED_SUCCESS      // no data
 
-// Struct callbacks (wired through .prov in wifi_cfg_init)
+// Struct callbacks (wired through .prov_ble in wifi_cfg_init)
 typedef void (*wifi_cfg_prov_on_creds_recv_t)(const wifi_cfg_prov_creds_t *creds, void *ctx);
 typedef void (*wifi_cfg_prov_on_creds_fail_t)(int reason, void *ctx);
 typedef void (*wifi_cfg_prov_on_creds_success_t)(void *ctx);
@@ -225,14 +225,14 @@ The `CRED_FAIL` reason is `WIFI_PROV_STA_AUTH_ERROR` (1) for bad
 password and `WIFI_PROV_STA_AP_NOT_FOUND` (0) for SSID-not-visible — the
 two cases an app typically needs to distinguish to drive a "retry" vs
 "re-scan" UI. After failure the manager remains running and accepts
-fresh credentials without rebooting; if you set `.prov.reset_on_failure
-= true`, the state machine is reset after `.prov.max_failed_attempts`
+fresh credentials without rebooting; if you set `.prov_ble.reset_on_failure
+= true`, the state machine is reset after `.prov_ble.max_failed_attempts`
 (default 3) consecutive failures.
 
 ### Init-time validation (new failure mode)
 
 `wifi_cfg_init()` now runs `wifi_cfg_prov_validate()` against the
-`.prov` block and returns an error early instead of failing later at
+`.prov_ble` block and returns an error early instead of failing later at
 provisioning time. The validator currently enforces:
 
 | Condition | Behavior | Return |
@@ -260,7 +260,7 @@ Then wire them into the prov config:
 extern const uint8_t sec2_salt[];     // from the helper output
 extern const uint8_t sec2_verifier[];
 
-.prov = {
+.prov_ble = {
     .security              = WIFI_CFG_PROV_SECURITY_2,
     .security2_salt        = sec2_salt,
     .security2_salt_len    = sizeof(sec2_salt),
@@ -271,13 +271,13 @@ extern const uint8_t sec2_verifier[];
 
 ### Two field semantics worth flagging
 
-**`.prov.security == 0` means "library default", not "Security 0".**
+**`.prov_ble.security == 0` means "library default", not "Security 0".**
 `WIFI_CFG_PROV_SECURITY_DEFAULT` is the zero value and resolves to
 Security 1, so omitting the field in a designated initialiser gives you
 Security 1. The explicit security-zero option is `WIFI_CFG_PROV_SECURITY_0`
 (= 1).
 
-**`.prov.security2_username` is informational only.** The SRP6a
+**`.prov_ble.security2_username` is informational only.** The SRP6a
 username flows from the *client* during the handshake; the device
 never reads this field. It's kept so the app can echo the expected
 username through its own UI (custom endpoint, captive portal, etc.)
@@ -288,7 +288,7 @@ salt/verifier were derived.
 ### Bluetooth memory policy
 
 The library wraps wifi_prov_mgr's BLE memory-cleanup event handler in a
-`.prov.memory_policy` enum. Pick based on what the app needs from
+`.prov_ble.memory_policy` enum. Pick based on what the app needs from
 Bluetooth **after** provisioning ends:
 
 | App keeps using… | Set `memory_policy` to | Result |
@@ -367,7 +367,7 @@ endpoints (`prov-scan`, `prov-config`).
 
 Firmware that exposed app-specific characteristics on the old 0xFFE0
 service can now register additional protocomm endpoints alongside the
-four built-in ones via `.prov.custom_endpoints`:
+four built-in ones via `.prov_ble.custom_endpoints`:
 
 ```c
 static esp_err_t my_cloud_token_handler(uint32_t session_id,
@@ -386,7 +386,7 @@ static const wifi_cfg_prov_custom_endpoint_t my_endpoints[] = {
     { .name = "my-cloud-token", .handler = my_cloud_token_handler, .user_ctx = NULL },
 };
 
-.prov = {
+.prov_ble = {
     .custom_endpoints      = my_endpoints,
     .custom_endpoint_count = sizeof(my_endpoints) / sizeof(my_endpoints[0]),
 },
@@ -408,7 +408,7 @@ ordering required by `wifi_prov_mgr` automatically.
 
 2. **Decide what BLE memory you need after provisioning.** If the app
    uses Bluetooth post-provisioning (Classic BT profiles, custom GATT
-   services, BLE scanning), set `.prov.memory_policy` explicitly — the
+   services, BLE scanning), set `.prov_ble.memory_policy` explicitly — the
    default `FREE_BTDM` will fault the controller if BT is touched after
    provisioning ends. See the decision tree under "Bluetooth memory
    policy" above.

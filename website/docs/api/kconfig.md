@@ -35,7 +35,7 @@ Configure via `idf.py menuconfig` → WiFi Config, or set in `sdkconfig.defaults
 Only two Kconfig symbols gate Network Provisioning — everything else
 (security version, PoP, device name template, SRP6a username,
 auto-reset behaviour, retry threshold) is plain runtime configuration
-on `wifi_cfg_prov_config_t`. See [C API → `.prov`](./c-api#prov-network-provisioning).
+on `wifi_cfg_prov_config_t`. See [C API → `.prov_ble`](./c-api#prov-network-provisioning).
 
 | Option | Default | Description |
 |---|---|---|

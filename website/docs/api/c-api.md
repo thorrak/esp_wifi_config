@@ -160,7 +160,7 @@ wifi_cfg_config_t config = {
     // ESP-IDF Network Provisioning over BLE
     // (requires CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y; mutually
     // exclusive with Improv BLE)
-    .prov = {
+    .prov_ble = {
         .device_name        = "PROV_{id}",  // GAP-name template (supports {id})
         .security           = WIFI_CFG_PROV_SECURITY_1,  // _DEFAULT → Security 1
         .pop                = "1234abcd",   // Security 1 PoP
@@ -189,7 +189,7 @@ wifi_cfg_init(&config);
 
 ## Network Provisioning configuration (`wifi_cfg_prov_config_t`) {#prov-network-provisioning}
 
-The `.prov` sub-struct carries every runtime parameter for the ESP-IDF
+The `.prov_ble` sub-struct carries every runtime parameter for the ESP-IDF
 `wifi_provisioning` manager (BLE scheme). Only `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING`
 and `CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE` are set via Kconfig;
 everything below is plain runtime configuration. Zero/NULL fields fall

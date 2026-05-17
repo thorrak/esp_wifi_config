@@ -107,7 +107,7 @@ void app_main(void)
         // Network Provisioning is enabled via
         // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y in sdkconfig.
         // All other parameters now live in this struct.
-        .prov = {
+        .prov_ble = {
             .device_name = "PROV_{id}",
             .security = WIFI_CFG_PROV_SECURITY_1,
             .pop = "abcd1234",

@@ -802,7 +802,7 @@ typedef struct {
     // Interfaces
     wifi_cfg_http_config_t http;        ///< HTTP REST API config
     wifi_cfg_improv_config_t improv;    ///< Improv WiFi config
-    wifi_cfg_prov_config_t prov;        ///< ESP-IDF Network Provisioning config
+    wifi_cfg_prov_config_t prov_ble;    ///< ESP-IDF Network Provisioning (BLE GATT) config
 } wifi_cfg_config_t;
 
 // =============================================================================

@@ -275,7 +275,7 @@ There are two categories of configuration flags:
     NOTE: For Network Provisioning, the security version, PoP, device-name
     template, SRP6a username, and auto-reset behaviour are set on
     wifi_cfg_prov_config_t at runtime — NOT in sdkconfig. See FILE 2
-    (main.c) for the .prov struct fields.
+    (main.c) for the .prov_ble struct fields.
 
 Include ONLY the lines needed for the user's selected interfaces.
 Do not include lines for features that aren't enabled.

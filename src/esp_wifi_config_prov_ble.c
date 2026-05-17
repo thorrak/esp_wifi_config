@@ -167,8 +167,8 @@ static bool s_coex_pref_set    = false;     // tracks whether we biased coex tow
 
 static const char *resolve_device_name_template(void)
 {
-    if (g_wifi_cfg && g_wifi_cfg->config.prov.device_name && g_wifi_cfg->config.prov.device_name[0]) {
-        return g_wifi_cfg->config.prov.device_name;
+    if (g_wifi_cfg && g_wifi_cfg->config.prov_ble.device_name && g_wifi_cfg->config.prov_ble.device_name[0]) {
+        return g_wifi_cfg->config.prov_ble.device_name;
     }
     return "PROV_{id}";
 }
@@ -176,8 +176,8 @@ static const char *resolve_device_name_template(void)
 static const char *resolve_pop(void)
 {
     // NULL or empty string both mean "no PoP".
-    if (g_wifi_cfg && g_wifi_cfg->config.prov.pop && g_wifi_cfg->config.prov.pop[0]) {
-        return g_wifi_cfg->config.prov.pop;
+    if (g_wifi_cfg && g_wifi_cfg->config.prov_ble.pop && g_wifi_cfg->config.prov_ble.pop[0]) {
+        return g_wifi_cfg->config.prov_ble.pop;
     }
     return NULL;
 }
@@ -193,7 +193,7 @@ static const char *resolve_pop(void)
 static WIFI_PROV_SECURITY_T resolve_security(void)
 {
     wifi_cfg_prov_security_t want = WIFI_CFG_PROV_SECURITY_DEFAULT;
-    if (g_wifi_cfg) want = g_wifi_cfg->config.prov.security;
+    if (g_wifi_cfg) want = g_wifi_cfg->config.prov_ble.security;
 
     switch (want) {
         case WIFI_CFG_PROV_SECURITY_0: return WIFI_PROV_SECURITY_0;
@@ -211,7 +211,7 @@ static WIFI_PROV_SECURITY_T resolve_security(void)
 static wifi_prov_event_handler_t resolve_scheme_event_handler(void)
 {
     wifi_cfg_prov_memory_policy_t policy = WIFI_CFG_PROV_MEM_FREE_BTDM;
-    if (g_wifi_cfg) policy = g_wifi_cfg->config.prov.memory_policy;
+    if (g_wifi_cfg) policy = g_wifi_cfg->config.prov_ble.memory_policy;
 
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED &&
         policy != WIFI_CFG_PROV_MEM_KEEP_ALL) {
@@ -334,9 +334,9 @@ static esp_err_t version_endpoint(uint32_t session_id, const uint8_t *inbuf, ssi
         cJSON_AddStringToObject(root, "compile_time", app->time);
     }
 
-    if (g_wifi_cfg && g_wifi_cfg->config.prov.firmware_version) {
+    if (g_wifi_cfg && g_wifi_cfg->config.prov_ble.firmware_version) {
         cJSON_AddStringToObject(root, "firmware_version",
-                                g_wifi_cfg->config.prov.firmware_version);
+                                g_wifi_cfg->config.prov_ble.firmware_version);
     }
 
     cJSON_AddStringToObject(root, "chip", chip_variant_str());
@@ -493,7 +493,7 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
 {
     if (base != WIFI_PROV_EVENT_BASE) return;
 
-    const wifi_cfg_prov_config_t *prov_cfg = g_wifi_cfg ? &g_wifi_cfg->config.prov : NULL;
+    const wifi_cfg_prov_config_t *prov_cfg = g_wifi_cfg ? &g_wifi_cfg->config.prov_ble : NULL;
 
     switch (id) {
         case WIFI_PROV_EVT_INIT:
@@ -659,7 +659,7 @@ esp_err_t wifi_cfg_prov_start(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    const wifi_cfg_prov_config_t *prov = &g_wifi_cfg->config.prov;
+    const wifi_cfg_prov_config_t *prov = &g_wifi_cfg->config.prov_ble;
 
     // Scheme-level customisations must be applied before wifi_prov_mgr_init,
     // since scheme_ble caches them at init time.

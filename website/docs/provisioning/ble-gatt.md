@@ -57,7 +57,7 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     .stop_provisioning_on_connect = true,
     .provisioning_teardown_delay_ms = 5000,
 
-    .prov = {
+    .prov_ble = {
         .device_name         = "PROV_{id}", // GAP name template (supports {id})
         .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
         .pop                 = "1234abcd",  // Security 1 PoP (NULL/"" → no PoP)
@@ -89,7 +89,7 @@ delay) and the BLE host is torn down.
 | Version | Handshake | Setup cost |
 |---------|-----------|-----------|
 | Security 0 | none (plaintext) | none — testing only |
-| Security 1 | Curve25519 + AES-CTR with PoP | set `prov.pop` (or leave NULL for no-PoP mode) |
+| Security 1 | Curve25519 + AES-CTR with PoP | set `prov_ble.pop` (or leave NULL for no-PoP mode) |
 | Security 2 | SRP6a (salted authenticated key exchange) | requires pre-computed `salt` + `verifier` |
 
 For Security 2, derive the `salt` / `verifier` offline using
@@ -103,7 +103,7 @@ extern const uint8_t my_verifier[];
 extern const size_t  my_verifier_len;
 
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .prov = {
+    .prov_ble = {
         .security2_username       = "device-fleet-2",
         .security2_salt           = my_salt,
         .security2_salt_len       = my_salt_len,
@@ -113,7 +113,7 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 });
 ```
 
-If `prov.security` is set to `WIFI_CFG_PROV_SECURITY_2` but no
+If `prov_ble.security` is set to `WIFI_CFG_PROV_SECURITY_2` but no
 salt/verifier is provided, `wifi_cfg_init()` returns
 `ESP_ERR_INVALID_ARG` — the library does not silently fall back.
 

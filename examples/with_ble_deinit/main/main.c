@@ -338,8 +338,8 @@ void app_main(void)
         //
         // ESP-IDF Network Provisioning is also compatible with an
         // app-owned BLE stack: set
-        //   .prov.memory_policy          = WIFI_CFG_PROV_MEM_KEEP_ALL,
-        //   .prov.keep_ble_on_after_stop = true,
+        //   .prov_ble.memory_policy          = WIFI_CFG_PROV_MEM_KEEP_ALL,
+        //   .prov_ble.keep_ble_on_after_stop = true,
         // and the manager will neither free BT memory nor stop the host
         // when it deinitialises. The library also auto-detects this case
         // (BT controller already enabled at start) and overrides
