@@ -665,7 +665,27 @@ typedef struct {
     /// Stop wifi_prov_mgr immediately on CRED_SUCCESS even when
     /// stop_provisioning_on_connect is false. Useful in MANUAL mode where
     /// the library doesn't drive provisioning teardown automatically.
+    /// Ignored when reboot-on-success is active (the device reboots
+    /// before any in-place stop would matter).
     bool stop_after_success;
+    /// When true, suppress the automatic device reboot that normally
+    /// fires once the BLE client has delivered credentials. Reboot is
+    /// the cleanest way to recover from the post-provisioning BLE
+    /// handoff: there is no clean way to tear down and rebuild
+    /// Espressif's wifi_provisioning BLE stack in place, so the
+    /// library defaults to **off** here (reboot enabled). Set true
+    /// only if the application handles the BLE/Wi-Fi handoff itself.
+    ///
+    /// Reboot fires on whichever happens first: the BLE client
+    /// disconnecting after CRED_RECV, or reboot_max_wait_ms expiring
+    /// after CRED_SUCCESS.
+    bool disable_reboot_on_provisioning_success;
+    /// Maximum wait between CRED_SUCCESS and the backstop reboot, in
+    /// ms. Gives the BLE client time to poll the status endpoint,
+    /// see "connected", and disconnect cleanly so the reboot fires
+    /// from the disconnect handler rather than the timer. 0 → 3000 ms.
+    /// Ignored when disable_reboot_on_provisioning_success is true.
+    uint32_t reboot_max_wait_ms;
     /// If true, reset the provisioning state machine after
     /// max_failed_attempts consecutive credential failures so a fresh
     /// attempt can be accepted without rebooting. Recommended for the

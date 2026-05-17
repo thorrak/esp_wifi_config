@@ -80,11 +80,14 @@ This affects project setup but not runtime code.
 | Mode | `provisioning_mode` value | Best for |
 |---|---|---|
 | **When connection fails** | `WIFI_PROV_ON_FAILURE` | Most IoT devices — try saved networks first, fall back to provisioning |
-| **Always** | `WIFI_PROV_ALWAYS` | Devices that need a permanently accessible config UI (e.g., local dashboard) |
 | **First boot only** | `WIFI_PROV_WHEN_UNPROVISIONED` | Configure once, never show provisioning again |
 | **Manual trigger only** | `WIFI_PROV_MANUAL` | App controls when provisioning starts (e.g., button press, GPIO) |
 
 **Default recommendation:** `WIFI_PROV_ON_FAILURE` unless the user has a specific reason for another mode.
+
+:::caution `WIFI_PROV_ALWAYS` is disabled
+The value still exists in the enum but is bypassed at runtime (treated as `WIFI_PROV_MANUAL` with a warning log). `wifi_prov_mgr_start_provisioning()` calls `nimble_port_init()`, which fails if the app has already brought up the BLE stack. There is no current path to "always-on BLE provisioning". For an always-accessible config UI, expose the SoftAP captive portal or REST API after provisioning completes instead.
+:::
 
 ### Q5: Per-interface configuration
 
@@ -211,8 +214,11 @@ No configuration needed from the user. The library auto-registers commands when 
 | Choice | Config |
 |---|---|
 | **Retry forever** (default) | `.max_reconnect_attempts = 0` |
-| **After N failures, re-enter provisioning** | `.max_reconnect_attempts = N`, `.on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` |
 | **After N failures, reboot** | `.max_reconnect_attempts = N`, `.on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART` |
+
+:::caution `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` is disabled
+This option still exists in the enum but is bypassed at runtime (treated as `max_reconnect_attempts = 0` — keep retrying indefinitely — with a warning log). The re-enter-provisioning path called `wifi_prov_mgr_start_provisioning()` → `nimble_port_init()`, which fails when the app already owns the BLE stack. Use `_RESTART` or indefinite retry.
+:::
 
 ### Q9: Custom variables
 
@@ -343,7 +349,7 @@ void app_main(void)
         // -- Reconnection (Q8) --
         // .auto_reconnect = true,             // Q8a (default is true)
         // .max_reconnect_attempts = 0,        // Q8b (0 = infinite)
-        // .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION, // Q8b
+        // .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART, // Q8b (_PROVISION is disabled)
 
         // -- HTTP config (Q6, Q10) --
         // .http = {
@@ -356,6 +362,11 @@ void app_main(void)
 
         // -- Network Provisioning BLE (Q3 + Q5b)
         // Enabled via CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
+        // NOTE: by default the device REBOOTS after a successful BLE
+        // provisioning flow — there is no clean in-place teardown for
+        // wifi_prov_mgr's BLE stack. Set
+        // .disable_reboot_on_provisioning_success = true only if the
+        // app owns the BLE/Wi-Fi handoff itself.
         // .prov_ble = {
         //     .device_name         = "PROV_{id}", // GAP-name template (NULL → "PROV_{id}")
         //     .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
@@ -365,6 +376,8 @@ void app_main(void)
         //     .reset_on_failure    = true,        // accept retries without reboot
         //     .max_failed_attempts = 3,           // 0 → library default (3)
         //     .firmware_version    = "1.0.0",
+        //     // .disable_reboot_on_provisioning_success = false, // default (reboot on)
+        //     // .reboot_max_wait_ms = 3000,      // 0 → 3000 ms backstop
         // },
 
         // -- Improv (Q3 + Q5b + Q5c + Q5d) --

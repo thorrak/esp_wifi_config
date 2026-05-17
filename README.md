@@ -24,8 +24,9 @@ It's a one-stop shop: enable the channels you want at build time, fill in a `wif
 - **Four provisioning channels** plus a serial CLI, all sharing one config struct and one network store (see [Provisioning Methods](#provisioning-methods))
 - **Multi-network storage** in NVS with priority-based connect order
 - **Auto-reconnect** with exponential backoff and failover between saved networks
-- **Provisioning lifecycle** — `ALWAYS` / `ON_FAILURE` / `WHEN_UNPROVISIONED` / `MANUAL` start modes, configurable post-connect teardown delay, and three post-provisioning HTTP behaviours
-- **Reconnect-exhaustion policy** — re-enter provisioning or reboot after N failed reconnects
+- **Provisioning lifecycle** — `ON_FAILURE` / `WHEN_UNPROVISIONED` / `MANUAL` start modes, configurable post-connect teardown delay, and three post-provisioning HTTP behaviours
+- **Reboot on successful BLE provisioning** (default on) — sidesteps `wifi_prov_mgr`'s lack of a clean BLE-stack tear-down/rebuild path; opt out via `prov_ble.disable_reboot_on_provisioning_success`
+- **Reconnect-exhaustion policy** — reboot after N failed reconnects, or retry indefinitely
 - **Embedded Web UI** — responsive Preact frontend (~10 KB gzipped) served on the captive portal, or [bring your own](https://configwifi.com/docs/guides/custom-webui)
 - **REST API** with optional HTTP Basic Auth
 - **Custom variable store** — application key/value settings flow through every provisioning interface
@@ -64,7 +65,8 @@ What `wifi_provisioning` does on its own is hand a single set of credentials to 
 | Multi-network store with priority and failover | — | ✅ |
 | Auto-reconnect with exponential backoff | — | ✅ |
 | Provisioning lifecycle state machine (when to start, when to tear down) | — | ✅ |
-| Reconnect-exhaustion behaviour (re-provision or reboot) | — | ✅ |
+| Reconnect-exhaustion behaviour (reboot or indefinite retry) | — | ✅ |
+| Automatic reboot after a successful BLE provisioning flow | — | ✅ |
 | SoftAP + captive portal + embedded Web UI | — | ✅ |
 | Improv WiFi (BLE + Serial) | — | ✅ |
 | Serial CLI | — | ✅ |
@@ -92,6 +94,30 @@ ESP-IDF 5.5.3's NimBLE host has a bug where only the **first** BLE client to con
 This library works around the issue by tearing down and re-initialising the provisioning manager whenever a BLE client disconnects before credentials have been delivered. Most of the time this is invisible — clients reconnect successfully on retry. There is a sub-second window during the restart where a fresh connect attempt can still fail; clients that auto-retry (or the Espressif apps' user-driven retry) work through it.
 
 Set `wifi_cfg_prov_config_t.disable_disconnect_restart = true` to opt out (intended for debugging the underlying IDF bug or for apps that need to drive the stop/restart sequence themselves).
+
+### Reboot after successful BLE provisioning
+
+Espressif's `wifi_provisioning` component does not expose a clean way to tear down and rebuild the BLE/NimBLE stack in place. To avoid the class of latent post-provisioning BLE-handoff bugs that come from forcing one anyway, the library reboots the device automatically once a BLE provisioning session completes.
+
+The reboot fires on whichever happens first:
+
+1. The BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV` (the well-behaved-client path).
+2. A backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS` — default 3000 ms, configurable via `prov_ble.reboot_max_wait_ms`.
+
+Defaults are designed so most apps need no extra configuration. The relevant fields on `wifi_cfg_prov_config_t`:
+
+```c
+.prov_ble = {
+    // Default: reboot enabled (zero-initialised → false → reboot on).
+    // Set true ONLY if the app handles the BLE / Wi-Fi handoff itself.
+    .disable_reboot_on_provisioning_success = false,
+    .reboot_max_wait_ms = 3000,  // 0 → 3000 ms; ignored if reboot disabled
+}
+```
+
+If your application does significant work in the `WIFI_CFG_EVT_PROV_CRED_SUCCESS` handler, finish that work before the callback returns (it runs before the reboot) — or extend `reboot_max_wait_ms`. Anything that must persist across the reboot needs to land in NVS first.
+
+The library's pre-existing `stop_provisioning_on_connect` / `provisioning_teardown_delay_ms` lifecycle and `prov_ble.stop_after_success` knob still exist but are bypassed while reboot-on-success is active — the reboot supersedes any in-place teardown.
 
 ## Quick Start
 

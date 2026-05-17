@@ -7,6 +7,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic reboot after successful BLE provisioning** (default on).
+  Espressif's `wifi_provisioning` component has no clean way to tear
+  down and rebuild the BLE/NimBLE stack in place after credentials are
+  delivered, so the library now reboots on whichever happens first:
+  the BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV`, or a
+  backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS` (default 3000 ms,
+  tunable via the new `wifi_cfg_prov_config_t.reboot_max_wait_ms`).
+  Opt out with `wifi_cfg_prov_config_t.disable_reboot_on_provisioning_success
+  = true` if the application handles the BLE/Wi-Fi handoff itself.
+  `prov_ble.stop_after_success` is now ignored while reboot-on-success
+  is active. See `MIGRATION.md` for migration guidance.
+
+### Changed
+
+- **`WIFI_PROV_ALWAYS` and `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION`
+  disabled.** Both code paths called `wifi_prov_mgr_start_provisioning()`,
+  which in turn calls `nimble_port_init()` — a fatal collision when the
+  application has already initialised the BLE stack. The enum values
+  remain in the public API (existing configs still compile) but the
+  underlying provisioning-start is bypassed with a warning log.
+  `WIFI_PROV_ALWAYS` now behaves like `WIFI_PROV_MANUAL` at boot;
+  `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` now keeps retrying
+  indefinitely (equivalent to `max_reconnect_attempts = 0`). The
+  original code is preserved behind `#if 0` for re-enablement once a
+  BLE provisioning path that doesn't depend on Espressif's
+  `wifi_provisioning` component is in place. See `MIGRATION.md`.
+
 ### Fixed
 
 - **BLE provisioning recovers from client disconnects.** Worked around

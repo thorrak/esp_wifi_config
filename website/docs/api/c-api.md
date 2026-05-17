@@ -144,7 +144,9 @@ wifi_cfg_config_t config = {
 
     // Reconnect exhaustion
     .max_reconnect_attempts = 10,          // 0 = infinite
-    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,
+    // _PROVISION is currently disabled (treated as 0 = infinite retry).
+    // Use _RESTART to reboot when the retry budget is exhausted.
+    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,
 
     // HTTP post-provisioning mode
     .http_post_prov_mode = WIFI_HTTP_API_ONLY,
@@ -209,7 +211,9 @@ back to the library defaults documented in the table.
 | `keep_ble_on_after_stop` | If true, BLE stays advertising after the manager stops. Useful when the app takes over BLE post-provisioning. |
 | `cleanup_delay_ms` | Grace period the manager observes between stop and protocomm teardown. 0 → 1000 ms. Min 100 ms. |
 | `wifi_conn_attempts` | STA connection attempts before CRED_FAIL. 0 → infinite (legacy default). A bounded value gives the manager a chance to report failure cleanly. |
-| `stop_after_success` | Stop the manager on CRED_SUCCESS even when `stop_provisioning_on_connect` is false (useful in MANUAL mode). |
+| `stop_after_success` | Stop the manager on CRED_SUCCESS even when `stop_provisioning_on_connect` is false (useful in MANUAL mode). Ignored while reboot-on-success is active — the reboot supersedes any in-place stop. |
+| `disable_reboot_on_provisioning_success` | **Default false** (reboot enabled). Set true only when the app handles the BLE/Wi-Fi handoff itself. See [Reboot on successful provisioning](../provisioning/ble-gatt.md#reboot-on-successful-provisioning). |
+| `reboot_max_wait_ms` | Backstop window after CRED_SUCCESS before the forced reboot, in ms. 0 → 3000 ms. Ignored when `disable_reboot_on_provisioning_success` is true. |
 | `reset_on_failure` | If true, reset the state machine after `max_failed_attempts` consecutive credential failures so a fresh attempt can be accepted without rebooting. |
 | `max_failed_attempts` | Threshold used when `reset_on_failure` is true. 0 → library default (3). |
 | `firmware_version` | Surfaced via the built-in `esp-wifi-config-version` endpoint. |

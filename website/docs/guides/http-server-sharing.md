@@ -79,7 +79,7 @@ This returns `ESP_ERR_INVALID_STATE` and refuses to act if any of the following 
 
 - You passed an existing `httpd_handle_t` (the library never tears down a server it doesn't own — it only deregisters its own URI handlers).
 - Provisioning is currently active.
-- The reconnect constraint applies: `enable_ap = true` AND `on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` AND `max_reconnect_attempts > 0`. The SoftAP might need to restart later after a post-connect disconnect, and it requires the HTTP server alive.
+- The reconnect constraint applies: `enable_ap = true` AND `on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` AND `max_reconnect_attempts > 0`. The SoftAP might need to restart later after a post-connect disconnect, and it requires the HTTP server alive. _This guard is currently dormant because_ `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` _is itself disabled — it will reactivate cleanly if that path is re-enabled._
 
 ## Automatic HTTPD Teardown
 
@@ -89,9 +89,10 @@ When `http_post_prov_mode = WIFI_HTTP_DISABLED`, the library also tries to fully
 |---|---|---|
 | `WIFI_PROV_WHEN_UNPROVISIONED` | Auto-teardown after transition* | Deregister handlers only — your server stays running |
 | `WIFI_PROV_MANUAL` | Keep server alive; you call `wifi_cfg_stop_http()` explicitly* | Deregister handlers only |
-| `WIFI_PROV_ALWAYS` / `WIFI_PROV_ON_FAILURE` | Keep server alive (provisioning may restart) | Deregister handlers only |
+| `WIFI_PROV_ON_FAILURE` | Keep server alive (provisioning may restart) | Deregister handlers only |
+| `WIFI_PROV_ALWAYS` | Currently disabled — behaves like `WIFI_PROV_MANUAL` (see [Provisioning Modes](../provisioning/modes.md#modes)) | Deregister handlers only |
 
-\* **Reconnect constraint**: If `enable_ap = true` AND `on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` AND `max_reconnect_attempts > 0`, auto-teardown is suppressed even in `WHEN_UNPROVISIONED`/`MANUAL` mode. The SoftAP may need to restart after a post-connect disconnect, and it requires the HTTP server. In that case the library deregisters its handlers but leaves the server running.
+\* **Reconnect constraint**: If `enable_ap = true` AND `on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` AND `max_reconnect_attempts > 0`, auto-teardown would be suppressed even in `WHEN_UNPROVISIONED`/`MANUAL` mode. This guard is **currently dormant** because `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` is itself disabled — auto-teardown runs normally regardless of the exhaustion-action config.
 
 The rules are conservative — the library never tears down a server it can't bring back up cleanly later.
 

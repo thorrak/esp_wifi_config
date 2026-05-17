@@ -232,6 +232,70 @@ supported one:
  });
 ```
 
+### Reboot on successful provisioning (default on)
+
+The device now reboots automatically after a successful provisioning
+session — once the BLE client has delivered credentials and (typically)
+seen the device come online, the library forces an `esp_restart()`.
+
+**Why**: Espressif's `wifi_provisioning` component does not expose a
+clean way to tear down and rebuild the BLE/NimBLE stack in place. After
+provisioning ends, the only fully reliable post-prov state is a cold
+boot. Rebooting once at the end avoids a class of latent
+BLE-handoff bugs (stale GATT db, supervision-timeout loops, controller
+state divergence) and gives the application a deterministic starting
+point.
+
+**Trigger**: whichever fires first —
+
+1. The BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV` (the
+   well-behaved-client path), or
+2. A backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS`, default 3000
+   ms (catches clients that drop without a clean disconnect).
+
+**Config** — two new fields on `wifi_cfg_prov_config_t`:
+
+```c
+.prov_ble = {
+    // Default: reboot enabled (field zero-init = false → reboot on).
+    // Set true ONLY if the application handles BLE/Wi-Fi handoff itself.
+    .disable_reboot_on_provisioning_success = false,
+
+    // Backstop wait between CRED_SUCCESS and forced reboot, in ms.
+    // 0 → 3000 ms. Ignored when reboot is disabled above.
+    .reboot_max_wait_ms = 3000,
+}
+```
+
+The field uses **negative polarity** to match the existing
+`.prov_ble.disable_disconnect_restart` convention — both are
+default-on workarounds for `wifi_prov_mgr`/NimBLE limitations, so
+zero-initialised config gives the safer behavior.
+
+**Behavior change from earlier 0.1.0 builds**: previous builds left
+the manager running after credentials were accepted and relied on
+the library-level `stop_provisioning_on_connect` /
+`provisioning_teardown_delay_ms` lifecycle to tear it down in place.
+That path still exists, but `disable_reboot_on_provisioning_success
+= false` (the default) bypasses it — the device reboots before the
+in-place teardown would run. `.prov_ble.stop_after_success` is
+therefore ignored while reboot-on-success is active.
+
+**What to do**:
+
+- **Most apps**: nothing. The new default does the right thing.
+- **Apps that need to keep BLE up post-provisioning** (e.g. an Improv
+  flow that morphs into a BLE companion link, or an app-owned GATT
+  service taking over): set
+  `.prov_ble.disable_reboot_on_provisioning_success = true` and handle
+  the post-prov BLE state yourself. You are accepting the
+  `wifi_prov_mgr` teardown sharp edges as a trade-off.
+- **Apps doing significant work on `WIFI_CFG_EVT_PROV_CRED_SUCCESS`**:
+  audit that work — the reboot will fire shortly after (≤ 3 s by
+  default, or sooner on client disconnect). Persist anything important
+  to NVS before returning from the callback, or extend
+  `.prov_ble.reboot_max_wait_ms` if you need a wider window.
+
 ### Provisioning event surface
 
 Two parallel notification paths, both fire for every event — use

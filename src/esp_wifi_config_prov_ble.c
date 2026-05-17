@@ -56,6 +56,10 @@
 #include "esp_app_desc.h"
 #include "esp_bt.h"
 #include "esp_coexist.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+#include "freertos/task.h"
 #include "protocomm_ble.h"
 #include "cJSON.h"
 #include <string.h>
@@ -157,6 +161,10 @@ static bool     s_restart_pending = false;  // restart queued, waiting for END
 static bool     s_explicit_stop   = false;  // app-driven stop, not a bug recovery
 static bool     s_disconnect_handler_registered = false;
 static uint32_t s_restart_count   = 0;      // diagnostic: how many bug recoveries
+
+// Reboot-on-success backstop. Started in WIFI_PROV_EVT_CRED_SUCCESS;
+// fires esp_restart() if the BLE client never disconnects cleanly.
+static TimerHandle_t s_reboot_timer = NULL;
 
 // =============================================================================
 // Resolve helpers (config → effective value with Kconfig fallback)
@@ -499,6 +507,20 @@ static esp_err_t network_policy_endpoint(uint32_t session_id, const uint8_t *inb
 // (creds-already-received, explicit stop, already-pending) are short-circuited
 // by guards below.
 
+// True when the reboot-on-success behavior is active (default-on
+// unless the app explicitly opted out via the config flag).
+static bool reboot_on_success_enabled(void)
+{
+    return g_wifi_cfg && !g_wifi_cfg->config.prov_ble.disable_reboot_on_provisioning_success;
+}
+
+static void reboot_timer_callback(TimerHandle_t timer)
+{
+    (void)timer;
+    ESP_LOGW(TAG, "Reboot backstop fired (BLE client never disconnected); restarting");
+    esp_restart();
+}
+
 static void on_protocomm_ble_disconnect(void *arg, esp_event_base_t base,
                                         int32_t id, void *data)
 {
@@ -508,6 +530,19 @@ static void on_protocomm_ble_disconnect(void *arg, esp_event_base_t base,
         ESP_LOGD(TAG, "BLE disconnect: ignored (prov mgr not active)");
         return;
     }
+
+    // Reboot-on-success path: if credentials were delivered before the
+    // client disconnected, the provisioning flow is over and the
+    // cleanest recovery is a reboot. esp_restart() doesn't return, so
+    // we don't bother coordinating with the backstop timer.
+    if (s_creds_received && reboot_on_success_enabled()) {
+        ESP_LOGI(TAG, "Provisioning complete; client disconnected, rebooting");
+        // Brief delay so the final log line drains and any in-flight
+        // protocomm response finishes flushing before the reboot.
+        vTaskDelay(pdMS_TO_TICKS(50));
+        esp_restart();
+    }
+
     if (g_wifi_cfg && g_wifi_cfg->config.prov_ble.disable_disconnect_restart) {
         ESP_LOGD(TAG, "BLE disconnect: ignored (workaround disabled by config)");
         return;
@@ -621,7 +656,20 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             if (prov_cfg && prov_cfg->on_credentials_success) {
                 prov_cfg->on_credentials_success(prov_cfg->event_ctx);
             }
-            if (prov_cfg && prov_cfg->stop_after_success) {
+            if (reboot_on_success_enabled()) {
+                // Backstop reboot: fires if the BLE client never
+                // disconnects on its own. The disconnect handler
+                // reboots first when the client behaves; this just
+                // guarantees we don't get stuck if it doesn't.
+                uint32_t wait = (prov_cfg && prov_cfg->reboot_max_wait_ms)
+                                ? prov_cfg->reboot_max_wait_ms : 3000;
+                if (s_reboot_timer) {
+                    xTimerChangePeriod(s_reboot_timer, pdMS_TO_TICKS(wait), 0);
+                    xTimerStart(s_reboot_timer, 0);
+                    ESP_LOGI(TAG, "Reboot scheduled in %lu ms (or sooner on client disconnect)",
+                             (unsigned long)wait);
+                }
+            } else if (prov_cfg && prov_cfg->stop_after_success) {
                 WIFI_PROV_MGR_STOP();
             }
             break;
@@ -686,6 +734,15 @@ esp_err_t wifi_cfg_prov_init(void)
         ESP_LOGW(TAG, "register prov event handler: %s", esp_err_to_name(err));
     }
 
+    // Reboot-on-success backstop timer (one-shot, period set on start).
+    if (!s_reboot_timer) {
+        s_reboot_timer = xTimerCreate("prov_reboot", pdMS_TO_TICKS(3000),
+                                      pdFALSE, NULL, reboot_timer_callback);
+        if (!s_reboot_timer) {
+            ESP_LOGW(TAG, "Failed to create reboot backstop timer");
+        }
+    }
+
     return ESP_OK;
 }
 
@@ -693,9 +750,15 @@ esp_err_t wifi_cfg_prov_deinit(void)
 {
     // Full library teardown — the app is shutting us down, so the BLE
     // disconnect workaround must not queue a restart from any in-flight
-    // disconnect event.
+    // disconnect event, and the reboot backstop must not fire either.
     s_explicit_stop   = true;
     s_restart_pending = false;
+
+    if (s_reboot_timer) {
+        xTimerStop(s_reboot_timer, 0);
+        xTimerDelete(s_reboot_timer, 0);
+        s_reboot_timer = NULL;
+    }
 
     if (s_prov_active) {
         WIFI_PROV_MGR_STOP();
