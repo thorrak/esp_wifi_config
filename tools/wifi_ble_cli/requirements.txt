@@ -1,2 +1,4 @@
 bleak>=0.21.0
 click>=8.0.0
+protobuf>=4.21.0
+cryptography>=40.0.0
