@@ -641,6 +641,15 @@ typedef struct {
     /// when the application takes over BLE for its own services after
     /// provisioning ends.
     bool keep_ble_on_after_stop;
+    /// When true, disable the workaround that restarts the provisioning
+    /// manager on every BLE client disconnect that happens mid-flow.
+    /// The workaround papers over an IDF 5.5.3 NimBLE bug where only the
+    /// first BLE client to connect after boot can complete a provisioning
+    /// session; subsequent reconnects accept at LL but then time out at
+    /// supervision. Default off (workaround active). Set true only to
+    /// debug the underlying IDF bug or for apps that need to handle the
+    /// stop/restart sequence themselves.
+    bool disable_disconnect_restart;
 
     // ── Provisioning lifecycle ───────────────────────────────────────────
     /// Grace period the manager observes between a stop request and

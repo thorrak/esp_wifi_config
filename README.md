@@ -85,6 +85,14 @@ The toggle does not adjust itself based on what the device advertises, and the a
 
 The interaction between this toggle and Security 1 (PoP) has not been confirmed; see [BLE Provisioning docs](https://configwifi.com/docs/provisioning/ble-gatt#ios-esp-ble-provisioning-app-encrypted-communication-toggle) for details as they become available.
 
+### NimBLE reconnect workaround
+
+ESP-IDF 5.5.3's NimBLE host has a bug where only the **first** BLE client to connect after boot can complete a provisioning session — subsequent reconnects accept at the link layer but then time out at supervision, and the wedged state only clears on a full reboot. The bug reproduces deterministically with both the Espressif iOS app and `esp_prov`.
+
+This library works around the issue by tearing down and re-initialising the provisioning manager whenever a BLE client disconnects before credentials have been delivered. Most of the time this is invisible — clients reconnect successfully on retry. There is a sub-second window during the restart where a fresh connect attempt can still fail; clients that auto-retry (or the Espressif apps' user-driven retry) work through it.
+
+Set `wifi_cfg_prov_config_t.disable_disconnect_restart = true` to opt out (intended for debugging the underlying IDF bug or for apps that need to drive the stop/restart sequence themselves).
+
 ## Quick Start
 
 Add to `main/idf_component.yml`:

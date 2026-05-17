@@ -20,6 +20,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   Set `expose_library_endpoints = true` only when your provisioning
   client is a custom app that consumes those endpoints.
 
+### Fixed
+
+- **BLE provisioning recovers from client disconnects.** Worked around
+  an IDF 5.5.3 NimBLE bug where only the first BLE client to connect
+  after boot could complete a provisioning session — subsequent
+  reconnects accepted at the link layer then timed out at supervision,
+  and the wedged state only cleared on a full reboot. The library now
+  subscribes to `PROTOCOMM_TRANSPORT_BLE_DISCONNECTED` and tears
+  down + re-initialises the provisioning manager whenever a client
+  drops before credentials are delivered. Opt out with the new
+  `wifi_cfg_prov_config_t.disable_disconnect_restart = true` if you
+  prefer to debug the underlying IDF bug or drive teardown yourself.
+
 
 ## [0.1.0] — 2026-05-09 - ESP-IDF Network Provisioning over BLE
 

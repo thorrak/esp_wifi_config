@@ -67,6 +67,7 @@
 #include "esp_app_desc.h"
 #include "esp_bt.h"
 #include "esp_coexist.h"
+#include "protocomm_ble.h"
 #include "cJSON.h"
 #include <string.h>
 
@@ -160,6 +161,13 @@ static bool s_prov_initialized = false;     // wifi_prov_mgr_init has been calle
 static bool s_prov_active      = false;     // wifi_prov_mgr_start_provisioning succeeded
 static int  s_failed_attempts  = 0;         // counted across CRED_FAIL events
 static bool s_coex_pref_set    = false;     // tracks whether we biased coex toward BT
+
+// IDF 5.5.3 NimBLE workaround state — see on_protocomm_ble_disconnect().
+static bool     s_creds_received  = false;  // set in WIFI_PROV_EVT_CRED_RECV
+static bool     s_restart_pending = false;  // restart queued, waiting for END
+static bool     s_explicit_stop   = false;  // app-driven stop, not a bug recovery
+static bool     s_disconnect_handler_registered = false;
+static uint32_t s_restart_count   = 0;      // diagnostic: how many bug recoveries
 
 // =============================================================================
 // Resolve helpers (config → effective value with Kconfig fallback)
@@ -486,6 +494,59 @@ static esp_err_t network_policy_endpoint(uint32_t session_id, const uint8_t *inb
 }
 
 // =============================================================================
+// BLE disconnect workaround (IDF 5.5.3 NimBLE reconnect bug)
+// =============================================================================
+//
+// On IDF 5.5.3 NimBLE, only the first BLE client to connect after boot can
+// complete a provisioning session. Subsequent reconnects accept at LL,
+// optionally exchange MTU, then hit supervision timeout — and the broken
+// state only clears on full reboot. The bug reproduces deterministically
+// across sec0 and sec1 with both the Espressif iOS app and esp_prov.
+//
+// Workaround: tear down and re-init the provisioning manager whenever a BLE
+// client disconnects before credentials have been received. The disconnect
+// handler queues a restart (s_restart_pending), the existing WIFI_PROV_EVT_END
+// path runs MGR_DEINIT(), then we re-enter wifi_cfg_prov_start(). Edge cases
+// (creds-already-received, explicit stop, already-pending) are short-circuited
+// by guards below.
+
+static void on_protocomm_ble_disconnect(void *arg, esp_event_base_t base,
+                                        int32_t id, void *data)
+{
+    (void)arg; (void)base; (void)id; (void)data;
+
+    if (!s_prov_active) {
+        ESP_LOGD(TAG, "BLE disconnect: ignored (prov mgr not active)");
+        return;
+    }
+    if (g_wifi_cfg && g_wifi_cfg->config.prov_ble.disable_disconnect_restart) {
+        ESP_LOGD(TAG, "BLE disconnect: ignored (workaround disabled by config)");
+        return;
+    }
+    if (s_explicit_stop) {
+        ESP_LOGD(TAG, "BLE disconnect: ignored (explicit stop in progress)");
+        return;
+    }
+    if (s_creds_received) {
+        ESP_LOGD(TAG, "BLE disconnect: ignored (credentials already received)");
+        return;
+    }
+    if (s_restart_pending) {
+        ESP_LOGD(TAG, "BLE disconnect: ignored (restart already pending)");
+        return;
+    }
+
+    s_restart_count++;
+    ESP_LOGW(TAG, "BLE client disconnected mid-flow (restart #%lu); restarting "
+                  "prov mgr (workaround for IDF NimBLE reconnect bug)",
+             (unsigned long)s_restart_count);
+    s_restart_pending = true;
+    // Async: WIFI_PROV_EVT_END fires after cleanup_delay_ms; the restart
+    // happens from prov_event_handler when END arrives.
+    WIFI_PROV_MGR_STOP();
+}
+
+// =============================================================================
 // Provisioning event handler
 // =============================================================================
 
@@ -509,6 +570,10 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         case WIFI_PROV_EVT_CRED_RECV: {
             wifi_sta_config_t *cfg = (wifi_sta_config_t *)data;
             if (!cfg) break;
+
+            // Mark creds received so the BLE disconnect workaround doesn't
+            // restart the manager when the client drops after sending them.
+            s_creds_received = true;
 
             wifi_cfg_prov_creds_t creds = {0};
             // wifi_sta_config_t.ssid is fixed-size and may not be NUL-terminated.
@@ -590,6 +655,20 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                 esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
                 s_coex_pref_set = false;
             }
+            // BLE disconnect workaround: if the manager was torn down because
+            // a client dropped mid-flow, re-arm it now that protocomm is
+            // fully shut down. wifi_cfg_prov_start() re-runs MGR_INIT + START
+            // from scratch, which is what clears the wedged NimBLE state.
+            if (s_restart_pending) {
+                s_restart_pending = false;
+                s_creds_received  = false;
+                ESP_LOGI(TAG, "Restarting provisioning after BLE disconnect");
+                esp_err_t rerr = wifi_cfg_prov_start();
+                if (rerr != ESP_OK) {
+                    ESP_LOGE(TAG, "Restart after BLE disconnect failed: %s",
+                             esp_err_to_name(rerr));
+                }
+            }
             break;
 
         case WIFI_PROV_EVT_DEINIT:
@@ -625,6 +704,12 @@ esp_err_t wifi_cfg_prov_init(void)
 
 esp_err_t wifi_cfg_prov_deinit(void)
 {
+    // Full library teardown — the app is shutting us down, so the BLE
+    // disconnect workaround must not queue a restart from any in-flight
+    // disconnect event.
+    s_explicit_stop   = true;
+    s_restart_pending = false;
+
     if (s_prov_active) {
         WIFI_PROV_MGR_STOP();
         s_prov_active = false;
@@ -639,9 +724,19 @@ esp_err_t wifi_cfg_prov_deinit(void)
         esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
         s_coex_pref_set = false;
     }
+    if (s_disconnect_handler_registered) {
+        esp_event_handler_unregister(PROTOCOMM_TRANSPORT_BLE_EVENT,
+                                     PROTOCOMM_TRANSPORT_BLE_DISCONNECTED,
+                                     &on_protocomm_ble_disconnect);
+        s_disconnect_handler_registered = false;
+    }
     esp_event_handler_unregister(WIFI_PROV_EVENT_BASE,
                                  ESP_EVENT_ANY_ID,
                                  &prov_event_handler);
+    // Reset workaround state so a later init+start session begins clean.
+    s_creds_received  = false;
+    s_explicit_stop   = false;
+    s_restart_count   = 0;
     return ESP_OK;
 }
 
@@ -658,6 +753,12 @@ esp_err_t wifi_cfg_prov_start(void)
     if (!g_wifi_cfg) {
         return ESP_ERR_INVALID_STATE;
     }
+
+    // Fresh start: clear the workaround flags carried over from a prior
+    // session. s_restart_pending is cleared by the END handler that
+    // re-entered us; this just defends against stale state.
+    s_explicit_stop  = false;
+    s_creds_received = false;
 
     const wifi_cfg_prov_config_t *prov = &g_wifi_cfg->config.prov_ble;
 
@@ -803,6 +904,24 @@ esp_err_t wifi_cfg_prov_start(void)
         WIFI_PROV_MGR_ENDPOINT_REGISTER(ep->name, ep->handler, ep->user_ctx);
     }
 
+    // Subscribe to BLE transport disconnects for the IDF NimBLE workaround.
+    // Registered here (after MGR_START) so the protocomm BLE transport is
+    // guaranteed up. Guarded by s_disconnect_handler_registered because
+    // restart cycles call _start() repeatedly without _deinit() in between.
+    if (!s_disconnect_handler_registered) {
+        esp_err_t derr = esp_event_handler_register(PROTOCOMM_TRANSPORT_BLE_EVENT,
+                                                    PROTOCOMM_TRANSPORT_BLE_DISCONNECTED,
+                                                    &on_protocomm_ble_disconnect,
+                                                    NULL);
+        if (derr == ESP_OK) {
+            s_disconnect_handler_registered = true;
+        } else {
+            ESP_LOGW(TAG, "register protocomm BLE disconnect handler: %s — "
+                          "NimBLE reconnect workaround disabled this session",
+                     esp_err_to_name(derr));
+        }
+    }
+
     s_prov_active = true;
     ESP_LOGI(TAG, "Provisioning advertising as %s", device_name);
     return ESP_OK;
@@ -813,6 +932,14 @@ esp_err_t wifi_cfg_prov_stop(void)
     if (!s_prov_active && !s_prov_initialized) {
         return ESP_OK;
     }
+    // Signal the BLE disconnect handler not to queue a restart: this stop
+    // was app-driven, not a bug recovery. Must be set before MGR_STOP()
+    // because protocomm tears down the link synchronously and the
+    // disconnect event may arrive before this function returns.
+    s_explicit_stop = true;
+    // Clear any restart that the disconnect handler already queued — the
+    // app is taking over, so the workaround should yield.
+    s_restart_pending = false;
     // wifi_prov_mgr_stop_provisioning() is asynchronous when auto-stop is
     // disabled: it schedules teardown after cleanup_delay_ms and fires
     // WIFI_PROV_EVT_END once protocomm is fully torn down. The event
