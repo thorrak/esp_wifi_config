@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Breaking Changes
+
+- **Library extension endpoints are now opt-in.** The four
+  `esp-wifi-config-*` protocomm endpoints (`-version`, `-capabilities`,
+  `-vars`, `-network-policy`) are no longer registered automatically.
+  They are now gated on the new `wifi_cfg_prov_config_t.expose_library_endpoints`
+  flag (default `false`). The stock Espressif "ESP BLE Provisioning"
+  iOS app aborts the protocomm session when the provisioning GATT
+  service exposes more characteristics than its built-in table
+  expects, which broke stock-app onboarding for every downstream app.
+  Set `expose_library_endpoints = true` only when your provisioning
+  client is a custom app that consumes those endpoints.
+
+
 ## [0.1.0] — 2026-05-09 - ESP-IDF Network Provisioning over BLE
 
 ### Breaking Changes

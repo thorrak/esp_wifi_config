@@ -677,9 +677,24 @@ typedef struct {
     size_t app_info_count;
 
     // ── Custom protocomm endpoints ──────────────────────────────────────
+    /// Expose the library's four extension endpoints
+    /// ("esp-wifi-config-version", "-capabilities", "-vars",
+    /// "-network-policy") over the provisioning GATT service. Off by
+    /// default — they add 4 BLE characteristics to the prov service, and
+    /// the official Espressif iOS "ESP BLE Provisioning" app has been
+    /// observed to silently abort the protocomm session when the service
+    /// exposes more characteristics than its built-in table expects.
+    /// Enable only when your provisioning client is a custom app that
+    /// actually consumes these endpoints (e.g. one that reads firmware
+    /// versions or library vars during onboarding).
+    bool expose_library_endpoints;
     /// Optional list of custom endpoints to register in addition to the
-    /// library's four built-in endpoints. The library calls endpoint_create
+    /// library's built-in endpoints. The library calls endpoint_create
     /// before start and endpoint_register after start per ESP-IDF guidance.
+    /// These are independent of expose_library_endpoints — application
+    /// endpoints are always registered. Note that each endpoint adds a
+    /// BLE characteristic; keeping the total low improves compatibility
+    /// with stock provisioning clients.
     const wifi_cfg_prov_custom_endpoint_t *custom_endpoints;
     size_t custom_endpoint_count;
 

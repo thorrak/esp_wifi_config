@@ -7,17 +7,28 @@
  * variables, post-provisioning HTTP behaviour) drives a stock, audited
  * provisioning protocol instead of a hand-rolled JSON-over-GATT service.
  *
- * Custom protocomm endpoints (registered automatically):
+ * Library extension protocomm endpoints (opt-in via
+ * wifi_cfg_prov_config_t.expose_library_endpoints, off by default):
  *
  *   - "esp-wifi-config-version"       — JSON: library/IDF/firmware versions
  *   - "esp-wifi-config-capabilities"  — JSON: enabled features
  *   - "esp-wifi-config-vars"          — JSON: read/write the variable store
  *   - "esp-wifi-config-network-policy"— JSON: provisioning_mode, retries
  *
+ * These add four extra BLE characteristics to the provisioning GATT
+ * service. The stock Espressif "ESP BLE Provisioning" iOS app has been
+ * observed to silently abort the protocomm session when the service
+ * exposes characteristics beyond the four it knows about — so the
+ * library now leaves them disabled unless an application opts in.
+ * Enable them when your provisioning client is a custom app that
+ * actively consumes the metadata they expose.
+ *
  * Additional endpoints may be supplied through
  * wifi_cfg_prov_config_t.custom_endpoints — they are created before
  * wifi_prov_mgr_start_provisioning() and their handlers are registered
- * afterwards, matching the ESP-IDF ordering requirement.
+ * afterwards, matching the ESP-IDF ordering requirement. Application
+ * endpoints are independent of expose_library_endpoints; they are
+ * always created if provided.
  *
  * Lifecycle
  * ---------
@@ -702,14 +713,20 @@ esp_err_t wifi_cfg_prov_start(void)
                                    info->capability_count);
     }
 
-    // Built-in endpoints — create BEFORE start so the manager includes
+    // Library extension endpoints — opt-in via expose_library_endpoints.
+    // Off by default because they add 4 BLE characteristics that the
+    // stock Espressif iOS "ESP BLE Provisioning" app does not expect
+    // and that have been observed to make it abort the session before
+    // doing useful work. Create BEFORE start so the manager includes
     // them in the initial protocol set.
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VERSION);
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_CAPABILITIES);
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VARS);
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_NETWORK_POLICY);
+    if (prov->expose_library_endpoints) {
+        WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VERSION);
+        WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_CAPABILITIES);
+        WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VARS);
+        WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_NETWORK_POLICY);
+    }
 
-    // User-supplied custom endpoints
+    // User-supplied custom endpoints (always created if provided)
     for (size_t i = 0; i < prov->custom_endpoint_count; i++) {
         if (!prov->custom_endpoints[i].name) continue;
         WIFI_PROV_MGR_ENDPOINT_CREATE(prov->custom_endpoints[i].name);
@@ -764,10 +781,13 @@ esp_err_t wifi_cfg_prov_start(void)
     }
 
     // Register endpoint handlers AFTER start (per Espressif sample code).
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VERSION,        version_endpoint,        NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_CAPABILITIES,   capabilities_endpoint,   NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VARS,           vars_endpoint,           NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_POLICY, network_policy_endpoint, NULL);
+    // Must mirror the CREATE block above — endpoints are paired.
+    if (prov->expose_library_endpoints) {
+        WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VERSION,        version_endpoint,        NULL);
+        WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_CAPABILITIES,   capabilities_endpoint,   NULL);
+        WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VARS,           vars_endpoint,           NULL);
+        WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_POLICY, network_policy_endpoint, NULL);
+    }
 
     for (size_t i = 0; i < prov->custom_endpoint_count; i++) {
         const wifi_cfg_prov_custom_endpoint_t *ep = &prov->custom_endpoints[i];
