@@ -149,6 +149,53 @@ The `vars` endpoint accepts a small JSON request:
 - **`esp-idf-provisioning-android` / `-ios`** SDKs if you ship a
   custom mobile app
 
+## iOS "ESP BLE Provisioning" app — "Encrypted Communication" toggle
+
+Espressif's iOS "ESP BLE Provisioning" app exposes a setting that the
+app does **not** auto-negotiate with the device. It is on the Settings
+screen reached via the gear icon in the upper-left of the device-list
+screen, and is labelled **"Encrypted Communication"**:
+
+| Toggle state | Wire protocol used by the app | Required device build |
+|--------------|--------------------------------|------------------------|
+| Off ("Unsecured") | plaintext protocomm — no handshake | `.prov_ble.security = WIFI_CFG_PROV_SECURITY_0` |
+| On ("Secured")    | Security 2 (SRP6a) — app prompts for a username at connect time | `.prov_ble.security = WIFI_CFG_PROV_SECURITY_2` with a valid salt/verifier |
+
+The toggle is sticky across sessions and is not adjusted based on what
+the device advertises in its BLE service data. The app gives no in-app
+indication that it exists or that it has to match the firmware.
+
+### Confirmed behaviour
+
+- **Security 0 device, app in "Unsecured" mode** — works. Credentials
+  transfer in plaintext as expected.
+- **Security 0 device, app in "Secured" mode** — the app hangs after
+  the device is tapped. No PoP prompt appears, no Wi-Fi scan list is
+  rendered, and there is no error toast or log entry that surfaces the
+  mismatch. The fix is to flip the toggle to "Unsecured" and reopen the
+  device.
+
+### Not yet confirmed
+
+The interaction between this toggle and **Security 1 (PoP)** has not
+yet been validated against this app. Neither toggle position obviously
+corresponds to Security 1 on the wire — "Unsecured" is plaintext and
+"Secured" is SRP6a — so a Security 1 device may not be reachable from
+this app at all. If you require Security 1 specifically, use the
+Android app, `esp_prov`, or your own client built on the
+`esp-idf-provisioning-*` SDKs until this is confirmed.
+
+### Practical guidance
+
+- Pick the security version at build time and document the matching
+  toggle position in any user-facing setup instructions you ship.
+- If you support a mixed fleet that uses different security versions,
+  prefer the Android app or `esp_prov` for QA — the iOS toggle becomes
+  a per-device manual step.
+- The same caveat does not appear in Espressif's `esp_prov` Python
+  tool: that one is told the security version via a CLI flag
+  (`--sec_ver`) and will not silently hang on mismatch.
+
 ## Coexistence with Improv
 
 `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` is mutually exclusive with

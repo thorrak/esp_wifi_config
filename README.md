@@ -74,6 +74,17 @@ What `wifi_provisioning` does on its own is hand a single set of credentials to 
 
 In short: if all you need is to hand off WiFi credentials once over BLE, Espressif's component on its own is enough. If you want a device that remembers multiple networks, decides on its own when to reopen provisioning, exposes the same configuration over a captive portal and serial console, and emits events your application can react to — that's the rest of this library.
 
+### iOS "ESP BLE Provisioning" app — "Encrypted Communication" toggle
+
+Espressif's iOS "ESP BLE Provisioning" app hides a setting that is **not auto-negotiated** with the device. From the device-list screen, tap the gear icon in the upper-left to reach Settings. The **"Encrypted Communication"** toggle has two states:
+
+- **Off ("Unsecured")** — the app speaks plaintext protocomm. This is the mode required by devices built with `.prov_ble.security = WIFI_CFG_PROV_SECURITY_0`.
+- **On ("Secured")** — the app uses Security 2 (SRP6a) and prompts for a username when it connects. The device must advertise `sec_ver=2` (i.e. be built with `WIFI_CFG_PROV_SECURITY_2` and a valid salt/verifier pair).
+
+The toggle does not adjust itself based on what the device advertises, and the app gives no in-app hint that it exists. A Security 0 device opened from the app while the toggle is in "Secured" mode will simply hang after the device is tapped — no PoP prompt appears and no progress is shown. Set the toggle to match your firmware's `.prov_ble.security` value before pairing.
+
+The interaction between this toggle and Security 1 (PoP) has not been confirmed; see [BLE Provisioning docs](https://configwifi.com/docs/provisioning/ble-gatt#ios-esp-ble-provisioning-app-encrypted-communication-toggle) for details as they become available.
+
 ## Quick Start
 
 Add to `main/idf_component.yml`:
