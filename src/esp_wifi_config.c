@@ -888,6 +888,22 @@ static void wifi_cfg_task(void *arg)
                     wifi_cfg_start_provisioning();
                     break;
 
+                case WM_INT_EVT_PROV_BLE_RESTART:
+                    // BLE prov mgr disconnect-recovery: re-run the heavy
+                    // MGR_INIT + MGR_START here so the sys_evt task (which
+                    // posted this event from WIFI_PROV_EVT_END) doesn't
+                    // have to absorb the NimBLE init stack usage.
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE
+                    {
+                        esp_err_t rerr = wifi_cfg_prov_start();
+                        if (rerr != ESP_OK) {
+                            ESP_LOGE(TAG, "Restart after BLE disconnect failed: %s",
+                                     esp_err_to_name(rerr));
+                        }
+                    }
+#endif
+                    break;
+
                 case WM_INT_EVT_STOP:
                     ESP_LOGI(TAG, "Task stopped");
                     vTaskDelete(NULL);

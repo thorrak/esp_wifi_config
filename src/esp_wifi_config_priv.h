@@ -129,6 +129,7 @@ typedef enum {
     WM_INT_EVT_STOP_AP_REQUEST,     // Manual stop AP request
     WM_INT_EVT_TEARDOWN_TIMER,      // Provisioning teardown delay expired
     WM_INT_EVT_START_PROVISIONING,  // Start provisioning from reconnect exhaustion
+    WM_INT_EVT_PROV_BLE_RESTART,    // Restart prov mgr after BLE disconnect (IDF NimBLE workaround)
     WM_INT_EVT_STOP,                // Stop task
 } wifi_cfg_internal_evt_t;
 

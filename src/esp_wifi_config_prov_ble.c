@@ -657,17 +657,15 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             }
             // BLE disconnect workaround: if the manager was torn down because
             // a client dropped mid-flow, re-arm it now that protocomm is
-            // fully shut down. wifi_cfg_prov_start() re-runs MGR_INIT + START
-            // from scratch, which is what clears the wedged NimBLE state.
+            // fully shut down. Defer to wifi_cfg_task so the heavy MGR_INIT
+            // (which pulls in NimBLE host init) runs with that task's stack
+            // rather than the sys_evt task's — calling wifi_cfg_prov_start()
+            // directly here overflows sys_evt's stack.
             if (s_restart_pending) {
                 s_restart_pending = false;
                 s_creds_received  = false;
-                ESP_LOGI(TAG, "Restarting provisioning after BLE disconnect");
-                esp_err_t rerr = wifi_cfg_prov_start();
-                if (rerr != ESP_OK) {
-                    ESP_LOGE(TAG, "Restart after BLE disconnect failed: %s",
-                             esp_err_to_name(rerr));
-                }
+                ESP_LOGI(TAG, "Queueing prov mgr restart after BLE disconnect");
+                wifi_cfg_send_event(WM_INT_EVT_PROV_BLE_RESTART);
             }
             break;
 
