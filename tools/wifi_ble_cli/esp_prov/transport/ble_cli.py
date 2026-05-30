@@ -112,6 +112,17 @@ class BLE_Bleak_Client:
         if platform.system() == 'Windows':
             await self.device.pair()
 
+        # Request a large MTU so SRP-6a keys (~384 B) and config/scan payloads
+        # fit in a single ATT op (there is no app-layer fragmentation).
+        # CoreBluetooth (macOS) and WinRT negotiate a large MTU automatically;
+        # BlueZ (Linux) defaults to 23 and needs an explicit nudge.
+        try:
+            backend = getattr(self.device, '_backend', None)
+            if backend is not None and hasattr(backend, '_acquire_mtu'):
+                await backend._acquire_mtu()
+        except Exception:
+            pass
+
         print('Getting Services...')
         services = self.device.services
 
@@ -127,7 +138,8 @@ class BLE_Bleak_Client:
                 if descriptor.uuid[4:8] != '2901':
                     continue
                 readval = await self.device.read_gatt_descriptor(descriptor.handle)
-                found_name = ''.join(chr(b) for b in readval).lower()
+                # The 0x2901 user-description value is the endpoint name (UTF-8).
+                found_name = bytes(readval).decode('utf-8').lower()
                 nu_lookup[found_name] = characteristic.uuid
                 self.characteristics[characteristic.uuid] = characteristic
 
@@ -147,10 +159,7 @@ class BLE_Bleak_Client:
         return self.nu_lookup
 
     def has_characteristic(self, uuid):
-        print('checking for characteristic ' + uuid)
-        if uuid in self.characteristics:
-            return True
-        return False
+        return uuid in self.characteristics
 
     async def disconnect(self):
         if self.device:

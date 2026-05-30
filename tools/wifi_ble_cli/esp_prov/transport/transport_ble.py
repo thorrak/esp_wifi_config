@@ -11,11 +11,14 @@ class Transport_BLE(Transport):
         self.nu_lookup = nu_lookup
         self.service_uuid = service_uuid
         self.name_uuid_lookup = None
-        # Expect service UUID like '0000ffff-0000-1000-8000-00805f9b34fb'
+        # Build fallback characteristic UUIDs by overlaying each endpoint's
+        # 16-bit id onto chars [4:8] of the service base, e.g.
+        # '1775244d-...' + 'ff51' -> '1775ff51-...'. This is only a fallback;
+        # the authoritative mapping comes from the 0x2901 user-description
+        # descriptors read at connect time (see ble_cli.connect).
         for name in nu_lookup.keys():
-            # Calculate characteristic UUID for each endpoint
-            nu_lookup[name] = service_uuid[:4] + '{:02x}'.format(
-                int(nu_lookup[name], 16) & int(service_uuid[4:8], 16)) + service_uuid[8:]
+            ep_id = '{:04x}'.format(int(nu_lookup[name], 16))
+            nu_lookup[name] = service_uuid[:4] + ep_id + service_uuid[8:]
 
         # Get BLE client module
         self.cli = ble_cli.get_client()

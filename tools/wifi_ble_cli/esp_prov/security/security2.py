@@ -42,6 +42,16 @@ class Security2(Security):
     def __init__(self, sec_patch_ver:int, username: str, password: str, verbose: bool) -> None:
         # Initialize state of the security2 FSM
         self.session_state = security_state.REQUEST1
+        # Only the patched 12-byte counter nonce (sec_patch_ver=1) exists in
+        # shipping firmware (ESP-IDF >= the protocomm security2 patch). The
+        # legacy "v0 / reused 16-byte nonce" mode is dead and incompatible:
+        # it passes message #1 by coincidence then fails every GCM auth tag
+        # afterwards. Refuse it outright rather than silently desync.
+        if sec_patch_ver != 1:
+            raise RuntimeError(
+                f'Unsupported sec_patch_ver={sec_patch_ver}; only the patched '
+                '12-byte counter nonce (sec_patch_ver=1) interoperates with '
+                'current firmware.')
         self.sec_patch_ver = sec_patch_ver
         self.username = username
         self.password = password
@@ -85,7 +95,9 @@ class Security2(Security):
         setup_req.sec_ver = proto.session_pb2.SecScheme2
         setup_req.sec2.msg = proto.sec2_pb2.S2Session_Command0
 
-        setup_req.sec2.sc0.client_username = str_to_bytes(self.username)
+        # Username on the wire must be UTF-8 — it has to match the bytes the
+        # SRP x routine hashes (srp6a uses str.encode(), i.e. UTF-8).
+        setup_req.sec2.sc0.client_username = self.username.encode('utf-8')
         self.srp6a_ctx = Srp6a(self.username, self.password)
         if self.srp6a_ctx is None:
             raise RuntimeError('Failed to initialize SRP6a instance!')
@@ -149,10 +161,12 @@ class Security2(Security):
         session_key = shared_secret[:AES_KEY_LEN]
         self._print_verbose(f'Session Key:\t0x{session_key.hex()}')
 
-        # 96-bit nonce
+        # 96-bit GCM nonce: session_id[0..7] || big-endian uint32 counter.
+        # Firmware sends exactly 12 bytes with the counter seeded to 1.
         self.nonce = bytearray(setup_resp.sec2.sr1.device_nonce)
-        if self.nonce is None:
-            raise RuntimeError('Received invalid nonce from device!')
+        if len(self.nonce) != 12:
+            raise RuntimeError(
+                f'Expected a 12-byte device nonce, got {len(self.nonce)} bytes')
         self._print_verbose(f'Nonce:\t0x{self.nonce.hex()}')
 
         # Initialize the encryption engine with Shared Key and initialization vector
@@ -161,13 +175,16 @@ class Security2(Security):
             raise RuntimeError('Failed to initialize AES-GCM cryptographic engine!')
 
     def _increment_nonce(self) -> None:
-        """Increment the last 4 bytes of nonce (big-endian counter)."""
-        if self.sec_patch_ver == 1:
-            counter = struct.unpack('>I', self.nonce[8:])[0]  # Read last 4 bytes as big-endian integer
-            counter += 1  # Increment counter
-            if counter > 0xFFFFFFFF:  # Check for overflow
-                raise RuntimeError('Nonce counter overflow')
-            self.nonce[8:] = struct.pack('>I', counter)  # Store back as big-endian
+        """Post-increment the big-endian uint32 counter in the last 4 bytes.
+
+        Runs after every encrypt AND decrypt, mirroring the firmware which
+        advances a single shared counter per GCM operation in call order.
+        """
+        counter = struct.unpack('>I', self.nonce[8:])[0]
+        counter += 1
+        if counter > 0xFFFFFFFF:
+            raise RuntimeError('Nonce counter overflow')
+        self.nonce[8:] = struct.pack('>I', counter)
 
     def encrypt_data(self, data: bytes) -> Any:
         self._print_verbose(f'Nonce:\t0x{self.nonce.hex()}')

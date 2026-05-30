@@ -12,7 +12,7 @@ def print_verbose(security_ctx, data):
         print(f'\x1b[32;20m++++ {data} ++++\x1b[0m')
 
 
-def scan_start_request(security_ctx, blocking=True, passive=False, group_channels=5, period_ms=120):
+def scan_start_request(security_ctx, blocking=True, passive=False, group_channels=0, period_ms=120):
     # Form protobuf request packet for ScanStart command
     cmd = proto.wifi_scan_pb2.WiFiScanPayload()
     cmd.msg = proto.wifi_scan_pb2.TypeCmdScanStart
@@ -78,7 +78,7 @@ def scan_result_response(security_ctx, response_data):
                     'WPA2_ENTERPRISE', 'WPA3_PSK', 'WPA2_WPA3_PSK']
     results = []
     for entry in resp.resp_scan_result.entries:
-        results += [{'ssid': entry.ssid.decode('latin-1').rstrip('\x00'),
+        results += [{'ssid': entry.ssid.decode('utf-8', 'replace').rstrip('\x00'),
                      'bssid': entry.bssid.hex(),
                      'channel': entry.channel,
                      'rssi': entry.rssi,

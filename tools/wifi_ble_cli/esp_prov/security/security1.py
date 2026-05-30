@@ -31,7 +31,9 @@ class Security1(Security):
     def __init__(self, pop, verbose):
         # Initialize state of the security1 FSM
         self.session_state = security_state.REQUEST1
-        self.pop = str_to_bytes(pop)
+        # PoP is hashed (SHA256) and XORed into the shared key; it must be the
+        # raw UTF-8 bytes to match the firmware. Treat None/'' as "no PoP".
+        self.pop = pop.encode('utf-8') if pop else b''
         self.verbose = verbose
         Security.__init__(self, self.security1_session)
 
@@ -122,12 +124,12 @@ class Security1(Security):
         setup_resp.ParseFromString(str_to_bytes(response_data))
         # Ensure security scheme matches
         if setup_resp.sec_ver == proto.session_pb2.SecScheme1:
-            # Read encrypyed device verify string
+            # Read encrypted device verify string
             device_verify = setup_resp.sec1.sr1.device_verify_data
             self._print_verbose(f'Device Proof:\t0x{device_verify.hex()}')
             # Decrypt the device verify string
             enc_client_pubkey = self.cipher.update(setup_resp.sec1.sr1.device_verify_data)
-            # Match decryped string with client public key
+            # Match decrypted string with client public key
             if enc_client_pubkey != self.client_public_key:
                 raise RuntimeError('Failed to verify device!')
         else:

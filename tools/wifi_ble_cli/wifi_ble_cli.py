@@ -67,33 +67,61 @@ class ProvSession:
         self.tp = None
 
     async def __aenter__(self):
-        if self.sec_ver == 0:
-            self.sec = security.Security0(verbose=self.verbose)
-        elif self.sec_ver == 1:
-            self.sec = security.Security1(self.pop, verbose=self.verbose)
-        elif self.sec_ver == 2:
-            if not self.sec2_user or not self.sec2_pwd:
-                raise click.ClickException(
-                    'sec_ver=2 requires --sec2-user and --sec2-pwd')
-            # sec_patch_ver=0 matches the default Espressif handshake.
-            self.sec = security.Security2(0, self.sec2_user, self.sec2_pwd,
-                                          verbose=self.verbose)
-        else:
-            raise click.ClickException(f'invalid sec_ver: {self.sec_ver}')
-
         self.tp = transport.Transport_BLE(
             service_uuid=SERVICE_UUID,
             nu_lookup=dict(NU_LOOKUP_FALLBACK),
         )
         await self.tp.connect(devname=self.devname)
 
-        # Run the security FSM until it stops emitting requests.
+        # Read proto-ver (plaintext) BEFORE building the security context, so
+        # we can pick up the device's security parameters (sec_patch_ver, the
+        # no_pop capability). Espressif firmware ignores the request body.
+        prov_info = {}
+        try:
+            info = await self.proto_ver()
+            if isinstance(info, dict):
+                prov_info = info.get('prov', {}) or {}
+        except Exception:
+            pass
+        caps = prov_info.get('cap', []) or []
+        pop = '' if 'no_pop' in caps else self.pop
+
+        if self.sec_ver == 0:
+            self.sec = security.Security0(verbose=self.verbose)
+        elif self.sec_ver == 1:
+            self.sec = security.Security1(pop, verbose=self.verbose)
+        elif self.sec_ver == 2:
+            if not self.sec2_user or not self.sec2_pwd:
+                raise click.ClickException(
+                    'sec_ver=2 requires --sec2-user and --sec2-pwd')
+            # Trust the device's advertised sec_patch_ver. Default a MISSING
+            # value to 1 (the only interoperable mode) — never to 0, which
+            # would select the dead/incompatible reused-nonce path.
+            sec_patch_ver = prov_info.get('sec_patch_ver', 1)
+            self.sec = security.Security2(sec_patch_ver, self.sec2_user,
+                                          self.sec2_pwd, verbose=self.verbose)
+        else:
+            raise click.ClickException(f'invalid sec_ver: {self.sec_ver}')
+
+        # Run the security FSM until it stops emitting requests. A wrong
+        # PoP/password makes the device reject the proof and drop the GATT
+        # link mid-handshake (surfacing as a BleakError or a verify
+        # RuntimeError); turn that into a clean, actionable message.
         response = None
-        while True:
-            req = self.sec.security_session(response)
-            if req is None:
-                break
-            response = await self.tp.send_data('prov-session', req)
+        try:
+            while True:
+                req = self.sec.security_session(response)
+                if req is None:
+                    break
+                response = await self.tp.send_data('prov-session', req)
+        except click.ClickException:
+            raise
+        except Exception as e:
+            cred = '--pop' if self.sec_ver == 1 else (
+                '--sec2-user/--sec2-pwd' if self.sec_ver == 2 else 'credentials')
+            raise click.ClickException(
+                f'security handshake failed (sec_ver={self.sec_ver}). '
+                f'Wrong {cred}, or the device is busy with another client. [{type(e).__name__}: {e}]')
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -107,7 +135,8 @@ class ProvSession:
 
     async def proto_ver(self) -> dict:
         """Read the proto-ver endpoint. Returns parsed JSON or {}."""
-        resp = await self.tp.send_data('proto-ver', '---')
+        # The firmware ignores the request body; "ESP" is the conventional probe.
+        resp = await self.tp.send_data('proto-ver', 'ESP')
         try:
             return json.loads(resp)
         except ValueError:
@@ -119,9 +148,20 @@ class ProvSession:
         resp = await self.tp.send_data('prov-scan', msg)
         prov.scan_start_response(self.sec, resp)
 
-        msg = prov.scan_status_request(self.sec)
-        resp = await self.tp.send_data('prov-scan', msg)
-        count = prov.scan_status_response(self.sec, resp)['count']
+        # With blocking=True the scan is already done by the time ScanStart
+        # returns, but poll ScanStatus until finished to be robust. Re-encrypt
+        # the request each iteration — reusing one ciphertext would desync the
+        # Sec1 CTR stream / Sec2 GCM counter.
+        tries = 0
+        while True:
+            msg = prov.scan_status_request(self.sec)
+            resp = await self.tp.send_data('prov-scan', msg)
+            st = prov.scan_status_response(self.sec, resp)
+            tries += 1
+            if st['finished'] or tries >= 20:
+                break
+            await asyncio.sleep(0.2)
+        count = st['count']
 
         APs = []
         readlen = 4
@@ -137,6 +177,12 @@ class ProvSession:
         return APs
 
     async def set_config(self, ssid: str, passphrase: str):
+        # Firmware rejects SSID >= 32 bytes / passphrase >= 64 bytes (UTF-8)
+        # with InvalidArgument. Validate locally for a clear error.
+        if len(ssid.encode('utf-8')) >= 32:
+            raise click.ClickException('SSID must be < 32 bytes (UTF-8)')
+        if passphrase and len(passphrase.encode('utf-8')) >= 64:
+            raise click.ClickException('passphrase must be < 64 bytes (UTF-8)')
         msg = prov.config_set_config_request(self.sec, ssid, passphrase)
         resp = await self.tp.send_data('prov-config', msg)
         if prov.config_set_config_response(self.sec, resp) != 0:
@@ -173,7 +219,11 @@ class ProvSession:
         """Call a library-extension endpoint with optional JSON payload.
         Returns the parsed JSON response.
         """
-        body = json.dumps(payload) if payload is not None else ''
+        # Send a minimal non-empty body even for payload-less reads: an empty
+        # encrypted request does not round-trip through protocomm-over-BLE
+        # (the device returns an empty value). The read endpoints ignore the
+        # request content, so "{}" is a harmless, valid-JSON probe.
+        body = json.dumps(payload) if payload is not None else '{}'
         # encrypt_data is a no-op for sec0 and full crypto for sec1/sec2;
         # custom_data_request handles both.
         msg = prov.custom_data_request(self.sec, body)

@@ -58,8 +58,10 @@ def config_set_config_request(security_ctx, ssid, passphrase):
     # Form protobuf request packet for SetConfig command
     cmd = proto.wifi_config_pb2.WiFiConfigPayload()
     cmd.msg = proto.wifi_config_pb2.TypeCmdSetConfig
-    cmd.cmd_set_config.ssid = str_to_bytes(ssid)
-    cmd.cmd_set_config.passphrase = str_to_bytes(passphrase)
+    # SSID and passphrase go on the wire as their raw UTF-8 bytes (not latin-1).
+    cmd.cmd_set_config.ssid = ssid.encode('utf-8') if isinstance(ssid, str) else ssid
+    cmd.cmd_set_config.passphrase = (
+        passphrase.encode('utf-8') if isinstance(passphrase, str) else passphrase)
     enc_cmd = security_ctx.encrypt_data(cmd.SerializeToString())
     print_verbose(security_ctx, f'Client -> Device (SetConfig cmd): 0x{enc_cmd.hex()}')
     return enc_cmd.decode('latin-1')
