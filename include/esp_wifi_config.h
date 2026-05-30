@@ -623,8 +623,15 @@ typedef struct {
     const char *security2_username;
     /// Pre-computed SRP6a salt for Security 2. Required when Security 2
     /// is selected — wifi_cfg_init() returns ESP_ERR_INVALID_ARG if
-    /// missing. Derive offline via wifi_prov_sec2_get_salt_and_verifier()
-    /// and embed the bytes in firmware.
+    /// missing (the device stores a salt + verifier, NOT the raw PoP).
+    /// Derive the salt+verifier offline from a username + password and
+    /// embed the bytes in firmware. Two ways:
+    ///   - IDF helper: wifi_prov_sec2_get_salt_and_verifier()
+    ///   - esp_prov tool (emits ready-to-paste C arrays):
+    ///       esp_prov.py --transport ble --sec_ver 2 --sec2_gen_cred \
+    ///                   --sec2_username <user> --sec2_pwd <password>
+    /// The provisioning client must authenticate with the SAME username
+    /// (security2_username) + password the salt/verifier were derived from.
     const uint8_t *security2_salt;
     size_t         security2_salt_len;
     /// Pre-computed SRP6a verifier for Security 2. See security2_salt.
