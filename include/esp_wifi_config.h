@@ -628,8 +628,8 @@ typedef struct {
     /// embed the bytes in firmware. Two ways:
     ///   - IDF helper: wifi_prov_sec2_get_salt_and_verifier()
     ///   - esp_prov tool (emits ready-to-paste C arrays):
-    ///       esp_prov.py --transport ble --sec_ver 2 --sec2_gen_cred \
-    ///                   --sec2_username <user> --sec2_pwd <password>
+    ///       esp_prov.py --transport ble --sec_ver 2 --sec2_gen_cred
+    ///                   --sec2_username USER --sec2_pwd PASSWORD
     /// The provisioning client must authenticate with the SAME username
     /// (security2_username) + password the salt/verifier were derived from.
     const uint8_t *security2_salt;
