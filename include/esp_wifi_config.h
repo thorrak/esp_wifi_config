@@ -683,7 +683,18 @@ typedef struct {
     /// Maximum wait between CRED_SUCCESS and the backstop reboot, in
     /// ms. Gives the BLE client time to poll the status endpoint,
     /// see "connected", and disconnect cleanly so the reboot fires
-    /// from the disconnect handler rather than the timer. 0 → 3000 ms.
+    /// from the disconnect handler rather than the timer. 0 → 15000 ms.
+    ///
+    /// IMPORTANT: this must comfortably exceed the client's status-poll
+    /// interval (Espressif's ESPProvision SDK polls every ~5 s) plus the
+    /// time for the device to associate + get an IP. If the backstop is
+    /// too short the device can reboot in the gap between two client
+    /// polls — after it is actually connected but before the client has
+    /// observed "connected" — so the client keeps polling a rebooted
+    /// link and reports a FALSE FAILURE even though provisioning
+    /// succeeded. A 3 s backstop reproduced this intermittently (it bit
+    /// Security 2, whose slower SRP6a handshake delays the connect past
+    /// the first poll). 15 s leaves room for ~3 poll cycles.
     /// Ignored when disable_reboot_on_provisioning_success is true.
     uint32_t reboot_max_wait_ms;
     /// If true, reset the provisioning state machine after

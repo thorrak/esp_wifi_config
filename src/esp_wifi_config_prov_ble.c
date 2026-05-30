@@ -224,6 +224,20 @@ static wifi_prov_event_handler_t resolve_scheme_event_handler(void)
         policy = WIFI_CFG_PROV_MEM_KEEP_ALL;
     }
 
+    // The BLE-disconnect restart workaround tears the prov manager down and
+    // brings it back up *without a reboot*. Freeing the BT/BTDM controller
+    // memory on stop (FREE_BTDM/FREE_BT/FREE_BLE) makes that re-init
+    // impossible — the controller init fails with 0x103 and BLE is dead until
+    // the next reboot. So whenever the workaround can fire, the controller
+    // memory must stay resident. (On a successful provision the device
+    // reboots anyway, which reclaims the memory.)
+    if (g_wifi_cfg && !g_wifi_cfg->config.prov_ble.disable_disconnect_restart &&
+        policy != WIFI_CFG_PROV_MEM_KEEP_ALL) {
+        ESP_LOGW(TAG, "disconnect-restart workaround active; forcing memory_policy=KEEP_ALL "
+                      "(set prov_ble.disable_disconnect_restart=true to free BT memory instead)");
+        policy = WIFI_CFG_PROV_MEM_KEEP_ALL;
+    }
+
     switch (policy) {
         case WIFI_CFG_PROV_MEM_FREE_BLE: {
             wifi_prov_event_handler_t h = WIFI_PROV_SCHEME_BLE_HANDLER_FREE_BLE;
@@ -661,8 +675,14 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                 // disconnects on its own. The disconnect handler
                 // reboots first when the client behaves; this just
                 // guarantees we don't get stuck if it doesn't.
+                // Default 15 s, not 3 s: the backstop must outlast the
+                // client's status-poll interval (ESPProvision polls every
+                // ~5 s) plus associate+DHCP, or the device can reboot in
+                // the gap between two polls — after it connected but before
+                // the client saw "connected" — causing a false failure on
+                // the client. Reproduced on Security 2 (slow SRP handshake).
                 uint32_t wait = (prov_cfg && prov_cfg->reboot_max_wait_ms)
-                                ? prov_cfg->reboot_max_wait_ms : 3000;
+                                ? prov_cfg->reboot_max_wait_ms : 15000;
                 if (s_reboot_timer) {
                     xTimerChangePeriod(s_reboot_timer, pdMS_TO_TICKS(wait), 0);
                     xTimerStart(s_reboot_timer, 0);
