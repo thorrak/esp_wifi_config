@@ -95,6 +95,21 @@ This library works around the issue by tearing down and re-initialising the prov
 
 Set `wifi_cfg_prov_config_t.disable_disconnect_restart = true` to opt out (intended for debugging the underlying IDF bug or for apps that need to drive the stop/restart sequence themselves).
 
+### ESP-IDF 5.5.3 — Wi-Fi scan drops the BLE link on classic ESP32
+
+ESP-IDF **5.5.3** shipped a NimBLE **host flow-control** regression ([IDFGH-17350](https://github.com/espressif/esp-idf/issues/18323)) that can cause connection loss on the **classic ESP32**. The relevant option, `CONFIG_BT_NIMBLE_HS_FLOW_CTRL`, is `default y if IDF_TARGET_ESP32` (and `default n` on the ESP32-C3/S3, which is why those targets are unaffected). The bug stalls the host's BLE data path under load (e.g. during the scan of Wi-Fi networks during provisioning) and drops the link.
+
+Fix, in order of preference:
+
+1. **Build against ESP-IDF 5.5.4 or newer.** The 5.5.4 release notes list it fixed: *"Fixed the issue of potential NimBLE host connection loss in ESP-IDF v5.5.3 release on ESP32 / ESP32C3 / ESP32S3."* No project changes needed.
+2. **If you must stay on 5.5.3**, disable host flow control in your project's `sdkconfig.defaults`:
+
+   ```
+   CONFIG_BT_NIMBLE_HS_FLOW_CTRL=n
+   ```
+
+   The library **enforces** this at build time: compiling the BLE provisioning backend on ESP-IDF 5.5.3 with `CONFIG_BT_NIMBLE_HS_FLOW_CTRL` still enabled raises a `#error` pointing here.
+
 ### Reboot after successful BLE provisioning
 
 Espressif's `wifi_provisioning` component does not expose a clean way to tear down and rebuild the BLE/NimBLE stack in place. To avoid the class of latent post-provisioning BLE-handoff bugs that come from forcing one anyway, the library reboots the device automatically once a BLE provisioning session completes.

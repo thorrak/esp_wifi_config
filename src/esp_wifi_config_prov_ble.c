@@ -64,6 +64,25 @@
 #include "cJSON.h"
 #include <string.h>
 
+/*
+ * ESP-IDF 5.5.3 NimBLE host flow-control regression (IDFGH-17350).
+ *
+ * On 5.5.3 the prov-scan Wi-Fi scan trips a NimBLE host flow-control stall
+ * and drops the BLE link mid-scan, so clients never receive the network
+ * list. The fix is to set CONFIG_BT_NIMBLE_HS_FLOW_CTRL=n in the consuming
+ * firmware's sdkconfig.defaults, or to build against 5.5.4+ (fixed there).
+ *
+ * No target check is needed: CONFIG_BT_NIMBLE_HS_FLOW_CTRL is `default y`
+ * only on IDF_TARGET_ESP32 and `default n` elsewhere, so this guard trips
+ * on exactly the broken configuration and is silent on every other target
+ * and IDF version. See the README "ESP-IDF 5.5.3" section.
+ */
+#if defined(CONFIG_BT_NIMBLE_ENABLED) && \
+    ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 3) && \
+    defined(CONFIG_BT_NIMBLE_HS_FLOW_CTRL)
+#error "esp_wifi_config: ESP-IDF 5.5.3 NimBLE flow-control regression (IDFGH-17350) drops the BLE link during prov-scan on ESP32. Set CONFIG_BT_NIMBLE_HS_FLOW_CTRL=n in your sdkconfig.defaults, or build against ESP-IDF 5.5.4+. See the README 'ESP-IDF 5.5.3' section."
+#endif
+
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0) && __has_include("network_provisioning/manager.h")
 // IDF 6.x with the migrated managed component.
 #  include "network_provisioning/manager.h"
