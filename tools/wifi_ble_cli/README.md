@@ -4,9 +4,8 @@ Python command-line tool to provision and inspect ESP32 devices running the
 `esp_wifi_config` library's Network Provisioning (BLE scheme) backend.
 
 This talks Espressif's standard protocomm protocol (protobuf-over-GATT) with
-security version 0, 1, or 2, plus the optional `esp-wifi-config-*` JSON
-endpoints exposed when the firmware sets
-`wifi_cfg_prov_config_t.expose_library_endpoints = true`.
+security version 0, 1, or 2, plus the `esp-wifi-config-*` JSON endpoints the
+library always registers.
 
 The protocomm protocol modules from
 [esp-idf/tools/esp_prov](https://github.com/espressif/esp-idf/tree/release/v5.5/tools/esp_prov)
@@ -64,11 +63,11 @@ python wifi_ble_cli.py -n TiltBridge-XXXX --sec-ver 1 --pop 12345678 reset
 python wifi_ble_cli.py -n TiltBridge-XXXX --sec-ver 1 --pop 12345678 reprov
 ```
 
-### Library extension endpoints (require `expose_library_endpoints = true`)
+### Library extension endpoints
 
 These call the JSON endpoints the library adds beyond the standard
-provisioning set. If the firmware wasn't built with them enabled, the
-command will fail with a clear error.
+provisioning set; the firmware always registers them. On firmware too old to
+expose a given endpoint, the command fails with a clear error.
 
 ```bash
 python wifi_ble_cli.py -n ... lib-version          # IDF/lib/firmware versions

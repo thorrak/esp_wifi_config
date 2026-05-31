@@ -6,8 +6,7 @@ A command-line tool to provision and inspect ESP32 devices running the
 esp_wifi_config library's Network Provisioning (BLE scheme) backend.
 
 This talks Espressif's standard protocomm protocol (protobuf over GATT)
-plus the optional `esp-wifi-config-*` JSON endpoints the library exposes
-when `expose_library_endpoints = true`.
+plus the `esp-wifi-config-*` JSON endpoints the library always registers.
 
 A vendored copy of esp_prov's protocol modules lives in ./esp_prov/.
 """
@@ -46,6 +45,7 @@ LIB_EP_VERSION       = 'esp-wifi-config-version'
 LIB_EP_CAPABILITIES  = 'esp-wifi-config-capabilities'
 LIB_EP_VARS          = 'esp-wifi-config-vars'
 LIB_EP_NETWORK_POLICY = 'esp-wifi-config-network-policy'
+LIB_EP_NETWORK_INFO  = 'esp-wifi-config-network-info'
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ class ProvSession:
         except RuntimeError as e:
             raise click.ClickException(
                 f"endpoint '{ep_name}' not available "
-                f"(firmware likely built with expose_library_endpoints=false): {e}")
+                f"(firmware may predate this endpoint, or BLE dropped): {e}")
         from utils import str_to_bytes
         plain = self.sec.decrypt_data(str_to_bytes(resp))
         try:
@@ -275,9 +275,9 @@ def cli(ctx, name, sec_ver, pop, sec2_user, sec2_pwd, verbose):
     """ESP WiFi Config BLE CLI Client.
 
     Talks Espressif's standard provisioning protocol (protocomm over BLE)
-    to a device running the esp_wifi_config library. Some commands require
-    the firmware to opt into the library's extension endpoints via
-    `expose_library_endpoints = true`; those are noted in their help text.
+    to a device running the esp_wifi_config library. Commands tagged
+    [lib-ext] in their help text use the library's extension endpoints,
+    which the firmware always registers.
     """
     ctx.ensure_object(dict)
     ctx.obj.update({
@@ -416,9 +416,9 @@ def reprov(ctx):
 
 
 # ---- library-extension endpoint commands ---------------------------------
-# All of these require the firmware to have set expose_library_endpoints=true
-# in wifi_cfg_prov_config_t. Otherwise the endpoint name won't resolve and
-# the command will surface a clear error.
+# These call the JSON endpoints the library always registers (no feature
+# flag). They resolve on any esp_wifi_config firmware new enough to expose
+# the named endpoint; older firmware surfaces a clear "not available" error.
 
 @cli.command('lib-version')
 @click.pass_context
@@ -447,6 +447,34 @@ def network_policy(ctx):
     async def run():
         async with _make_session(ctx) as sess:
             click.echo(json.dumps(await sess.lib_json(LIB_EP_NETWORK_POLICY), indent=2))
+    asyncio.run(run())
+
+
+@cli.command('network-info')
+@click.option('--wait', 'attempts', type=int, default=1, show_default=True,
+              help='Poll up to N times until the station reports connected '
+                   '(GOT_IP can lag provisioning success).')
+@click.option('--interval', type=float, default=1.0, show_default=True,
+              help='Seconds between polls when --wait > 1.')
+@click.pass_context
+def network_info(ctx, attempts, interval):
+    """[lib-ext] Read esp-wifi-config-network-info (assigned IP/gateway/RSSI/…).
+
+    Read this right after a successful `provision`, while BLE is still up — on
+    reboot-on-success builds the device reboots once the client disconnects.
+    """
+    async def run():
+        async with _make_session(ctx) as sess:
+            data = {}
+            for i in range(max(1, attempts)):
+                data = await sess.lib_json(LIB_EP_NETWORK_INFO)
+                if data.get('connected'):
+                    break
+                if i < attempts - 1:
+                    await asyncio.sleep(interval)
+            click.echo(json.dumps(data, indent=2))
+            if not data.get('connected'):
+                click.echo('(station not connected yet — no IP assigned)', err=True)
     asyncio.run(run())
 
 

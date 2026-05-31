@@ -341,6 +341,7 @@ esp_err_t wifi_cfg_prov_validate(const wifi_cfg_prov_config_t *prov)
 #define PROV_ENDPOINT_CAPABILITIES  "esp-wifi-config-capabilities"
 #define PROV_ENDPOINT_VARS          "esp-wifi-config-vars"
 #define PROV_ENDPOINT_NETWORK_POLICY "esp-wifi-config-network-policy"
+#define PROV_ENDPOINT_NETWORK_INFO  "esp-wifi-config-network-info"
 
 #define PROV_LIB_VERSION_STRING     "esp_wifi_config 0.1.0"
 
@@ -378,6 +379,52 @@ static esp_err_t version_endpoint(uint32_t session_id, const uint8_t *inbuf, ssi
     }
 
     cJSON_AddStringToObject(root, "chip", chip_variant_str());
+    return make_json_response(root, outbuf, outlen);
+}
+
+// Returns the station's assigned network details once connected. Called by the
+// client immediately after a successful provision() to surface the device's
+// IP/gateway/etc. without an extra HTTP round-trip over Wi-Fi.
+//
+// IP_EVENT_STA_GOT_IP can lag WIFI_PROV_EVT_CRED_SUCCESS by a beat, so before
+// the address is assigned this returns {"connected": false} — the client polls
+// a couple of times until "connected" is true (or gives up; the field is
+// best-effort). This must be reached while the BLE link is still up: on success
+// the device reboots once the client disconnects, or after a ~15 s backstop
+// (see WIFI_PROV_EVT_CRED_SUCCESS handler), so the client fetches this first.
+static esp_err_t network_info_endpoint(uint32_t session_id, const uint8_t *inbuf, ssize_t inlen,
+                                       uint8_t **outbuf, ssize_t *outlen, void *priv)
+{
+    (void)session_id; (void)inbuf; (void)inlen; (void)priv;
+
+    cJSON *root = cJSON_CreateObject();
+
+    wifi_status_t status;
+    if (wifi_cfg_get_status(&status) != ESP_OK ||
+        status.state != WIFI_STATE_CONNECTED) {
+        cJSON_AddBoolToObject(root, "connected", false);
+        return make_json_response(root, outbuf, outlen);
+    }
+
+    char bssid[18];
+    snprintf(bssid, sizeof(bssid), "%02X:%02X:%02X:%02X:%02X:%02X",
+             status.bssid[0], status.bssid[1], status.bssid[2],
+             status.bssid[3], status.bssid[4], status.bssid[5]);
+
+    cJSON_AddBoolToObject(root,   "connected", true);
+    cJSON_AddStringToObject(root, "ssid",      status.ssid);
+    cJSON_AddStringToObject(root, "ip",        status.ip);
+    cJSON_AddStringToObject(root, "netmask",   status.netmask);
+    cJSON_AddStringToObject(root, "gateway",   status.gateway);
+    cJSON_AddStringToObject(root, "dns",       status.dns);
+    cJSON_AddStringToObject(root, "mac",       status.mac);
+    cJSON_AddStringToObject(root, "bssid",     bssid);
+    cJSON_AddStringToObject(root, "hostname",  status.hostname);
+    cJSON_AddNumberToObject(root, "rssi",      status.rssi);
+    cJSON_AddNumberToObject(root, "quality",   status.quality);
+    cJSON_AddNumberToObject(root, "channel",   status.channel);
+    cJSON_AddNumberToObject(root, "uptime_ms", status.uptime_ms);
+
     return make_json_response(root, outbuf, outlen);
 }
 
@@ -977,6 +1024,7 @@ esp_err_t wifi_cfg_prov_start(void)
     WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_CAPABILITIES,   capabilities_endpoint,   NULL);
     WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VARS,           vars_endpoint,           NULL);
     WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_POLICY, network_policy_endpoint, NULL);
+    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_INFO,   network_info_endpoint,   NULL);
 
     for (size_t i = 0; i < prov->custom_endpoint_count; i++) {
         const wifi_cfg_prov_custom_endpoint_t *ep = &prov->custom_endpoints[i];
