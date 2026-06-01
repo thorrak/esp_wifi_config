@@ -916,9 +916,14 @@ esp_err_t wifi_cfg_prov_start(void)
     WIFI_PROV_MGR_CONFIG_T cfg = {
         .scheme = WIFI_PROV_SCHEME_BLE,
         .scheme_event_handler = resolve_scheme_event_handler(),
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
+        // wifi_prov_mgr_config_t.wifi_prov_conn_cfg was added in ESP-IDF 5.5;
+        // on 5.4 the manager has no per-session connect-attempt control, so the
+        // wifi_conn_attempts knob is simply not applied there.
         .wifi_prov_conn_cfg = {
             .wifi_conn_attempts = prov->wifi_conn_attempts,
         },
+#endif
     };
 
     esp_err_t err = WIFI_PROV_MGR_INIT(cfg);

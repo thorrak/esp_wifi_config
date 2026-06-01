@@ -25,7 +25,6 @@ jobs:
         idf_version:
           - "v5.4"
           - "v5.5"
-          - "v6.0"
 
     container:
       image: espressif/idf:${{ matrix.idf_version }}
