@@ -1,9 +1,15 @@
 /**
  * @file esp_wifi_config_ble_int.h
- * @brief Internal interface between BLE shared logic and stack backends
+ * @brief Internal interface between the Improv BLE host bootstrap and stack backends
  *
- * The shared layer (esp_wifi_config_ble.c) handles JSON command routing.
- * Stack backends (bluedroid/nimble) implement the transport below.
+ * The host bootstrap (this header + the NimBLE / Bluedroid backend files)
+ * brings up the BLE controller and host stack, advertises, and dispatches
+ * connect/disconnect events into the Improv BLE transport. It is only
+ * compiled when CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE is set.
+ *
+ * For ESP-IDF Network Provisioning BLE
+ * (CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING_BLE) the wifi_provisioning
+ * manager owns its own BLE bootstrap and these symbols are not used.
  */
 
 #pragma once
@@ -17,71 +23,8 @@ extern "C" {
 #endif
 
 // =============================================================================
-// UUIDs (shared between all backends)
+// Functions: Improv transport -> stack backend
 // =============================================================================
-
-#define WIFI_BLE_SVC_UUID           0xFFE0
-#define WIFI_BLE_CHAR_STATUS_UUID   0xFFE1
-#define WIFI_BLE_CHAR_COMMAND_UUID  0xFFE2
-#define WIFI_BLE_CHAR_RESPONSE_UUID 0xFFE3
-
-// =============================================================================
-// Callbacks: stack backend -> shared layer
-// =============================================================================
-
-/**
- * @brief Called by the stack backend when a command is written to the Command characteristic.
- *
- * @param data   Raw bytes written (not necessarily null-terminated)
- * @param length Number of bytes
- */
-void wifi_cfg_ble_on_command(const uint8_t *data, size_t length);
-
-/**
- * @brief Called by the stack backend when a client connects.
- */
-void wifi_cfg_ble_on_connect(void);
-
-/**
- * @brief Called by the stack backend when a client disconnects.
- */
-void wifi_cfg_ble_on_disconnect(void);
-
-/**
- * @brief Called by the stack backend when the Response CCCD is written.
- *
- * @param enabled true if notifications were enabled, false if disabled
- */
-void wifi_cfg_ble_set_response_notify(bool enabled);
-
-/**
- * @brief Called by the stack backend when the Status CCCD is written.
- *
- * @param enabled true if notifications were enabled, false if disabled
- */
-void wifi_cfg_ble_set_status_notify(bool enabled);
-
-// =============================================================================
-// Functions: shared layer -> stack backend
-// =============================================================================
-
-/**
- * @brief Send a notification on the Response characteristic.
- *
- * @param data   Data to send
- * @param length Number of bytes
- * @return ESP_OK on success
- */
-esp_err_t wifi_cfg_ble_backend_notify_response(const uint8_t *data, size_t length);
-
-/**
- * @brief Send a notification on the Status characteristic.
- *
- * @param data   Data to send
- * @param length Number of bytes
- * @return ESP_OK on success
- */
-esp_err_t wifi_cfg_ble_backend_notify_status(const uint8_t *data, size_t length);
 
 /**
  * @brief Get the current negotiated MTU for the active connection.
@@ -102,12 +45,12 @@ uint16_t wifi_cfg_ble_backend_get_mtu(void);
 bool wifi_cfg_ble_backend_is_stack_running(void);
 
 /**
- * @brief Initialize the BLE stack backend.
+ * @brief Initialize the BLE stack backend for Improv.
  *
  * If the host stack is already running (detected via
  * wifi_cfg_ble_backend_is_stack_running()), skips stack initialization and
- * only registers the GATT service. On deinit, only the service will be
- * removed — the host stack will be left running for the application.
+ * only registers the Improv GATT service. On deinit, only the service will
+ * be removed — the host stack will be left running for the application.
  *
  * @param device_name  Advertised device name (already expanded from template)
  * @return ESP_OK on success

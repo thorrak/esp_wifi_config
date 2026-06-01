@@ -19,8 +19,8 @@ ESP WiFi Config is a WiFi configuration component for ESP-IDF that handles multi
 - **SoftAP mode** — Captive portal for initial configuration (triggers OS popup)
 - **Web UI** — Embedded responsive web interface (Preact-based, ~10KB gzipped)
 - **CLI interface** — Serial console commands for configuration
-- **BLE GATT** — Configure WiFi via Bluetooth Low Energy (smartphone or Python CLI)
-- **Improv WiFi** — Open standard provisioning via [Web Bluetooth](https://www.improv-wifi.com/) or Web Serial (Chrome/Edge)
+- **Network Provisioning over BLE** — ESP-IDF's official `wifi_prov_mgr` (BLE scheme), driven by Espressif's "ESP BLE Provisioning" mobile apps or `esp_prov`
+- **Improv WiFi** — Open standard provisioning via [Web Bluetooth](https://www.improv-wifi.com/) (mutually exclusive with Network Provisioning BLE) or Web Serial (Chrome/Edge)
 - **REST API** — HTTP endpoints for remote configuration with CORS support
 - **Basic Auth** — Optional authentication for HTTP endpoints
 - **Custom variables** — Key-value storage for application settings
@@ -49,7 +49,7 @@ ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-H2
 │  │                                                                │  │
 │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐        │  │
 │  │  │ Web UI │ │  HTTP  │ │  CLI   │ │  BLE   │ │ Improv │        │  │
-│  │  │(Preact)│ │  API   │ │(Console│ │  GATT  │ │  WiFi  │        │  │
+│  │  │(Preact)│ │  API   │ │(Console│ │  Prov  │ │  WiFi  │        │  │
 │  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘        │  │
 │  │       │          │          │          │          │            │  │
 │  │       └──────────┴──────────┴──────────┴──────────┘            │  │
@@ -72,7 +72,7 @@ All configuration interfaces feed into the same core API. The library uses [esp_
 
 ## Dependencies
 
-- **ESP-IDF** >= 5.0.0
+- **ESP-IDF** >= 5.4 (was 5.0 in 0.0.x; the Network Provisioning integration in 0.1.0 needs 5.4+)
 - **[esp_bus](https://components.espressif.com/components/thorrak/esp_bus)** — Event bus component (auto-resolved by the component manager)
 - **cJSON** — JSON parsing (included in ESP-IDF)
 - **mbedTLS** — Base64 for Basic Auth (included in ESP-IDF)

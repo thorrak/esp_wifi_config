@@ -42,7 +42,9 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 
     // What to do after reconnect retries are exhausted
     .max_reconnect_attempts = 10,        // 0 = infinite
-    .on_reconnect_exhausted = WIFI_RECONNECT_PROVISION,
+    // _PROVISION is currently disabled (treated as 0 = infinite retry).
+    // Use _RESTART to reboot when the retry budget is exhausted.
+    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,
 });
 ```
 
@@ -59,10 +61,20 @@ After a successful connection is lost (post-connect disconnect), the library ret
 
 | `on_reconnect_exhausted` | Behavior |
 |---|---|
-| `WIFI_RECONNECT_PROVISION` | Re-enter provisioning mode so the user can reconfigure |
-| `WIFI_RECONNECT_RESTART` | Reboot the device via `esp_restart()` |
+| `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | **Disabled** — kept in the API for compatibility; currently treated as "continue retrying indefinitely" (equivalent to `max_reconnect_attempts = 0`). |
+| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | Reboot the device via `esp_restart()` |
 
 Set `max_reconnect_attempts = 0` for infinite retries (never exhausted).
+
+:::caution `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` is disabled
+The re-enter-provisioning path called `wifi_prov_mgr_start_provisioning()` → `nimble_port_init()`, which fails if the app already owns the BLE stack. The library now logs a warning, resets the counter, and falls through to normal exponential-backoff retry. Use `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` or leave `max_reconnect_attempts = 0` to retry indefinitely. See [MIGRATION.md](https://github.com/thorrak/esp_wifi_config/blob/main/MIGRATION.md).
+:::
+
+### Counter Semantics
+
+`max_reconnect_attempts` counts consecutive failed reconnects since the last successful connection. The counter resets to zero on a successful STA connection (the `GOT_IP` event).
+
+`WIFI_ON_RECONNECT_EXHAUSTED_RESTART` works with any `provisioning_mode` — use it for devices that must maintain connectivity and prefer a clean reboot over degraded operation.
 
 ## Managing Networks at Runtime
 
@@ -88,7 +100,7 @@ Networks can also be managed via the [REST API](../api/rest-api.md), [BLE GATT](
 
 ```
 boot → evaluate provisioning_mode →
-  ├── WIFI_PROV_ALWAYS → start provisioning + try connect in parallel
+  ├── WIFI_PROV_ALWAYS → [DISABLED — treated as MANUAL] try connect only
   ├── WIFI_PROV_MANUAL → try connect only (user starts provisioning explicitly)
   ├── WIFI_PROV_WHEN_UNPROVISIONED →
   │     ├── no saved networks → start provisioning
@@ -102,6 +114,10 @@ boot → evaluate provisioning_mode →
 Post-connect disconnect:
   1. Auto-reconnect up to max_reconnect_attempts (0 = infinite)
   2. If exhausted → on_reconnect_exhausted action:
-     a. WIFI_RECONNECT_PROVISION → re-enter provisioning
-     b. WIFI_RECONNECT_RESTART → esp_restart()
+     a. WIFI_ON_RECONNECT_EXHAUSTED_PROVISION → [DISABLED — keeps retrying]
+     b. WIFI_ON_RECONNECT_EXHAUSTED_RESTART → esp_restart()
+
+Successful BLE provisioning (when CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y):
+  CRED_RECV → CRED_SUCCESS → esp_restart()
+  (default; opt out via prov_ble.disable_reboot_on_provisioning_success)
 ```

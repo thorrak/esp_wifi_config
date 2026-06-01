@@ -84,27 +84,43 @@ menu "WiFi Config"
             embedded defaults. Leave empty to use embedded Web UI.
             Example: "/littlefs" or "/spiffs"
 
-    config WIFI_CFG_ENABLE_CUSTOM_BLE
-        bool "Enable custom BLE GATT interface"
-        default n
-        depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
-        select BT_NIMBLE_ROLE_PERIPHERAL if BT_NIMBLE_ENABLED
-        select BT_NIMBLE_ROLE_BROADCASTER if BT_NIMBLE_ENABLED
-        select BT_NIMBLE_GATT_SERVER if BT_NIMBLE_ENABLED
-        help
-            Enable the library's custom BLE GATT service (UUID 0xFFE0) for WiFi
-            configuration via JSON commands. Allows configuration from mobile apps
-            or the included Python CLI tool.
-            Requires Bluetooth to be enabled in menuconfig.
-            Works with both Bluedroid and NimBLE host stacks.
-            Can be enabled independently of Improv WiFi BLE.
+    menu "Network Provisioning (BLE)"
 
-            When using NimBLE, this automatically selects the peripheral role,
-            broadcaster role, and GATT server (required to advertise and expose
-            the configuration service). Without these, NimBLE compiles as a
-            client-only stack and the GATT server symbols are stripped from
-            libbt.a, producing link errors like "undefined reference to
-            ble_gatts_notify_custom".
+        config WIFI_CFG_ENABLE_NETWORK_PROVISIONING
+            bool "Enable ESP-IDF Network/Wi-Fi Provisioning"
+            default n
+            depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
+            select BT_NIMBLE_ROLE_PERIPHERAL if BT_NIMBLE_ENABLED
+            select BT_NIMBLE_ROLE_BROADCASTER if BT_NIMBLE_ENABLED
+            select BT_NIMBLE_GATT_SERVER if BT_NIMBLE_ENABLED
+            help
+                Enable provisioning via the official ESP-IDF wifi_provisioning
+                manager. The library wraps wifi_prov_mgr with the BLE scheme,
+                handles credential storage in the multi-network store, and
+                exposes a small set of custom protocomm endpoints for
+                version/capabilities/variables.
+
+                On ESP-IDF 5.4 this uses the in-tree wifi_provisioning
+                component. On ESP-IDF 6.x the implementation is expected to
+                migrate to the external `espressif/network_provisioning`
+                managed component (see migration notes in MIGRATION.md).
+
+                This replaces the previous custom JSON-over-GATT BLE
+                interface (UUID 0xFFE0), which has been removed in this
+                release. See the migration guide for instructions on moving
+                client tools to the new BLE provisioning protocol.
+
+        config WIFI_CFG_NETWORK_PROVISIONING_BLE
+            bool "Use BLE transport (wifi_prov_scheme_ble)"
+            default y
+            depends on WIFI_CFG_ENABLE_NETWORK_PROVISIONING
+            help
+                Use the BLE transport scheme for the wifi_provisioning manager.
+                Currently the only transport supported by this library; SoftAP
+                provisioning is provided separately by the existing captive
+                portal flow.
+
+    endmenu
 
     menu "Improv WiFi"
 
@@ -112,6 +128,7 @@ menu "WiFi Config"
             bool "Enable Improv BLE transport"
             default n
             depends on BT_ENABLED && (BT_BLUEDROID_ENABLED || BT_NIMBLE_ENABLED)
+            depends on !WIFI_CFG_ENABLE_NETWORK_PROVISIONING
             select BT_NIMBLE_ROLE_PERIPHERAL if BT_NIMBLE_ENABLED
             select BT_NIMBLE_ROLE_BROADCASTER if BT_NIMBLE_ENABLED
             select BT_NIMBLE_GATT_SERVER if BT_NIMBLE_ENABLED
@@ -119,22 +136,29 @@ menu "WiFi Config"
                 Enable the Improv WiFi BLE transport. Registers a GATT service
                 (UUID 00467768-...) for provisioning via Web Bluetooth or the
                 ESPHome companion app.
-                Requires Bluetooth to be enabled.
-                Can be enabled independently of the custom BLE GATT interface.
-                The BLE stack is initialized automatically when this is enabled.
                 Reference: https://www.improv-wifi.com/
 
-                When using NimBLE, this automatically selects the peripheral
-                role, broadcaster role, and GATT server, which are required to
-                advertise and expose the Improv service.
+                Mutually exclusive with WIFI_CFG_ENABLE_NETWORK_PROVISIONING:
+                only one BLE provisioning protocol can own the BLE host /
+                advertising at a time. Pick the one that matches your
+                provisioning client tooling.
 
         config WIFI_CFG_ENABLE_IMPROV_SERIAL
             bool "Enable Improv Serial transport"
             default n
+            depends on !WIFI_CFG_ENABLE_CLI
             help
                 Enable the Improv WiFi Serial transport over UART.
                 Uses the Improv Serial framing protocol.
                 Reference: https://www.improv-wifi.com/
+
+                Independent of BLE — safe to enable alongside Network
+                Provisioning BLE.
+
+                Mutually exclusive with WIFI_CFG_ENABLE_CLI: both want to
+                own the console UART (the CLI prints human-readable
+                output via esp_console while Improv Serial frames binary
+                bytes on the same stream), so only one can be active.
 
         config WIFI_MGR_IMPROV_SERIAL_UART_NUM
             int "Improv Serial UART port number"
@@ -154,4 +178,3 @@ menu "WiFi Config"
     endmenu
 
 endmenu
-

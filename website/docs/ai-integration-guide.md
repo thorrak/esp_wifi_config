@@ -18,7 +18,7 @@ A standalone version of this questionnaire is available at [/llms-onboarding.txt
 
 Every project using ESP WiFi Config needs:
 
-1. **ESP-IDF >= 5.0.0** installed and configured
+1. **ESP-IDF >= 5.4** installed and configured (5.0.0 was supported by 0.0.x; the new Network Provisioning integration in 0.1.0 needs 5.4 or newer)
 2. **NVS flash** initialized before calling `wifi_cfg_init()`
 3. **esp_bus** initialized before calling `wifi_cfg_init()`
 
@@ -63,15 +63,15 @@ This affects project setup but not runtime code.
 |---|---|---|---|
 | **SoftAP + Captive Portal** | Device creates a WiFi AP; user connects and configures via browser popup | Nothing extra | (none — runtime `enable_ap = true`) |
 | **Web UI** | Embedded Preact frontend served on the captive portal (richer than plain API) | SoftAP enabled | `CONFIG_WIFI_CFG_ENABLE_WEBUI=y` |
-| **BLE GATT** | Configure via Bluetooth (smartphone app or Python CLI) | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y` + BT stack |
-| **Improv WiFi (BLE)** | Open standard provisioning via Chrome/Edge Web Bluetooth or ESPHome app | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y` + BT stack |
+| **Network Provisioning (BLE)** | Provision via Espressif's official "ESP BLE Provisioning" app or `esp_prov` Python tool | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y` + BT stack |
+| **Improv WiFi (BLE)** | Open standard provisioning via Chrome/Edge Web Bluetooth or ESPHome app | Bluetooth-capable chip | `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y` + BT stack — **mutually exclusive** with Network Provisioning BLE |
 | **Improv WiFi (Serial)** | Open standard provisioning via Chrome/Edge Web Serial | UART access | `CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y` |
 | **CLI** | Serial console commands (`wifi status`, `wifi scan`, etc.) | ESP Console REPL init in app code | `CONFIG_WIFI_CFG_ENABLE_CLI=y` |
 | **None** | No provisioning — device only connects to hardcoded/NVS networks | — | — |
 
 **If "None" is selected:** Skip Q4–Q8, jump to Q9.
 
-**Guidance for the user:** Most consumer IoT devices want **SoftAP + Captive Portal** at minimum. Adding **BLE** or **Improv BLE** gives a smoother mobile experience. **Improv Serial** is useful for development/flashing workflows. **CLI** is primarily for development/debugging.
+**Guidance for the user:** Most consumer IoT devices want **SoftAP + Captive Portal** at minimum. Adding **Network Provisioning BLE** (Espressif's standard apps) or **Improv BLE** (Web Bluetooth / ESPHome ecosystem) gives a smoother mobile experience — pick one, they cannot both ship in the same firmware. **Improv Serial** is useful for development/flashing workflows. **CLI** is primarily for development/debugging.
 
 ### Q4: When should provisioning activate?
 
@@ -80,11 +80,14 @@ This affects project setup but not runtime code.
 | Mode | `provisioning_mode` value | Best for |
 |---|---|---|
 | **When connection fails** | `WIFI_PROV_ON_FAILURE` | Most IoT devices — try saved networks first, fall back to provisioning |
-| **Always** | `WIFI_PROV_ALWAYS` | Devices that need a permanently accessible config UI (e.g., local dashboard) |
 | **First boot only** | `WIFI_PROV_WHEN_UNPROVISIONED` | Configure once, never show provisioning again |
 | **Manual trigger only** | `WIFI_PROV_MANUAL` | App controls when provisioning starts (e.g., button press, GPIO) |
 
 **Default recommendation:** `WIFI_PROV_ON_FAILURE` unless the user has a specific reason for another mode.
+
+:::caution `WIFI_PROV_ALWAYS` is disabled
+The value still exists in the enum but is bypassed at runtime (treated as `WIFI_PROV_MANUAL` with a warning log). `wifi_prov_mgr_start_provisioning()` calls `nimble_port_init()`, which fails if the app has already brought up the BLE stack. There is no current path to "always-on BLE provisioning". For an always-accessible config UI, expose the SoftAP captive portal or REST API after provisioning completes instead.
+:::
 
 ### Q5: Per-interface configuration
 
@@ -100,22 +103,29 @@ Only ask about interfaces selected in Q3.
 | AP Password | `""` (open network) | Set a password for a secured AP; must be 8+ characters if non-empty |
 | AP IP | `"192.168.4.1"` | Only change if it conflicts with the user's network |
 
-#### Q5b: BLE settings (if BLE selected)
+#### Q5b: BLE settings (if Network Provisioning BLE or Improv BLE selected)
 
 > Do you want to customize the BLE device name?
 
-| Setting | Default | Notes |
-|---|---|---|
-| Device name | `"ESP32-WiFi-{id}"` (from Kconfig) | `{id}` replaced with last 3 MAC bytes |
+| Setting | Used by | Default | Notes |
+|---|---|---|---|
+| `.prov_ble.device_name` | Network Provisioning BLE | `"PROV_{id}"` | GAP name template; `{id}` replaced with last 3 MAC bytes (e.g. `"PROV_AB12CD"`) |
+| `.prov_ble.security` | Network Provisioning BLE | `WIFI_CFG_PROV_SECURITY_1` | `_DEFAULT` resolves to Security 1. Set `_SECURITY_2` for SRP6a (also requires `security2_salt`/`_verifier`). |
+| `.prov_ble.pop` | Network Provisioning BLE Security 1 | (none — NULL means no-PoP) | Set a per-device secret for production |
+| `.prov_ble.reset_on_failure` / `.max_failed_attempts` | Network Provisioning BLE | `false` / `0` | Set `reset_on_failure=true, max_failed_attempts=3` to accept fresh credentials after a wrong password without rebooting |
+| `.prov_ble.memory_policy` | Network Provisioning BLE | `WIFI_CFG_PROV_MEM_FREE_BTDM` | Bluetooth memory cleanup policy on prov deinit. Use `_FREE_BLE` if the app needs Classic BT after prov, `_FREE_BT` if it needs BLE, `_KEEP_ALL` if the app owns the BT stack. See [C API → Bluetooth memory policy](api/c-api). |
+| `.improv.ble_device_name` | Improv BLE GAP advertising | `"ESP32-WiFi-{id}"` | `{id}` replaced with last 3 MAC bytes |
 
 > Which Bluetooth stack do you prefer?
 
 | Stack | Kconfig | Flash / RAM | Notes |
 |---|---|---|---|
-| **Bluedroid** | `CONFIG_BT_BLUEDROID_ENABLED=y` | ~100KB / ~40KB | ESP-IDF default, required for Improv BLE |
-| **NimBLE** | `CONFIG_BT_NIMBLE_ENABLED=y` | ~50KB / ~20KB | Lighter, but **not compatible with Improv BLE** |
+| **NimBLE** | `CONFIG_BT_NIMBLE_ENABLED=y` | ~50 KB / ~20 KB | Recommended; supported by both Network Provisioning and Improv. |
+| **Bluedroid** | `CONFIG_BT_BLUEDROID_ENABLED=y` | ~100 KB / ~40 KB | Also supported by both. Heavier but the long-standing ESP-IDF default. |
 
-**Important:** If the user selected Improv BLE in Q3, they **must** use Bluedroid.
+Improv BLE works with NimBLE and Bluedroid. Network Provisioning BLE
+works with both as well (the manager itself selects the host based on
+the active Kconfig).
 
 #### Q5c: Improv settings (if Improv selected)
 
@@ -204,8 +214,11 @@ No configuration needed from the user. The library auto-registers commands when 
 | Choice | Config |
 |---|---|
 | **Retry forever** (default) | `.max_reconnect_attempts = 0` |
-| **After N failures, re-enter provisioning** | `.max_reconnect_attempts = N`, `.on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` |
 | **After N failures, reboot** | `.max_reconnect_attempts = N`, `.on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART` |
+
+:::caution `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` is disabled
+This option still exists in the enum but is bypassed at runtime (treated as `max_reconnect_attempts = 0` — keep retrying indefinitely — with a warning log). The re-enter-provisioning path called `wifi_prov_mgr_start_provisioning()` → `nimble_port_init()`, which fails when the app already owns the BLE stack. Use `_RESTART` or indefinite retry.
+:::
 
 ### Q9: Custom variables
 
@@ -247,16 +260,23 @@ Build the sdkconfig from Q3 and Q5 answers:
 # === Always required ===
 # (none — defaults work for basic WiFi)
 
-# === BLE (if Q3 includes BLE or Improv BLE) ===
+# === BLE host (if Q3 includes any BLE provisioning) ===
 CONFIG_BT_ENABLED=y
-CONFIG_BT_BLUEDROID_ENABLED=y          # or CONFIG_BT_NIMBLE_ENABLED=y (see Q5b)
-# CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144  # only if NimBLE
-CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y       # if custom BLE GATT selected
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y  # BLE adds ~100KB flash
+CONFIG_BT_NIMBLE_ENABLED=y                  # or CONFIG_BT_BLUEDROID_ENABLED=y
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144  # only if NimBLE
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y   # BLE adds ~100KB flash
 
-# === Improv (if Q3 includes Improv) ===
-CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y    # if Improv BLE selected
-# CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y  # if Improv Serial selected
+# === Network Provisioning BLE (if selected; mutually exclusive with Improv BLE) ===
+# Security version, PoP, and device-name template are set on
+# wifi_cfg_prov_config_t in your wifi_cfg_init() call — not in sdkconfig.
+CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
+CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE=y
+
+# === Improv BLE (if selected; mutually exclusive with Network Provisioning) ===
+# CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y
+
+# === Improv Serial (independent of BLE — safe to combine with Network Provisioning) ===
+# CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y
 
 # === Web UI (if Q3 includes Web UI) ===
 CONFIG_WIFI_CFG_ENABLE_WEBUI=y
@@ -329,7 +349,7 @@ void app_main(void)
         // -- Reconnection (Q8) --
         // .auto_reconnect = true,             // Q8a (default is true)
         // .max_reconnect_attempts = 0,        // Q8b (0 = infinite)
-        // .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION, // Q8b
+        // .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART, // Q8b (_PROVISION is disabled)
 
         // -- HTTP config (Q6, Q10) --
         // .http = {
@@ -340,17 +360,36 @@ void app_main(void)
         //     .auth_password = "changeme",    // Q10
         // },
 
-        // -- BLE (Q3 + Q5b) — enabled via CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y --
-        // .ble = {
-        //     .device_name = "ESP32-WiFi-{id}",  // Q5b
+        // -- Network Provisioning BLE (Q3 + Q5b)
+        // Enabled via CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y
+        // NOTE: by default the device REBOOTS after a successful BLE
+        // provisioning flow — there is no clean in-place teardown for
+        // wifi_prov_mgr's BLE stack. Set
+        // .disable_reboot_on_provisioning_success = true only if the
+        // app owns the BLE/Wi-Fi handoff itself.
+        // .prov_ble = {
+        //     .device_name         = "PROV_{id}", // GAP-name template (NULL → "PROV_{id}")
+        //     .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
+        //     .pop                 = "1234abcd",  // Security 1 PoP (NULL → no PoP)
+        //     .memory_policy       = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
+        //     .wifi_conn_attempts  = 5,           // 0 = infinite
+        //     .reset_on_failure    = true,        // accept retries without reboot
+        //     .max_failed_attempts = 3,           // 0 → library default (3)
+        //     .firmware_version    = "1.0.0",
+        //     // .disable_reboot_on_provisioning_success = false, // default (reboot on)
+        //     // .reboot_max_wait_ms = 3000,      // 0 → 3000 ms backstop
         // },
 
-        // -- Improv (Q3 + Q5c + Q5d) --
-        // Transports selected at compile time via Kconfig (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL)
+        // -- Improv (Q3 + Q5b + Q5c + Q5d) --
+        // Transports selected at compile time via Kconfig (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL).
+        // .ble_device_name controls the BLE GAP advertised name (what BLE
+        // scanners display). .device_name is what the Improv companion app
+        // shows once it has connected.
         // .improv = {
-        //     .firmware_name = "my_project",       // Q5c
-        //     .firmware_version = "1.0.0",         // Q5c
-        //     .device_name = "My Device",          // Q5c
+        //     .ble_device_name = "ESP32-WiFi-{id}",  // Q5b
+        //     .firmware_name = "my_project",         // Q5c
+        //     .firmware_version = "1.0.0",           // Q5c
+        //     .device_name = "My Device",            // Q5c
         // },
 
         // -- Custom variables (Q9) --
@@ -403,8 +442,8 @@ void app_main(void)
 3. **BLE requires Bluetooth enabled**: `CONFIG_BT_ENABLED=y` and either `CONFIG_BT_BLUEDROID_ENABLED=y` or `CONFIG_BT_NIMBLE_ENABLED=y`.
 4. **BLE needs larger partition table**: Use `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` when enabling BLE.
 5. **NimBLE needs stack size**: Set `CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144` when using NimBLE.
-6. **Improv BLE requires Bluedroid**: NimBLE is not compatible with the Improv BLE transport.
-7. **Improv BLE is independent**: Improv BLE no longer requires `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE=y`. The BLE stack is initialized automatically when either BLE interface is enabled.
+6. **Improv BLE works with both NimBLE and Bluedroid**: previous releases were Bluedroid-only — that limitation is gone.
+7. **Network Provisioning BLE and Improv BLE are mutually exclusive**: `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` and `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` cannot be enabled together — they each want to own the BLE GAP advertising and the host stack. Improv Serial is independent of BLE and remains safe alongside Network Provisioning.
 8. **Default networks are seeds**: They're only written to NVS on first boot. After that, NVS is the source of truth.
 9. **ESP32 is 2.4GHz only**: The device cannot connect to 5GHz WiFi networks.
 10. **Subscribe to events before init**: Call `esp_bus_sub()` before `wifi_cfg_init()` to catch events fired during initialization.

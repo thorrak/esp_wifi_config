@@ -87,8 +87,17 @@ void wifi_cfg_start_provisioning(void)
         wifi_cfg_start_ap(NULL);
     }
 
-    // Start BLE if enabled and not already active (custom BLE or Improv BLE)
-#ifdef WIFI_CFG_NEED_BLE
+    // Start the BLE provisioning interface — at most one of:
+    //   - ESP-IDF Network Provisioning BLE (wifi_prov_mgr) if enabled
+    //   - Improv-WiFi BLE host bootstrap if enabled
+    // Kconfig enforces mutual exclusion (see Kconfig.projbuild).
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE
+    if (!g_wifi_cfg->ble_active) {
+        if (wifi_cfg_prov_start() == ESP_OK) {
+            g_wifi_cfg->ble_active = true;
+        }
+    }
+#elif defined(WIFI_CFG_NEED_BLE)
     if (!g_wifi_cfg->ble_active) {
         if (wifi_cfg_ble_start() == ESP_OK) {
             g_wifi_cfg->ble_active = true;
@@ -96,7 +105,7 @@ void wifi_cfg_start_provisioning(void)
     }
 #endif
 
-    // Start Improv if enabled
+    // Start Improv (Serial only when prov BLE owns the BLE host)
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
     wifi_cfg_improv_start();
 #endif
@@ -122,13 +131,15 @@ void wifi_cfg_stop_provisioning(void)
         wifi_cfg_stop_ap_mode();
     }
 
-    // Stop BLE if active
-#ifdef WIFI_CFG_NEED_BLE
+    // Stop the active BLE provisioning interface
     if (g_wifi_cfg->ble_active) {
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE
+        wifi_cfg_prov_stop();
+#elif defined(WIFI_CFG_NEED_BLE)
         wifi_cfg_ble_stop();
+#endif
         g_wifi_cfg->ble_active = false;
     }
-#endif
 
     // Stop Improv if active
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
@@ -205,6 +216,14 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     }
     if (g_wifi_cfg->config.retry_max_interval_ms == 0) {
         g_wifi_cfg->config.retry_max_interval_ms = 60000;  // 60 seconds max backoff
+    }
+
+    // Validate provisioning config (e.g. Security 2 needs salt+verifier).
+    // Fail at boot rather than at provisioning time so the developer sees
+    // the error during initial integration.
+    ret = wifi_cfg_prov_validate(&g_wifi_cfg->config.prov_ble);
+    if (ret != ESP_OK) {
+        goto cleanup;
     }
     
     // Init NVS
@@ -405,11 +424,20 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     }
 #endif
 
-    // Init BLE stack if any BLE interface is enabled (custom BLE or Improv BLE)
+    // Init Improv BLE host bootstrap (only when Improv BLE is enabled)
 #ifdef WIFI_CFG_NEED_BLE
     ret = wifi_cfg_ble_init();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "BLE init failed: %s", esp_err_to_name(ret));
+    }
+#endif
+
+    // Init Network Provisioning event handler / state (manager itself is
+    // started lazily inside wifi_cfg_start_provisioning -> wifi_cfg_prov_start)
+#ifdef CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING
+    ret = wifi_cfg_prov_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Network Provisioning init failed: %s", esp_err_to_name(ret));
     }
 #endif
 
@@ -471,12 +499,19 @@ esp_err_t wifi_cfg_deinit(bool deinit_wifi)
     wifi_cfg_improv_deinit();
 #endif
 
-#ifdef WIFI_CFG_NEED_BLE
-    // Stop BLE advertising before full deinit
+    // Tear down whichever BLE provisioning interface is active.
     if (g_wifi_cfg->ble_active) {
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE
+        wifi_cfg_prov_stop();
+#elif defined(WIFI_CFG_NEED_BLE)
         wifi_cfg_ble_stop();
+#endif
         g_wifi_cfg->ble_active = false;
     }
+#ifdef CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING
+    wifi_cfg_prov_deinit();
+#endif
+#ifdef WIFI_CFG_NEED_BLE
     wifi_cfg_ble_deinit();
 #endif
 
@@ -644,7 +679,20 @@ static void wifi_cfg_task(void *arg)
                     // Provisioning mode state machine
                     switch (g_wifi_cfg->config.provisioning_mode) {
                         case WIFI_PROV_ALWAYS:
+                            // WIFI_PROV_ALWAYS is currently disabled:
+                            // wifi_cfg_start_provisioning() eventually calls
+                            // wifi_prov_mgr_start_provisioning(), which calls
+                            // nimble_port_init(). If the application has already
+                            // initialized the BLE stack, that call fails. Revisit
+                            // once we have an in-tree BLE provisioning path that
+                            // doesn't depend on Espressif's wifi_provisioning
+                            // component. Until then, treat ALWAYS like MANUAL
+                            // (connect only; provisioning must be started explicitly).
+                            ESP_LOGW(TAG, "WIFI_PROV_ALWAYS is disabled (BLE stack conflict); "
+                                          "treating as WIFI_PROV_MANUAL");
+#if 0
                             wifi_cfg_start_provisioning();
+#endif
                             if (g_wifi_cfg->network_count > 0) {
                                 wifi_cfg_start_connect_sequence();
                             }
@@ -718,9 +766,6 @@ static void wifi_cfg_task(void *arg)
                     strncpy(disc.ssid, evt.data.disconnect.ssid, sizeof(disc.ssid) - 1);
                     esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_DISCONNECTED, &disc, sizeof(disc));
 
-                    // Push status to subscribed BLE clients
-                    wifi_cfg_ble_notify_status_change();
-
                     // Auto reconnect with reconnect exhaustion
                     if (g_wifi_cfg->config.auto_reconnect && !g_wifi_cfg->connecting) {
                         g_wifi_cfg->reconnect_attempt_count++;
@@ -732,27 +777,41 @@ static void wifi_cfg_task(void *arg)
                             if (g_wifi_cfg->config.on_reconnect_exhausted == WIFI_ON_RECONNECT_EXHAUSTED_RESTART) {
                                 ESP_LOGW(TAG, "Reconnect attempts exhausted, restarting device");
                                 esp_restart();
-                            } else {
-                                // PROVISION: start provisioning and reset counters
-                                ESP_LOGW(TAG, "Reconnect attempts exhausted, starting provisioning");
-                                g_wifi_cfg->reconnect_attempt_count = 0;
-                                g_wifi_cfg->retry_count = 0;
-                                wifi_cfg_send_event(WM_INT_EVT_START_PROVISIONING);
                             }
-                        } else {
-                            // Normal exponential backoff reconnect
-                            uint32_t base = g_wifi_cfg->config.retry_interval_ms;
-                            uint32_t max_delay = g_wifi_cfg->config.retry_max_interval_ms;
-                            uint32_t delay = base << g_wifi_cfg->retry_count;
-                            if (delay > max_delay || delay < base) delay = max_delay;
 
-                            ESP_LOGI(TAG, "Auto-reconnect in %lu ms (attempt %d)",
-                                     (unsigned long)delay, g_wifi_cfg->retry_count + 1);
-                            g_wifi_cfg->retry_count++;
-
-                            vTaskDelay(pdMS_TO_TICKS(delay));
-                            wifi_cfg_start_connect_sequence();
+                            // WIFI_ON_RECONNECT_EXHAUSTED_PROVISION is currently disabled:
+                            // wifi_cfg_start_provisioning() eventually calls
+                            // wifi_prov_mgr_start_provisioning(), which calls
+                            // nimble_port_init(). If the application has already
+                            // initialized the BLE stack, that call fails. Revisit
+                            // once we have an in-tree BLE provisioning path that
+                            // doesn't depend on Espressif's wifi_provisioning
+                            // component. Until then, treat PROVISION as
+                            // "continue retrying indefinitely" (equivalent to
+                            // max_reconnect_attempts = 0).
+                            ESP_LOGW(TAG, "WIFI_ON_RECONNECT_EXHAUSTED_PROVISION is disabled "
+                                          "(BLE stack conflict); continuing to retry");
+                            g_wifi_cfg->reconnect_attempt_count = 0;
+#if 0
+                            // Original behavior preserved for future re-enable:
+                            g_wifi_cfg->retry_count = 0;
+                            wifi_cfg_send_event(WM_INT_EVT_START_PROVISIONING);
+                            break;
+#endif
                         }
+
+                        // Normal exponential backoff reconnect
+                        uint32_t base = g_wifi_cfg->config.retry_interval_ms;
+                        uint32_t max_delay = g_wifi_cfg->config.retry_max_interval_ms;
+                        uint32_t delay = base << g_wifi_cfg->retry_count;
+                        if (delay > max_delay || delay < base) delay = max_delay;
+
+                        ESP_LOGI(TAG, "Auto-reconnect in %lu ms (attempt %d)",
+                                 (unsigned long)delay, g_wifi_cfg->retry_count + 1);
+                        g_wifi_cfg->retry_count++;
+
+                        vTaskDelay(pdMS_TO_TICKS(delay));
+                        wifi_cfg_start_connect_sequence();
                     }
                     break;
                 }
@@ -775,10 +834,6 @@ static void wifi_cfg_task(void *arg)
 
                     // Reset reconnect counter on successful connection
                     g_wifi_cfg->reconnect_attempt_count = 0;
-
-                    // Push status to subscribed BLE clients before any teardown
-                    // so the provisioning client knows the connection succeeded.
-                    wifi_cfg_ble_notify_status_change();
 
                     // Stop provisioning if configured and provisioning is active
                     if (g_wifi_cfg->config.stop_provisioning_on_connect && g_wifi_cfg->provisioning_active) {
@@ -858,6 +913,22 @@ static void wifi_cfg_task(void *arg)
                 case WM_INT_EVT_START_PROVISIONING:
                     ESP_LOGI(TAG, "Starting provisioning from reconnect exhaustion");
                     wifi_cfg_start_provisioning();
+                    break;
+
+                case WM_INT_EVT_PROV_BLE_RESTART:
+                    // BLE prov mgr disconnect-recovery: re-run the heavy
+                    // MGR_INIT + MGR_START here so the sys_evt task (which
+                    // posted this event from WIFI_PROV_EVT_END) doesn't
+                    // have to absorb the NimBLE init stack usage.
+#ifdef CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE
+                    {
+                        esp_err_t rerr = wifi_cfg_prov_start();
+                        if (rerr != ESP_OK) {
+                            ESP_LOGE(TAG, "Restart after BLE disconnect failed: %s",
+                                     esp_err_to_name(rerr));
+                        }
+                    }
+#endif
                     break;
 
                 case WM_INT_EVT_STOP:

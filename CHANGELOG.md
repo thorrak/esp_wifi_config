@@ -5,6 +5,101 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [0.1.0] — 2026-05-31 - ESP-IDF Network Provisioning over BLE
+
+### Breaking Changes
+
+- **Custom BLE GATT service removed.** The hand-rolled JSON-over-GATT
+  service (UUID `0xFFE0` / characteristics `0xFFE1`–`0xFFE3`) and the
+  `CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE` Kconfig option are gone. ESP-IDF's
+  official `wifi_provisioning` manager (BLE scheme) is now the
+  recommended secure BLE provisioning path. See `MIGRATION.md` for the
+  protocol-level migration plan and the steps for updating downstream
+  client tools.
+- **Minimum ESP-IDF bumped to 5.4.** `idf_component.yml`'s
+  `idf.version` is now `>=5.4`. Prior versions are not supported.
+- **Network Provisioning and Improv BLE are mutually exclusive at
+  Kconfig level.** Both want to own the BLE GAP advertising and the
+  NimBLE/Bluedroid host. Pick one per firmware build. Improv Serial is
+  independent and remains safe alongside Network Provisioning.
+- **`wifi_cfg_ble_config_t` removed; `.ble.device_name` moved to
+  `.improv.ble_device_name`.** With the custom 0xFFE0 service gone the
+  field only applied to the Improv BLE host bootstrap, but its
+  top-level placement implied it controlled BLE for Network
+  Provisioning too (it never did — `wifi_prov_mgr` owns its own GAP
+  name). Move it under `.improv` where it actually applies, alongside
+  `.improv.device_name` (which is the post-connect Device-Info RPC
+  value, not the GAP advertised name).
+
+### Added
+
+- `esp_wifi_config_prov_ble.c` — wraps `wifi_prov_mgr_*` with the BLE
+  scheme, integrates with the library's lifecycle, and registers four
+  custom protocomm endpoints (`esp-wifi-config-version`,
+  `esp-wifi-config-capabilities`, `esp-wifi-config-vars`,
+  `esp-wifi-config-network-policy`).
+- `wifi_cfg_prov_config_t` carries the full runtime configuration:
+  `device_name`, `security` version, `pop`, `security2_username`,
+  Security 2 salt/verifier, `reset_on_failure`, `max_failed_attempts`,
+  `firmware_version`, and the rest of the BLE / lifecycle / endpoint
+  knobs. Only two Kconfig options remain:
+  `WIFI_CFG_ENABLE_NETWORK_PROVISIONING` (gates the code) and
+  `WIFI_CFG_NETWORK_PROVISIONING_BLE` (selects the BLE transport).
+- ESP-IDF 6.x compatibility shim — uses the in-tree
+  `wifi_provisioning` component on 5.4 and the external
+  `espressif/network_provisioning` managed component on 6.x via a
+  conditional `idf_component.yml` rule.
+- `esp-wifi-config-network-info` protocomm endpoint — reports the
+  device's current network state (SSID, IP, connection status) to the
+  provisioning client.
+- **Automatic reboot after successful BLE provisioning** (default on).
+  Espressif's `wifi_provisioning` component has no clean way to tear
+  down and rebuild the BLE/NimBLE stack in place after credentials are
+  delivered, so the library now reboots on whichever happens first:
+  the BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV`, or a
+  backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS` (default 15000 ms,
+  tunable via the new `wifi_cfg_prov_config_t.reboot_max_wait_ms`).
+  Opt out with `wifi_cfg_prov_config_t.disable_reboot_on_provisioning_success
+  = true` if the application handles the BLE/Wi-Fi handoff itself.
+  `prov_ble.stop_after_success` is now ignored while reboot-on-success
+  is active. See `MIGRATION.md` for migration guidance.
+
+### Changed
+
+- `examples/with_ble` rewritten to demonstrate Network Provisioning.
+- `examples/with_ble_deinit` switched to Improv BLE (the host-stack
+  handoff pattern doesn't fit `wifi_prov_mgr` cleanly).
+- BLE backends (`esp_wifi_config_ble_nimble.c` /
+  `esp_wifi_config_ble_bluedroid.c`) slimmed to the Improv host
+  bootstrap only — they no longer carry the `0xFFE0` service.
+- **`WIFI_PROV_ALWAYS` and `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION`
+  disabled.** Both code paths called `wifi_prov_mgr_start_provisioning()`,
+  which in turn calls `nimble_port_init()` — a fatal collision when the
+  application has already initialised the BLE stack. The enum values
+  remain in the public API (existing configs still compile) but the
+  underlying provisioning-start is bypassed with a warning log.
+  `WIFI_PROV_ALWAYS` now behaves like `WIFI_PROV_MANUAL` at boot;
+  `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` now keeps retrying
+  indefinitely (equivalent to `max_reconnect_attempts = 0`). The
+  original code is preserved behind `#if 0` for re-enablement once a
+  BLE provisioning path that doesn't depend on Espressif's
+  `wifi_provisioning` component is in place. See `MIGRATION.md`.
+
+### Fixed
+
+- **BLE provisioning recovers from client disconnects.** Worked around
+  an IDF 5.5.3 NimBLE bug where only the first BLE client to connect
+  after boot could complete a provisioning session — subsequent
+  reconnects accepted at the link layer then timed out at supervision,
+  and the wedged state only cleared on a full reboot. The library now
+  subscribes to `PROTOCOMM_TRANSPORT_BLE_DISCONNECTED` and tears
+  down + re-initialises the provisioning manager whenever a client
+  drops before credentials are delivered. Opt out with the new
+  `wifi_cfg_prov_config_t.disable_disconnect_restart = true` if you
+  prefer to debug the underlying IDF bug or drive teardown yourself.
+- **NimBLE flow-control regression handled.** Added error handling for
+  the ESP-IDF 5.5.3 NimBLE flow-control regression encountered during
+  provisioning sessions.
 
 
 ## [0.0.4] — 2026-04-26 - BLE KConfig Updates
