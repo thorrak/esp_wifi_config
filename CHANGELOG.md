@@ -45,6 +45,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `normalize_ap_config()` backfills every documented default after the
   AP config is resolved, whichever source it came from. `password` is
   left alone — empty means "open network", a real choice.
+- **The auto-reconnect backoff no longer blocks the manager task.** The
+  reconnect branch ended in `vTaskDelay(pdMS_TO_TICKS(delay))`, so the
+  task that owns the reconnect state machine slept through the entire
+  backoff and could not service its own queue — with the default
+  5 s → 60 s schedule that is up to a minute of deafness per retry, and
+  the queue is 10 deep with `xQueueSend(..., 0)`, so events arriving in
+  that window were silently dropped. Measured on an ESP32-S3 with a 30 s
+  backoff: the retry fired at 29.99 s regardless of what happened in
+  between. The delay is now a *deadline* — the task's existing
+  `xQueueReceive()` uses whatever is left of it as its timeout, so the
+  backoff is a maximum that a relevant message can cut short. Cancelled
+  by `STA_CONNECTED`, `GOT_IP`, a disconnect request, and any call to
+  `wifi_cfg_start_connect_sequence()`; deliberately *not* by scan
+  completion or soft-AP events, which say nothing about the upstream
+  network and would let an HTTP client collapse the backoff into a
+  busy-loop. The interval schedule (`retry_interval_ms << retry`, capped
+  at `retry_max_interval_ms`) is unchanged. Side effects: an explicit
+  `wifi_cfg_connect()` during a backoff is no longer undone by the retry
+  that was already scheduled, a `wifi_cfg_disconnect()` during a backoff
+  is no longer reversed, and `wifi_cfg_deinit()` no longer has to wait
+  out the backoff before the task observes `WM_INT_EVT_STOP`.
 
 ### Changed
 

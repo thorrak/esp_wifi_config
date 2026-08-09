@@ -756,7 +756,24 @@ static void wifi_cfg_task(void *arg)
     ESP_LOGI(TAG, "Task started");
     
     while (1) {
-        if (xQueueReceive(g_wifi_cfg->queue, &evt, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        // The auto-reconnect backoff is a *deadline*, not a sleep. When one is
+        // pending we shorten this wait to whatever is left of it, so the task
+        // keeps draining its queue for the whole backoff instead of sitting in
+        // an uninterruptible vTaskDelay() (which also let the 10-deep queue
+        // overflow and silently drop events - xQueueSend() is called with a
+        // zero timeout). With nothing pending, the idle 1 s tick is unchanged.
+        TickType_t wait_ticks = pdMS_TO_TICKS(1000);
+        if (g_wifi_cfg->reconnect_pending) {
+            int32_t remaining = (int32_t)(g_wifi_cfg->reconnect_due_tick - xTaskGetTickCount());
+            // Not capped at the 1 s idle tick: when no message arrives this is
+            // a single sleep of exactly the same tick count the old
+            // vTaskDelay(pdMS_TO_TICKS(delay)) used, so the intervals the
+            // hardware test measures (2/4/8 s to +/-15%) are unchanged. Each
+            // interruption costs at most one tick of rounding.
+            wait_ticks = (remaining > 0) ? (TickType_t)remaining : 0;
+        }
+
+        if (xQueueReceive(g_wifi_cfg->queue, &evt, wait_ticks) == pdTRUE) {
             switch (evt.type) {
                 case WM_INT_EVT_START:
                     // Provisioning mode state machine
@@ -806,6 +823,27 @@ static void wifi_cfg_task(void *arg)
                     break;
                     
                 case WM_INT_EVT_STA_CONNECTED:
+                    // Cancels a pending backoff: we are associated, so the
+                    // retry it was waiting to make is moot. Reached when
+                    // something outside the task got us on the air - e.g. an
+                    // explicit wifi_cfg_connect() from the CLI or HTTP, which
+                    // calls esp_wifi_connect() directly. Without this the
+                    // backoff would still expire and tear the fresh
+                    // association down with another connect sequence.
+                    //
+                    // The full cancel set is: STA_CONNECTED, GOT_IP,
+                    // DISCONNECT_REQUEST, and any call to
+                    // wifi_cfg_start_connect_sequence() (which clears the flag
+                    // itself, so WM_INT_EVT_START - posted on
+                    // WIFI_EVENT_STA_START - cancels via its own handler).
+                    // Nothing else does, on purpose. A message arriving is not
+                    // evidence the network is back: STA_DISCONNECTED is what
+                    // put us here, SCAN_COMPLETE can be driven by an HTTP
+                    // client polling /scan, and AP_STARTED / AP_STOPPED /
+                    // AP_STA_CONN are about our own soft-AP. Letting any of
+                    // those shorten the backoff would let an external actor
+                    // collapse it into a busy-loop of connect attempts.
+                    g_wifi_cfg->reconnect_pending = false;
                     g_wifi_cfg->connect_time = esp_timer_get_time() / 1000;
                     g_wifi_cfg->retry_count = 0;
                     g_wifi_cfg->connecting = false;
@@ -893,13 +931,21 @@ static void wifi_cfg_task(void *arg)
                                  (unsigned long)delay, g_wifi_cfg->retry_count + 1);
                         g_wifi_cfg->retry_count++;
 
-                        vTaskDelay(pdMS_TO_TICKS(delay));
-                        wifi_cfg_start_connect_sequence();
+                        // Schedule, don't sleep. The wait at the top of the
+                        // loop uses this deadline as its queue timeout, so the
+                        // backoff becomes a maximum that an incoming message
+                        // can cut short - see the cancel sites for which ones
+                        // do, and why the rest deliberately do not.
+                        g_wifi_cfg->reconnect_due_tick = xTaskGetTickCount() + pdMS_TO_TICKS(delay);
+                        g_wifi_cfg->reconnect_pending = true;
                     }
                     break;
                 }
                     
                 case WM_INT_EVT_GOT_IP: {
+                    // Connectivity is back; drop any scheduled retry (belt and
+                    // braces - STA_CONNECTED normally cleared it already).
+                    g_wifi_cfg->reconnect_pending = false;
                     g_wifi_cfg->state = WIFI_STATE_CONNECTED;
                     xEventGroupSetBits(g_wifi_cfg->event_group, WIFI_CONNECTED_BIT);
                     xEventGroupClearBits(g_wifi_cfg->event_group, WIFI_FAIL_BIT);
@@ -977,6 +1023,8 @@ static void wifi_cfg_task(void *arg)
                     break;
                     
                 case WM_INT_EVT_DISCONNECT_REQUEST:
+                    // A deliberate disconnect outranks a scheduled retry.
+                    g_wifi_cfg->reconnect_pending = false;
                     wifi_cfg_disconnect();
                     break;
                     
@@ -1021,6 +1069,23 @@ static void wifi_cfg_task(void *arg)
                     
                 default:
                     break;
+            }
+        }
+
+        // Fire the scheduled auto-reconnect once its deadline passes. Checked
+        // after the switch so a message handled during the backoff (including
+        // one that cancelled it) is always accounted for first. Cleared before
+        // the call because wifi_cfg_start_connect_sequence() runs synchronously
+        // here and can take tens of seconds.
+        if (g_wifi_cfg->reconnect_pending &&
+            (int32_t)(xTaskGetTickCount() - g_wifi_cfg->reconnect_due_tick) >= 0) {
+            g_wifi_cfg->reconnect_pending = false;
+            // Re-check auto_reconnect: wifi_cfg_disconnect() clears it, and it
+            // may have been called from another task while we were waiting.
+            // A deliberate disconnect must not be undone by a retry that was
+            // scheduled before it.
+            if (g_wifi_cfg->config.auto_reconnect) {
+                wifi_cfg_start_connect_sequence();
             }
         }
     }

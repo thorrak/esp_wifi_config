@@ -214,6 +214,14 @@ typedef struct {
     // Retry state
     int retry_count;
     int current_network_idx;
+
+    // Pending auto-reconnect (scheduled, not slept on). Owned by the manager
+    // task: it is the only writer of the deadline, and both fields are
+    // word-sized so the odd cross-task clear is atomic. `reconnect_pending`
+    // false means "no retry scheduled"; the deadline is only meaningful while
+    // it is true. Compare with (int32_t)(now - due) >= 0 so tick wrap is safe.
+    bool reconnect_pending;
+    TickType_t reconnect_due_tick;
     char connected_ssid[32];        // SSID of currently connected network (empty if none)
     
     // Scan results (temporary)

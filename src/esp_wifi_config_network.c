@@ -54,6 +54,14 @@ static uint32_t calc_backoff_delay(int retry)
 
 void wifi_cfg_start_connect_sequence(void)
 {
+    // A connect sequence is starting now, so any auto-reconnect scheduled for
+    // later is redundant. Cancelling centrally (rather than at each of the
+    // half-dozen call sites) keeps the manager task from re-entering this
+    // function the moment it returns - it runs synchronously and can occupy
+    // the task for tens of seconds, so a deadline set before the call would
+    // otherwise be due by the time we get back to the loop.
+    if (g_wifi_cfg) g_wifi_cfg->reconnect_pending = false;
+
     if (!g_wifi_cfg || g_wifi_cfg->network_count == 0) {
         if (g_wifi_cfg &&
             (g_wifi_cfg->config.provisioning_mode == WIFI_PROV_ON_FAILURE ||
