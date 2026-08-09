@@ -96,8 +96,10 @@ Ask: When should provisioning interfaces start?
 Options:
   a) When connection fails
      -> WIFI_PROV_ON_FAILURE
-  b) Always - including after provisioning (provisioning runs alongside normal operation)
-     -> WIFI_PROV_ALWAYS
+  b) [UNAVAILABLE - do not offer this] Always, including after provisioning.
+     WIFI_PROV_ALWAYS is disabled in the library and behaves as
+     WIFI_PROV_MANUAL. It is also the zero value of the enum, so ALWAYS set
+     provisioning_mode explicitly.
   c) Only when unprovisioned (once configured, never auto-provision again)
      -> WIFI_PROV_WHEN_UNPROVISIONED
   d) Manual trigger only (app calls wifi_cfg_start_ap() explicitly)
@@ -189,15 +191,21 @@ Q8: RECONNECTION BEHAVIOR
 --------------------------
 Q8a: Ask: Auto-reconnect if WiFi is lost?
   Options:
-    a) Yes [default] -> .auto_reconnect = true (or omit, it's the default)
-    b) No -> .auto_reconnect = false
+    a) Yes [default] -> omit the field entirely, it is the default
+    b) No -> .disable_auto_reconnect = true
+       NOTE: .auto_reconnect = false does NOT work. wifi_cfg_init() derives
+       auto_reconnect from disable_auto_reconnect, because a zero-initialised
+       struct cannot distinguish "omitted" from "false" and the documented
+       default is true.
 
 Q8b: (if Q8a = yes) Ask: If reconnection fails repeatedly, what happens?
   Options:
     a) Retry forever [default] -> .max_reconnect_attempts = 0
-    b) After N failures, re-enter provisioning
-       -> .max_reconnect_attempts = N
-       -> .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION
+    b) [UNAVAILABLE - do not offer this] After N failures, re-enter
+       provisioning. WIFI_ON_RECONNECT_EXHAUSTED_PROVISION is disabled in the
+       library and behaves as "retry indefinitely". It is also the zero value
+       of the enum, so whenever max_reconnect_attempts > 0 you must set
+       on_reconnect_exhausted explicitly.
     c) After N failures, reboot the device
        -> .max_reconnect_attempts = N
        -> .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART
@@ -333,7 +341,7 @@ Rules:
 - If Q6 = shared server, pass .http.httpd in config.
 
 Default fields (omit if user wants these):
-  auto_reconnect = true
+  auto_reconnect = true   (opt out with disable_auto_reconnect = true)
   max_retry_per_network = 3
   retry_interval_ms = 5000
   retry_max_interval_ms = 60000

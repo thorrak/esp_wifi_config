@@ -334,6 +334,9 @@ typedef struct {
     char gateway[16];       ///< Gateway, default = ip
     
     // DHCP range
+    /// @note Stored, reported via GET /api/wifi/ap/config, and defaulted —
+    ///       but NOT currently programmed into the AP netif's DHCP server.
+    ///       The pool in use is whatever esp_netif derives from `ip`.
     char dhcp_start[16];    ///< DHCP range start, default "192.168.4.2"
     char dhcp_end[16];      ///< DHCP range end, default "192.168.4.20"
 } wifi_cfg_ap_config_t;
@@ -619,7 +622,11 @@ typedef struct {
     const char *pop;
     /// SRP6a username (I) for Security 2. The provisioning client must use
     /// the same value (the salt/verifier below were derived from this
-    /// username + password offline). NULL → "wificfg".
+    /// username + password offline).
+    /// @note Metadata only — the username never flows into wifi_prov_mgr
+    ///       from the device side, so the library substitutes no default
+    ///       here. NULL simply means "the application does not surface an
+    ///       expected username".
     const char *security2_username;
     /// Pre-computed SRP6a salt for Security 2. Required when Security 2
     /// is selected — wifi_cfg_init() returns ESP_ERR_INVALID_ARG if
@@ -763,8 +770,12 @@ typedef void (*wifi_cfg_improv_identify_cb_t)(void);
  * Reference: https://www.improv-wifi.com/
  */
 typedef struct {
-    int serial_uart_num;                      ///< UART port number (default UART_NUM_0)
-    int serial_baud_rate;                     ///< Baud rate (default 115200)
+    /// UART port number. 0 → Kconfig CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM
+    /// (itself defaulting to 0 = UART_NUM_0). Because the library treats 0
+    /// as "unset", UART_NUM_0 cannot be selected here in preference to a
+    /// non-zero Kconfig value — change the Kconfig option instead.
+    int serial_uart_num;
+    int serial_baud_rate;                     ///< Baud rate. 0 → Kconfig CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD (default 115200)
     const char *firmware_name;                ///< Reported in Device Info RPC
     const char *firmware_version;             ///< Reported in Device Info RPC
     const char *device_name;                  ///< Reported by the Improv Device-Info RPC (shown in the companion app after connect)
@@ -807,25 +818,52 @@ typedef struct {
     size_t default_var_count;           ///< Number of default variables
 
     // Retry / reconnect
-    uint8_t max_retry_per_network;      ///< Max retry per network, default 3
-    uint32_t retry_interval_ms;         ///< Initial retry interval (ms), default 5000
-    uint32_t retry_max_interval_ms;     ///< Max retry interval for exponential backoff (ms), default 60000
-    bool auto_reconnect;                ///< Auto reconnect on disconnect, default true
-    uint16_t max_reconnect_attempts;    ///< Max reconnect attempts after post-connect disconnect (0 = infinite)
-    wifi_reconnect_exhausted_action_t on_reconnect_exhausted;  ///< Action when max_reconnect_attempts reached
+    uint8_t max_retry_per_network;      ///< Max retry per network. 0 → default 3 (CONFIG_WIFI_CFG_DEFAULT_RETRY)
+    uint32_t retry_interval_ms;         ///< Initial retry interval (ms). 0 → default 5000 (CONFIG_WIFI_CFG_RETRY_INTERVAL_MS)
+    uint32_t retry_max_interval_ms;     ///< Max retry interval for exponential backoff (ms). 0 → default 60000
+    /// Auto reconnect on disconnect. **Default true.**
+    ///
+    /// A zero-initialised struct cannot distinguish "field omitted" from
+    /// an explicit `false`, so wifi_cfg_init() unconditionally derives
+    /// this field from `disable_auto_reconnect` — leaving it out yields
+    /// the documented default. Setting `.auto_reconnect = false` on its
+    /// own therefore does NOT turn reconnect off; set
+    /// `.disable_auto_reconnect = true` instead.
+    ///
+    /// Note: wifi_cfg_disconnect() clears this at runtime so an explicit
+    /// disconnect is not immediately undone by the reconnect logic.
+    bool auto_reconnect;
+    /// Opt out of auto-reconnect. Inverted twin of `auto_reconnect`,
+    /// added because `false` and "not set" share a bit pattern and the
+    /// documented default is true. Default false (reconnect enabled).
+    bool disable_auto_reconnect;
+    uint16_t max_reconnect_attempts;    ///< Max reconnect attempts after post-connect disconnect. Default 0 = infinite; 0 is a real value and is never re-defaulted.
+    /// Action when max_reconnect_attempts is reached. **Not defaulted by
+    /// wifi_cfg_init()** — the zero value is
+    /// WIFI_ON_RECONNECT_EXHAUSTED_PROVISION, which is [DISABLED] and
+    /// currently behaves as "retry indefinitely". Omitting this field
+    /// also blocks wifi_cfg_stop_http() while `enable_ap` is set and
+    /// `max_reconnect_attempts > 0`. Set it explicitly; init logs a
+    /// warning when it is left at zero.
+    wifi_reconnect_exhausted_action_t on_reconnect_exhausted;
 
     // Provisioning lifecycle
-    wifi_provisioning_mode_t provisioning_mode;     ///< Controls when provisioning interfaces (AP/BLE) start
-    bool stop_provisioning_on_connect;              ///< Stop AP/BLE when STA gets IP
-    uint32_t provisioning_teardown_delay_ms;        ///< Delay before teardown (lets UI show result), ms
+    /// Controls when provisioning interfaces (AP/BLE) start. **Not
+    /// defaulted by wifi_cfg_init()** — the zero value is
+    /// WIFI_PROV_ALWAYS, which is [DISABLED] and behaves like
+    /// WIFI_PROV_MANUAL. Set it explicitly (WIFI_PROV_ON_FAILURE is the
+    /// usual choice); init logs a warning when it is left at zero.
+    wifi_provisioning_mode_t provisioning_mode;
+    bool stop_provisioning_on_connect;              ///< Stop AP/BLE when STA gets IP. Default false.
+    uint32_t provisioning_teardown_delay_ms;        ///< Delay before teardown (lets UI show result), ms. Default 0 = tear down immediately.
 
     // HTTP post-provisioning behavior
-    wifi_http_post_prov_mode_t http_post_prov_mode; ///< What to do with HTTP after provisioning stops
+    wifi_http_post_prov_mode_t http_post_prov_mode; ///< What to do with HTTP after provisioning stops. Default (zero) = WIFI_HTTP_FULL.
 
     // SoftAP config
-    wifi_cfg_ap_config_t default_ap;    ///< Default AP config
-    bool always_use_ap_defaults;        ///< Always use default_ap, ignore NVS-saved AP config
-    bool enable_ap;                     ///< Enable Soft AP as a provisioning method
+    wifi_cfg_ap_config_t default_ap;    ///< Default AP config. Fields left blank/zero take the per-field defaults documented on wifi_cfg_ap_config_t.
+    bool always_use_ap_defaults;        ///< Always use default_ap, ignore NVS-saved AP config. Default false.
+    bool enable_ap;                     ///< Enable Soft AP as a provisioning method. Default false.
 
     // Callbacks
     wifi_cfg_var_validator_t on_before_var_set;  ///< Optional variable validation callback
@@ -850,7 +888,15 @@ typedef struct {
  * - Bắt đầu auto-connect
  * - Khởi tạo HTTP server (nếu enable)
  * 
- * @param config Configuration, NULL for all defaults
+ * @param config Configuration, or NULL. Every field is optional, but NULL
+ *               (and an all-zero struct) is NOT "all defaults": fields whose
+ *               zero value is a meaningful choice are taken at face value.
+ *               In particular `provisioning_mode` becomes WIFI_PROV_ALWAYS
+ *               and `on_reconnect_exhausted` becomes
+ *               WIFI_ON_RECONNECT_EXHAUSTED_PROVISION — both [DISABLED]
+ *               values. Set those two explicitly. Fields documented with a
+ *               non-zero default (retry counts/intervals, `auto_reconnect`,
+ *               the `default_ap` sub-fields, `http.auth_*`) are applied here.
  * @return ESP_OK on success
  * 
  * @code{.c}

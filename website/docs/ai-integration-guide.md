@@ -204,8 +204,15 @@ No configuration needed from the user. The library auto-registers commands when 
 
 | Choice | Config |
 |---|---|
-| **Yes, auto-reconnect** (recommended) | `.auto_reconnect = true` (default) |
-| **No, just emit a disconnect event** | `.auto_reconnect = false` |
+| **Yes, auto-reconnect** (recommended) | omit the field — it is the default |
+| **No, just emit a disconnect event** | `.disable_auto_reconnect = true` |
+
+:::warning
+`.auto_reconnect = false` does **not** disable it. `wifi_cfg_init()` derives
+`auto_reconnect` from `disable_auto_reconnect`, because a zero-initialised
+struct cannot tell "field omitted" from "explicitly false" — and the
+documented default is `true`. Use `disable_auto_reconnect`.
+:::
 
 #### Q8b: Reconnect exhaustion (if auto-reconnect enabled)
 
@@ -430,7 +437,7 @@ void app_main(void)
 1. **Only uncomment sections relevant to the user's answers.** Do not include commented-out blocks in the final output — only include active code.
 2. **Subscribe to events before `wifi_cfg_init()`** to catch events fired during initialization.
 3. **Use compound literals** for the config struct (the `&(wifi_cfg_config_t){...}` pattern) — this is idiomatic ESP-IDF C.
-4. **Do not set fields to their default values.** If the user wants `auto_reconnect = true`, omit it (it's the default). Only set fields that differ from defaults.
+4. **Do not set fields to their default values** — with two exceptions, both enums whose zero value is a real and currently `[DISABLED]` choice rather than "unset". Always set `provisioning_mode` explicitly (`WIFI_PROV_ON_FAILURE` is the usual choice), and always set `on_reconnect_exhausted` explicitly if `max_reconnect_attempts > 0`. Omitting either selects the disabled behaviour silently; `wifi_cfg_init()` logs a warning when it happens.
 5. **Include `#include "esp_console.h"`** only if CLI is enabled.
 
 ---
@@ -458,7 +465,8 @@ Fields you can omit if the user wants the default behavior:
 
 | Field | Default | Notes |
 |---|---|---|
-| `auto_reconnect` | `true` | |
+| `auto_reconnect` | `true` | Derived from `disable_auto_reconnect`; setting this field directly has no effect |
+| `disable_auto_reconnect` | `false` | The opt-out. Set this, not `auto_reconnect = false` |
 | `max_retry_per_network` | `3` | |
 | `retry_interval_ms` | `5000` | |
 | `retry_max_interval_ms` | `60000` | Exponential backoff cap |

@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+### Breaking Changes
+
+- **`.auto_reconnect = false` no longer disables auto-reconnect on its
+  own — use the new `.disable_auto_reconnect = true`.** `auto_reconnect`
+  is documented as "default true", but in a zero-initialised
+  `wifi_cfg_config_t` an omitted `bool` and an explicit `false` are the
+  same bit pattern, so `wifi_cfg_init()` had no way to honour the
+  documented default without overriding a deliberate opt-out. The field
+  is now *derived*: `auto_reconnect = !disable_auto_reconnect`. Callers
+  that set `.auto_reconnect = true` are unaffected. Callers that relied
+  on `.auto_reconnect = false` must add `.disable_auto_reconnect = true`
+  or they will now get reconnect behaviour.
+- **`wifi_cfg_config_t` gained a field** (`disable_auto_reconnect`,
+  next to `auto_reconnect`). Source-compatible for designated
+  initialisers — which is what every example and doc uses — but the
+  struct layout changed, so dependents must be rebuilt against the new
+  header (automatic for an IDF component build).
+
+### Fixed
+
+- **`auto_reconnect` now actually defaults to true.** `wifi_cfg_init()`
+  applied defaults for `max_retry_per_network`, `retry_interval_ms` and
+  `retry_max_interval_ms` only, and never touched `auto_reconnect`. Any
+  application that zero-initialised its config — the documented
+  "everything omitted takes the library default" style — silently got
+  `auto_reconnect == false`, and the whole reconnect block at
+  `esp_wifi_config.c` was gated on it. Measured on an ESP32-S3: after a
+  post-connect disconnect (beacon timeout when the AP goes away) the
+  device emitted one `wifi:disconnected` event and never retried — no
+  `wifi:connecting`, ever.
+- **Partial `default_ap` configs now get the per-field AP defaults the
+  header documents.** `set_default_ap_config()` ran only when there was
+  no AP config at all, so supplying `.default_ap = { .ssid = "X" }`
+  (or loading a legacy NVS blob) left `ip`, `netmask`, `gateway`,
+  `max_connections` and the DHCP range blank. A new
+  `normalize_ap_config()` backfills every documented default after the
+  AP config is resolved, whichever source it came from. `password` is
+  left alone — empty means "open network", a real choice.
+
+### Changed
+
+- **`wifi_cfg_init()` warns when a provisioning enum is left at its zero
+  value.** `provisioning_mode` and `on_reconnect_exhausted` both have a
+  `[DISABLED]` value at zero (`WIFI_PROV_ALWAYS` and
+  `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION`), so an omitted field silently
+  selects a mode that does not work. Behaviour is unchanged — remapping
+  zero would override callers who chose it deliberately, and reordering
+  the enums would break the ABI — but the case is no longer silent. The
+  `on_reconnect_exhausted` warning also flags the live side effect: with
+  `enable_ap` set and `max_reconnect_attempts > 0`, the zero value makes
+  `wifi_cfg_stop_http()` return `ESP_ERR_INVALID_STATE`.
+
+### Documentation
+
+- Corrected `wifi_cfg_init()`'s `@param config` — it claimed "NULL for
+  all defaults", which is false: fields whose zero value is a meaningful
+  choice are taken at face value, and NULL selects the two `[DISABLED]`
+  provisioning enum values.
+- Every field of `wifi_cfg_config_t` now states its default (or states
+  that it has none) in the header, including the previously silent
+  `stop_provisioning_on_connect`, `provisioning_teardown_delay_ms`,
+  `http_post_prov_mode`, `always_use_ap_defaults` and `enable_ap`.
+- `prov_ble.security2_username` no longer claims a `"wificfg"` default.
+  The username never reaches `wifi_prov_mgr` from the device side; the
+  field is application metadata and no default is substituted.
+- `wifi_cfg_ap_config_t.dhcp_start` / `.dhcp_end` now note that they are
+  stored, defaulted and reported over the API but are **not** programmed
+  into the AP netif's DHCP server.
+- `improv.serial_uart_num` / `.serial_baud_rate` now point at the
+  Kconfig options that actually supply their defaults, and note that
+  because `0` means "unset", `UART_NUM_0` cannot be selected in
+  preference to a non-zero Kconfig value.
+
+
 ## [0.1.0] — 2026-05-31 - ESP-IDF Network Provisioning over BLE
 
 ### Breaking Changes

@@ -66,6 +66,41 @@ static void set_default_ap_config(wifi_cfg_ap_config_t *ap)
     strncpy(ap->dhcp_end, "192.168.4.20", sizeof(ap->dhcp_end) - 1);
 }
 
+/**
+ * @brief Fill any documented per-field AP default the caller or NVS left blank
+ *
+ * set_default_ap_config() only runs when there is no AP config at all. A
+ * caller supplying a partial `default_ap` (say, ssid only), or an NVS blob
+ * written before a field existed, would otherwise keep empty strings where
+ * the header documents a default.
+ */
+static void normalize_ap_config(wifi_cfg_ap_config_t *ap)
+{
+    if (!ap->ssid[0]) {
+        strncpy(ap->ssid, WIFI_CFG_DEFAULT_AP_SSID, sizeof(ap->ssid) - 1);
+    }
+    if (ap->max_connections == 0) {
+        ap->max_connections = 4;
+    }
+    if (!ap->ip[0]) {
+        strncpy(ap->ip, WIFI_CFG_DEFAULT_AP_IP, sizeof(ap->ip) - 1);
+    }
+    if (!ap->netmask[0]) {
+        strncpy(ap->netmask, "255.255.255.0", sizeof(ap->netmask) - 1);
+    }
+    if (!ap->gateway[0]) {
+        strncpy(ap->gateway, ap->ip, sizeof(ap->gateway) - 1);
+    }
+    if (!ap->dhcp_start[0]) {
+        strncpy(ap->dhcp_start, "192.168.4.2", sizeof(ap->dhcp_start) - 1);
+    }
+    if (!ap->dhcp_end[0]) {
+        strncpy(ap->dhcp_end, "192.168.4.20", sizeof(ap->dhcp_end) - 1);
+    }
+    // Note: `password` is deliberately not defaulted — empty means "open
+    // network", which is a real choice, not an unset field.
+}
+
 static void teardown_timer_callback(TimerHandle_t timer)
 {
     (void)timer;
@@ -207,7 +242,10 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
         memcpy(&g_wifi_cfg->config, config, sizeof(wifi_cfg_config_t));
     }
     
-    // Set defaults
+    // ── Apply documented defaults ────────────────────────────────────────
+    // Scalars whose zero value is nonsensical can be defaulted by testing
+    // for zero: a retry budget or backoff interval of 0 is never a real
+    // choice, so 0 unambiguously means "unset".
     if (g_wifi_cfg->config.max_retry_per_network == 0) {
         g_wifi_cfg->config.max_retry_per_network = CONFIG_WIFI_CFG_DEFAULT_RETRY;
     }
@@ -216,6 +254,46 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     }
     if (g_wifi_cfg->config.retry_max_interval_ms == 0) {
         g_wifi_cfg->config.retry_max_interval_ms = 60000;  // 60 seconds max backoff
+    }
+
+    // auto_reconnect is documented "default true", but for a bool in a
+    // zero-initialised struct "omitted" and "explicitly false" are the same
+    // bit pattern — there is no zero-test that can tell them apart. Rather
+    // than silently pick one reading, the field is *derived* from an
+    // unambiguous opt-out (`disable_auto_reconnect`, default false). A
+    // caller who says nothing gets the documented default; a caller who
+    // wants reconnect off states so in a field whose zero value is not the
+    // interesting one. Consequence, called out in CHANGELOG.md: setting
+    // `.auto_reconnect = false` alone no longer disables reconnect.
+    g_wifi_cfg->config.auto_reconnect = !g_wifi_cfg->config.disable_auto_reconnect;
+    // Logged unconditionally, and at INFO rather than WARN: the resolved
+    // value is the *documented* one, so this is not a problem to report. It
+    // is here because the field a caller wrote is no longer necessarily the
+    // field that takes effect, and the one line that says which won is worth
+    // more than any amount of changelog to whoever is reading a boot log at
+    // 2 a.m. wondering why their device reconnects when they asked it not to.
+    ESP_LOGI(TAG, "auto-reconnect %s%s",
+             g_wifi_cfg->config.auto_reconnect ? "enabled" : "disabled",
+             g_wifi_cfg->config.disable_auto_reconnect
+                 ? " (disable_auto_reconnect set)" : " (default)");
+
+    // provisioning_mode and on_reconnect_exhausted are enums whose zero
+    // value is a real, selectable choice — and, awkwardly, the [DISABLED]
+    // one in both cases. Re-mapping zero here would change behaviour for
+    // callers who chose it deliberately, and reordering the enums would
+    // break the ABI, so neither is done. Warn instead so the silent case
+    // stops being silent.
+    if (g_wifi_cfg->config.provisioning_mode == WIFI_PROV_ALWAYS) {
+        ESP_LOGW(TAG, "provisioning_mode = WIFI_PROV_ALWAYS (the zero value, and [DISABLED]); "
+                      "provisioning will not auto-start. Set provisioning_mode explicitly "
+                      "(WIFI_PROV_ON_FAILURE is the usual choice).");
+    }
+    if (g_wifi_cfg->config.on_reconnect_exhausted == WIFI_ON_RECONNECT_EXHAUSTED_PROVISION &&
+        g_wifi_cfg->config.max_reconnect_attempts > 0) {
+        ESP_LOGW(TAG, "on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION "
+                      "(the zero value, and [DISABLED]); exhaustion will retry indefinitely"
+                      "%s. Set on_reconnect_exhausted explicitly.",
+                 g_wifi_cfg->config.enable_ap ? " and wifi_cfg_stop_http() will be refused" : "");
     }
 
     // Validate provisioning config (e.g. Security 2 needs salt+verifier).
@@ -280,7 +358,12 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
             set_default_ap_config(&g_wifi_cfg->ap_config);
         }
     }
-    
+
+    // Whichever branch above ran, backfill the per-field AP defaults the
+    // header documents. Partial default_ap structs and legacy NVS blobs
+    // both land here with blanks.
+    normalize_ap_config(&g_wifi_cfg->ap_config);
+
     // Load auth credentials
     strncpy(g_wifi_cfg->auth_username, "admin", sizeof(g_wifi_cfg->auth_username) - 1);
     strncpy(g_wifi_cfg->auth_password, "admin", sizeof(g_wifi_cfg->auth_password) - 1);
