@@ -63,30 +63,18 @@ void app_main(void)
 
     // Initialize WiFi Config with Web UI enabled
     wifi_cfg_config_t config = {
-        .max_retry_per_network = 3,
-        .retry_interval_ms = 5000,
-        .auto_reconnect = true,
+        WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
+        // Only the SSID differs from the default AP config; wifi_cfg_init()
+        // backfills the rest of the sub-struct.
         .default_ap = {
             .ssid = "ESP32-Setup-{id}",
-            .password = "",
-            .channel = 0,
-            .max_connections = 4,
-            .ip = "192.168.4.1",
-            .netmask = "255.255.255.0",
-            .gateway = "192.168.4.1",
-            .dhcp_start = "192.168.4.2",
-            .dhcp_end = "192.168.4.20",
         },
-        // Provisioning: start AP+HTTP when no networks or all fail
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
+        // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+HTTP start
+        // when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,
         .enable_ap = true,
-
-        .http = {
-            .api_base_path = "/api/wifi",
-        },
 
         // Web UI is auto-enabled via CONFIG_WIFI_CFG_ENABLE_WEBUI
     };

@@ -53,18 +53,19 @@ CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    WIFI_CFG_DEFAULTS,
+    // provisioning_mode is already WIFI_PROV_ON_FAILURE from the macro.
     .stop_provisioning_on_connect = true,
     .provisioning_teardown_delay_ms = 5000,
 
+    // Left at their defaults here: device_name ("PROV_{id}", supports {id}),
+    // security (Security 1), memory_policy (FREE_BTDM, see c-api.md),
+    // max_failed_attempts (3), cleanup_delay_ms (1000),
+    // reboot_max_wait_ms (15000).
     .prov_ble = {
-        .device_name         = "PROV_{id}", // GAP name template (supports {id})
-        .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
         .pop                 = "1234abcd",  // Security 1 PoP (NULL/"" → no PoP)
-        .memory_policy       = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
         .wifi_conn_attempts  = 5,           // 0 = infinite
         .reset_on_failure    = true,        // accept retries without reboot
-        .max_failed_attempts = 3,           // 0 → library default (3)
         .firmware_version    = "1.0.0",
     },
 });
@@ -74,10 +75,10 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 
 | Mode | Behaviour |
 |------|-----------|
-| `WIFI_PROV_ALWAYS` | **Disabled** — treated as `WIFI_PROV_MANUAL`. See [Provisioning Modes](./modes.md#modes). |
-| `WIFI_PROV_ON_FAILURE` | start when no networks saved or all failed |
+| `WIFI_PROV_ON_FAILURE` | start when no networks saved or all failed (**the default**) |
 | `WIFI_PROV_WHEN_UNPROVISIONED` | start only if no networks saved |
 | `WIFI_PROV_MANUAL` | only via explicit API call |
+| `WIFI_PROV_ALWAYS` | **Disabled** — treated as `WIFI_PROV_MANUAL`. See [Provisioning Modes](./modes.md#modes). |
 
 `stop_provisioning_on_connect` and `provisioning_teardown_delay_ms`
 still control the in-place teardown lifecycle for SoftAP and Improv,
@@ -111,9 +112,12 @@ The reboot fires on whichever happens first:
    client disconnected, rebooting`, waits ~50 ms for the final
    protocomm response to drain, and calls `esp_restart()`.
 2. A backstop timer started on `WIFI_PROV_EVT_CRED_SUCCESS`. Default
-   3000 ms; tunable via `prov_ble.reboot_max_wait_ms`. Catches clients
+   15000 ms; tunable via `prov_ble.reboot_max_wait_ms`. Catches clients
    that simply disappear (force-quit, lost link) and never deliver a
-   clean disconnect.
+   clean disconnect. It must comfortably exceed the client's status-poll
+   interval (~5 s for Espressif's ESPProvision SDK) plus associate and
+   DHCP, or the device can reboot between two polls and the client
+   reports a false failure.
 
 Both paths call `esp_restart()`. The first to fire wins; the second is
 moot because `esp_restart()` does not return.
@@ -122,20 +126,20 @@ moot because `esp_restart()` does not return.
 
 ```c
 .prov_ble = {
-    // Default: reboot enabled (zero-initialised → false → reboot on).
+    // Default: reboot enabled (false → reboot on).
     // Set true ONLY if the application owns the BLE/Wi-Fi handoff itself.
     .disable_reboot_on_provisioning_success = false,
 
     // Backstop wait between CRED_SUCCESS and the forced reboot, in ms.
-    // 0 → 3000 ms. Ignored when disable_reboot_on_provisioning_success is true.
-    .reboot_max_wait_ms = 3000,
+    // 0 → 15000 ms. Ignored when disable_reboot_on_provisioning_success is true.
+    .reboot_max_wait_ms = 15000,
 }
 ```
 
 The field uses negative polarity (`disable_reboot_...`) to match the
 existing `disable_disconnect_restart` knob — both are default-on
-`wifi_prov_mgr`/NimBLE workarounds, so the zero-initialised config
-gives the safer behaviour.
+`wifi_prov_mgr`/NimBLE workarounds, so a `false` value gives the safer
+behaviour.
 
 ### Implications for application code
 
@@ -174,7 +178,9 @@ extern const uint8_t my_verifier[];
 extern const size_t  my_verifier_len;
 
 wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
     .prov_ble = {
+        .security                 = WIFI_CFG_PROV_SECURITY_2,
         .security2_username       = "device-fleet-2",
         .security2_salt           = my_salt,
         .security2_salt_len       = my_salt_len,

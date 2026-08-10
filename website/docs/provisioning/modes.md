@@ -10,12 +10,16 @@ The `provisioning_mode` field controls when ESP WiFi Config automatically starts
 
 ## Modes
 
-| Mode | Behavior |
-|---|---|
-| `WIFI_PROV_ALWAYS` | **Disabled** — kept in the API for compatibility but currently treated as `WIFI_PROV_MANUAL` at boot. See note below. |
-| `WIFI_PROV_ON_FAILURE` | Start provisioning when no networks are saved or all saved networks fail to connect |
-| `WIFI_PROV_WHEN_UNPROVISIONED` | Start provisioning only if no networks exist in NVS |
-| `WIFI_PROV_MANUAL` | Never auto-start provisioning; the application calls `wifi_cfg_start_ap()` explicitly |
+| Mode | Value | Behavior |
+|---|---|---|
+| `WIFI_PROV_ON_FAILURE` | 0 | Start provisioning when no networks are saved or all saved networks fail to connect. **The default**, supplied by `WIFI_CFG_DEFAULTS`. |
+| `WIFI_PROV_WHEN_UNPROVISIONED` | 1 | Start provisioning only if no networks exist in NVS |
+| `WIFI_PROV_MANUAL` | 2 | Never auto-start provisioning; the application calls `wifi_cfg_start_ap()` explicitly |
+| `WIFI_PROV_ALWAYS` | 3 | **Disabled** — kept in the API for compatibility but currently treated as `WIFI_PROV_MANUAL` at boot. See note below. |
+
+:::info Numeric values changed in 0.2.0
+`WIFI_PROV_ALWAYS` used to be 0, so a config that omitted `provisioning_mode` silently selected the one mode that does nothing. The working mode is now the zero value. Code that uses the enumerator names only needs a recompile; anything that **stored or transmitted the number** must be migrated — see [MIGRATION.md](https://github.com/thorrak/esp_wifi_config/blob/main/MIGRATION.md).
+:::
 
 :::caution `WIFI_PROV_ALWAYS` is disabled
 `wifi_cfg_start_provisioning()` eventually calls `wifi_prov_mgr_start_provisioning()`, which calls `nimble_port_init()`. If the application has already initialised the BLE stack, that call fails — so the always-on path is bypassed (with a warning log) and treated as `WIFI_PROV_MANUAL`. The enum value is preserved so existing configs still compile. May be re-enabled when the library has its own BLE provisioning path independent of Espressif's `wifi_provisioning` component.
@@ -33,7 +37,9 @@ The `provisioning_mode` field controls when ESP WiFi Config automatically starts
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    WIFI_CFG_DEFAULTS,
+    // provisioning_mode is already WIFI_PROV_ON_FAILURE from the macro;
+    // name it explicitly only when you want a different mode.
     .stop_provisioning_on_connect = true,
     .provisioning_teardown_delay_ms = 5000,
     .enable_ap = true,
@@ -72,10 +78,12 @@ Controls the HTTP server after provisioning stops:
 
 After a post-connect disconnect, the library retries up to `max_reconnect_attempts` times (0 = infinite). When attempts are exhausted:
 
-| `on_reconnect_exhausted` | Behavior |
-|---|---|
-| `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | **Disabled** — kept in the API for compatibility but currently treated as "continue retrying indefinitely" (equivalent to `max_reconnect_attempts = 0`). See note below. |
-| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | Reboot the device via `esp_restart()` |
+| `on_reconnect_exhausted` | Value | Behavior |
+|---|---|---|
+| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | 0 | Reboot the device via `esp_restart()`. **The default**, supplied by `WIFI_CFG_DEFAULTS`. |
+| `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | 1 | **Disabled** — kept in the API for compatibility but currently treated as "continue retrying indefinitely" (equivalent to `max_reconnect_attempts = 0`). See note below. |
+
+These two swapped numeric values in 0.2.0, for the same reason as the provisioning modes above.
 
 :::caution `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` is disabled
 The re-enter-provisioning path called `wifi_prov_mgr_start_provisioning()` → `nimble_port_init()`, which fails when the application owns the BLE stack. The library now logs a warning and falls through to normal exponential-backoff retry instead. Use `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` or leave `max_reconnect_attempts = 0` for indefinite retry. See [MIGRATION.md](https://github.com/thorrak/esp_wifi_config/blob/main/MIGRATION.md).
@@ -88,7 +96,7 @@ When the BLE provisioning channel is enabled, the device reboots automatically o
 | Field | Default | Effect |
 |---|---|---|
 | `disable_reboot_on_provisioning_success` | `false` (reboot **on**) | Set true if the application handles the BLE/Wi-Fi handoff itself. |
-| `reboot_max_wait_ms` | `0` → 3000 ms | Backstop window after `WIFI_PROV_EVT_CRED_SUCCESS` before the forced reboot. The actual reboot fires on whichever happens first: the BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV`, or this timer expiring. |
+| `reboot_max_wait_ms` | `0` → 15000 ms | Backstop window after `WIFI_PROV_EVT_CRED_SUCCESS` before the forced reboot. The actual reboot fires on whichever happens first: the BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV`, or this timer expiring. |
 
 While reboot-on-success is active, `stop_provisioning_on_connect` / `provisioning_teardown_delay_ms` / `prov_ble.stop_after_success` are bypassed for the BLE flow — the reboot supersedes any in-place teardown. SoftAP and Improv flows still observe the in-place teardown lifecycle.
 

@@ -2,8 +2,204 @@
 
 This document tracks breaking changes that affect downstream firmware
 using `esp_wifi_config`. The first section covers the most recent change
-(custom BLE replaced by ESP-IDF Network Provisioning); the rest covers the
-historic rename from `esp_wifi_manager`.
+(`WIFI_CFG_DEFAULTS` and the enum renumbering); then 0.1.0 (custom BLE
+replaced by ESP-IDF Network Provisioning); the rest covers the historic
+rename from `esp_wifi_manager`.
+
+---
+
+## 0.2.0 — `WIFI_CFG_DEFAULTS`, and two enums renumbered
+
+Every `wifi_cfg_config_t` initialiser must now start from
+`WIFI_CFG_DEFAULTS` (or `WIFI_CFG_DEFAULT_CONFIG()`, or pass `NULL`).
+`wifi_cfg_init()` no longer patches fields you left at zero, and two
+provisioning enums were renumbered so their zero value is a working one.
+
+**TL;DR** — one line into every config, then delete the lines that were
+only restating a default:
+
+```diff
+ wifi_cfg_init(&(wifi_cfg_config_t){
++    WIFI_CFG_DEFAULTS,
+     .default_networks = my_networks,
+     .default_network_count = 2,
+-    .max_retry_per_network = 3,
+-    .retry_interval_ms = 5000,
+-    .auto_reconnect = true,
+-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+     .stop_provisioning_on_connect = true,
+     .enable_ap = true,
+ });
+```
+
+### The defaults are a value now
+
+`WIFI_CFG_DEFAULTS` is a designated-initialiser list carrying every
+documented default; `WIFI_CFG_DEFAULT_CONFIG()` is the same thing as a
+complete struct value. Both live in `esp_wifi_config.h` and expand in
+your translation unit, so the constants they name
+(`CONFIG_WIFI_CFG_DEFAULT_RETRY`, `WIFI_CFG_DEFAULT_AP_SSID`, …) are now
+public too.
+
+```c
+// Compound-literal style (matches the examples):
+wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
+    .enable_ap = true,
+});
+
+// Struct-value style, when you want to compute fields:
+wifi_cfg_config_t cfg = WIFI_CFG_DEFAULT_CONFIG();
+cfg.enable_ap = true;
+cfg.auto_reconnect = false;   // means false, because you started here
+wifi_cfg_init(&cfg);
+```
+
+### `wifi_cfg_init()` no longer patches unset fields
+
+It used to rewrite `max_retry_per_network`, `retry_interval_ms` and
+`retry_max_interval_ms` when they were zero. Patching is the only way to
+express "unset" without an initialiser, and it works for a scalar whose
+zero is nonsensical while failing for everything else — a `bool` has no
+spare value, so `auto_reconnect` could not be defaulted at all and a
+zero-initialised config silently never reconnected.
+
+Now zero means zero, and two fields where zero is unsafe are **rejected**:
+
+| Condition | Result |
+|-----------|--------|
+| `retry_interval_ms == 0` | `ESP_ERR_INVALID_ARG` from `wifi_cfg_init()` |
+| `retry_max_interval_ms == 0` | `ESP_ERR_INVALID_ARG` from `wifi_cfg_init()` |
+| `max_retry_per_network == 0` | Boots, but logs a warning — no connection is ever attempted |
+
+`retry_interval_ms << retry` is the backoff, so a zero base retries with
+no delay at all. Refusing beats both silently patching (what was removed)
+and spinning.
+
+**Symptom if you miss this:** `wifi_cfg_init()` returns
+`ESP_ERR_INVALID_ARG` and logs a message naming the two fields. That is
+the loud failure mode; the quiet one is `auto_reconnect` coming out
+`false` on a config that never mentioned it.
+
+### `wifi_cfg_init(NULL)` finally means "all defaults"
+
+The header claimed this for a long time and did not deliver, because the
+defaults did not exist as a value anywhere. `NULL` now copies
+`WIFI_CFG_DEFAULT_CONFIG()` verbatim: retry policy, `auto_reconnect =
+true`, `WIFI_PROV_ON_FAILURE`, `WIFI_ON_RECONNECT_EXHAUSTED_RESTART`,
+`WIFI_HTTP_FULL`, and the full `default_ap` / `http` / `improv` /
+`prov_ble` default blocks. Any doc or comment you have that says
+otherwise predates this release.
+
+### Two enums renumbered — check anything that stores the number
+
+This is the part most likely to bite. Both enums had a `[DISABLED]`
+member sitting on zero, so omitting the field selected the one value that
+does nothing. They were moved off zero, which **changes the numeric value
+of every member**.
+
+`wifi_provisioning_mode_t`:
+
+| Name | Old value | New value |
+|------|-----------|-----------|
+| `WIFI_PROV_ON_FAILURE` | 1 | **0** (default) |
+| `WIFI_PROV_WHEN_UNPROVISIONED` | 2 | **1** |
+| `WIFI_PROV_MANUAL` | 3 | **2** |
+| `WIFI_PROV_ALWAYS` | 0 | **3** ([DISABLED]) |
+
+`wifi_reconnect_exhausted_action_t`:
+
+| Name | Old value | New value |
+|------|-----------|-----------|
+| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | 1 | **0** (default) |
+| `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | 0 | **1** ([DISABLED]) |
+
+**Source code that uses the names needs no change** — recompile and the
+new numbers follow. What breaks is anything that persisted or transported
+the *number*:
+
+- NVS blobs, EEPROM records or config files in which your application
+  stored the raw enum value. A stored `0` used to mean `WIFI_PROV_ALWAYS`
+  and now means `WIFI_PROV_ON_FAILURE`; a stored `1` used to mean
+  `WIFI_PROV_ON_FAILURE` and now means `WIFI_PROV_WHEN_UNPROVISIONED`.
+  Version your record, or migrate it on read.
+- Custom protocomm endpoints, MQTT payloads, or REST fields of your own
+  that carry the integer over the wire to a client built against the old
+  header. Both sides must be updated together.
+- Any `switch` on the integer literal rather than the enumerator.
+
+The library's own surfaces are safe: the built-in
+`esp-wifi-config-network-policy` protocomm endpoint reports
+`provisioning_mode` as a **string** (`"on_failure"`, …), not a number, so
+existing BLE provisioning clients are unaffected. Nothing in the library
+persists either enum to NVS.
+
+Both `[DISABLED]` values still behave as they did in 0.1.0
+(`WIFI_PROV_ALWAYS` → like `WIFI_PROV_MANUAL`;
+`WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` → retry indefinitely), and
+`wifi_cfg_init()` still logs a warning if you select one. Reaching them
+now takes a deliberate choice rather than an omission.
+
+### `disable_auto_reconnect` is gone
+
+If you tracked `main` between 0.1.0 and 0.2.0 you may have picked up a
+`disable_auto_reconnect` field, added as a workaround for the
+"`bool` has no spare value" problem. `WIFI_CFG_DEFAULTS` solves that
+properly, so the field was **removed before release**. `auto_reconnect` is
+a plain `bool` again, defaulted `true` by the macro:
+
+```diff
+ wifi_cfg_init(&(wifi_cfg_config_t){
++    WIFI_CFG_DEFAULTS,
+-    .disable_auto_reconnect = true,
++    .auto_reconnect = false,
+ });
+```
+
+Released 0.1.0 never had the field, so upgrades from 0.1.0 are unaffected.
+
+### AP default constants are public
+
+`WIFI_CFG_DEFAULT_AP_SSID` (`"ESP32-Config"`),
+`WIFI_CFG_DEFAULT_AP_PASSWORD` (`""`, an open network) and
+`WIFI_CFG_DEFAULT_AP_IP` (`"192.168.4.1"`) moved from the private header
+to `esp_wifi_config.h`. `WIFI_CFG_DEFAULTS` needs them, and an
+application comparing against one should not have to retype the literal.
+
+### Nested sub-structs still replace wholesale
+
+A designated initialiser for a nested struct replaces the **whole**
+sub-struct, so this blanks the other `default_ap` fields:
+
+```c
+wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
+    .default_ap = { .ssid = "MyDevice" },   // ip, netmask, dhcp_* now blank
+});
+```
+
+`wifi_cfg_init()` backfills the per-field AP defaults for exactly this
+reason, so the above is safe — but if you want to be certain, set the
+members individually on a `WIFI_CFG_DEFAULT_CONFIG()` value
+(`cfg.default_ap.ssid = …`). The same wholesale-replacement rule applies
+to `.http`, `.improv` and `.prov_ble`; each of those has its own
+init-time fallbacks for the fields `WIFI_CFG_DEFAULTS` would have set.
+
+### Migration checklist
+
+1. Add `WIFI_CFG_DEFAULTS,` as the first initialiser in every
+   `wifi_cfg_config_t` you build.
+2. Delete the lines that only restated a default —
+   `.max_retry_per_network = 3`, `.retry_interval_ms = 5000`,
+   `.auto_reconnect = true`, `.provisioning_mode = WIFI_PROV_ON_FAILURE`,
+   `.http.api_base_path = "/api/wifi"`, and the `default_ap` fields other
+   than a custom `ssid`.
+3. Replace any `.disable_auto_reconnect = true` with
+   `.auto_reconnect = false`.
+4. Audit anything that stored or transmitted the **numeric** value of
+   `wifi_provisioning_mode_t` or `wifi_reconnect_exhausted_action_t`.
+5. Rebuild. The struct layout changed, so dependents must be recompiled
+   against the new header (automatic for an IDF component build).
 
 ---
 
@@ -80,7 +276,7 @@ typedef struct {
     // Security
     wifi_cfg_prov_security_t  security;  // _DEFAULT → Security 1
     const char    *pop;                  // NULL/"" → no PoP
-    const char    *security2_username;   // NULL → "wificfg"
+    const char    *security2_username;   // metadata only; no default substituted
     const uint8_t *security2_salt;
     size_t         security2_salt_len;
     const uint8_t *security2_verifier;
@@ -89,11 +285,14 @@ typedef struct {
     // BLE lifecycle
     wifi_cfg_prov_memory_policy_t memory_policy;  // FREE_BTDM/FREE_BLE/FREE_BT/KEEP_ALL
     bool           keep_ble_on_after_stop;
+    bool           disable_disconnect_restart;  // opt out of the NimBLE workaround
 
     // Provisioning lifecycle
-    uint32_t       cleanup_delay_ms;     // protocomm grace period
+    uint32_t       cleanup_delay_ms;     // protocomm grace period; 0 → 1000 ms
     uint32_t       wifi_conn_attempts;   // 0 = infinite
     bool           stop_after_success;
+    bool           disable_reboot_on_provisioning_success;  // default false = reboot on
+    uint32_t       reboot_max_wait_ms;   // 0 → 15000 ms
     bool           reset_on_failure;     // erase prov state after N failed creds
     uint8_t        max_failed_attempts;  // 0 → 3 (used when reset_on_failure)
 
@@ -120,7 +319,7 @@ advertised name, so the field moved to `.improv.ble_device_name`:
 
 ```diff
  wifi_cfg_init(&(wifi_cfg_config_t){
-     .provisioning_mode = WIFI_PROV_ON_FAILURE,
+     WIFI_CFG_DEFAULTS,
 -    .ble = {
 -        .device_name = "MyDevice-{id}",
 -    },
@@ -150,22 +349,26 @@ The public `wifi_cfg_init()` config keeps its existing fields. The new
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    WIFI_CFG_DEFAULTS,
     .stop_provisioning_on_connect = true,
 
     .prov_ble = {
-        .device_name        = "PROV_{id}",          // GAP name template
+        .device_name        = "MyApp_{id}",         // GAP name template
         .security           = WIFI_CFG_PROV_SECURITY_1,
         .pop                = "1234abcd",           // Security 1 PoP
-        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // free BT after prov
         .wifi_conn_attempts = 5,                    // give up after 5 STA tries
         .reset_on_failure   = true,                 // accept retries without reboot
-        .max_failed_attempts = 3,
         .firmware_version   = "1.0.0",
         .on_credentials_received = on_creds,
     },
 });
 ```
+
+`provisioning_mode` comes from `WIFI_CFG_DEFAULTS` as
+`WIFI_PROV_ON_FAILURE`, and `memory_policy` / `max_failed_attempts` /
+`device_name` are omitted above because their defaults
+(`WIFI_CFG_PROV_MEM_FREE_BTDM`, `3`, `"PROV_{id}"`) are what most apps
+want.
 
 The lifecycle (`provisioning_mode`, `stop_provisioning_on_connect`,
 `provisioning_teardown_delay_ms`, retry/backoff, multi-network store,
@@ -198,7 +401,10 @@ automatically after `CRED_SUCCESS` as in stock wifi_prov_mgr.
 
 Two `wifi_cfg_config_t` enum values are now no-ops. Both remain in the
 public API (so existing initialisers still compile), but the underlying
-provisioning-start path is bypassed and a warning is logged at runtime:
+provisioning-start path is bypassed and a warning is logged at runtime.
+(In 0.1.0 these were both the *zero* value of their enum, so omitting the
+field selected them; 0.2.0 moved them off zero — see the 0.2.0 section
+above.)
 
 | Field | Value | New behavior | Equivalent to |
 |---|---|---|---|
@@ -221,14 +427,15 @@ supported one:
 
 ```diff
  wifi_cfg_init(&(wifi_cfg_config_t){
+     WIFI_CFG_DEFAULTS,
 -    .provisioning_mode      = WIFI_PROV_ALWAYS,
 +    .provisioning_mode      = WIFI_PROV_MANUAL,
-+    // or WIFI_PROV_ON_FAILURE / WIFI_PROV_WHEN_UNPROVISIONED — none
-+    // of these auto-start provisioning at boot when a network is saved
++    // or the WIFI_PROV_ON_FAILURE default / WIFI_PROV_WHEN_UNPROVISIONED
++    // — none of these auto-start provisioning at boot when a network is saved
      ...
 -    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,
-+    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,
-+    // or leave .max_reconnect_attempts = 0 to retry forever
++    // WIFI_CFG_DEFAULTS already sets WIFI_ON_RECONNECT_EXHAUSTED_RESTART
++    // — or leave .max_reconnect_attempts = 0 to retry forever
  });
 ```
 
@@ -250,27 +457,33 @@ point.
 
 1. The BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV` (the
    well-behaved-client path), or
-2. A backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS`, default 3000
+2. A backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS`, default 15000
    ms (catches clients that drop without a clean disconnect).
 
 **Config** — two new fields on `wifi_cfg_prov_config_t`:
 
 ```c
 .prov_ble = {
-    // Default: reboot enabled (field zero-init = false → reboot on).
+    // Default: reboot enabled (false → reboot on).
     // Set true ONLY if the application handles BLE/Wi-Fi handoff itself.
     .disable_reboot_on_provisioning_success = false,
 
     // Backstop wait between CRED_SUCCESS and forced reboot, in ms.
-    // 0 → 3000 ms. Ignored when reboot is disabled above.
-    .reboot_max_wait_ms = 3000,
+    // 0 → 15000 ms. Ignored when reboot is disabled above.
+    .reboot_max_wait_ms = 15000,
 }
 ```
 
+The backstop must comfortably exceed the client's status-poll interval
+(Espressif's ESPProvision SDK polls every ~5 s) plus the time to
+associate and get an IP. A 3 s backstop reproduced a false-failure report
+intermittently: the device rebooted between two client polls, after it
+was actually connected but before the client had observed "connected".
+
 The field uses **negative polarity** to match the existing
 `.prov_ble.disable_disconnect_restart` convention — both are
-default-on workarounds for `wifi_prov_mgr`/NimBLE limitations, so
-zero-initialised config gives the safer behavior.
+default-on workarounds for `wifi_prov_mgr`/NimBLE limitations, so a
+`false` value gives the safer behavior.
 
 **Behavior change from earlier 0.1.0 builds**: previous builds left
 the manager running after credentials were accepted and relied on
@@ -291,7 +504,7 @@ therefore ignored while reboot-on-success is active.
   the post-prov BLE state yourself. You are accepting the
   `wifi_prov_mgr` teardown sharp edges as a trade-off.
 - **Apps doing significant work on `WIFI_CFG_EVT_PROV_CRED_SUCCESS`**:
-  audit that work — the reboot will fire shortly after (≤ 3 s by
+  audit that work — the reboot will fire shortly after (≤ 15 s by
   default, or sooner on client disconnect). Persist anything important
   to NVS before returning from the callback, or extend
   `.prov_ble.reboot_max_wait_ms` if you need a wider window.

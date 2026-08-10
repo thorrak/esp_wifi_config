@@ -21,21 +21,34 @@ When provisioning starts with `enable_ap = true`, the device creates a WiFi acce
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    WIFI_CFG_DEFAULTS,
+    // provisioning_mode is already WIFI_PROV_ON_FAILURE from the macro.
     .stop_provisioning_on_connect = true,
     .provisioning_teardown_delay_ms = 5000,
     .enable_ap = true,
 
-    // Customize the SoftAP
+    // Customize the SoftAP. Naming .default_ap replaces the whole
+    // sub-struct; wifi_cfg_init() backfills password (open),
+    // ip/gateway (192.168.4.1), netmask, max_connections and the DHCP range.
     .default_ap = {
         .ssid = "MyDevice-{id}",   // {id} is replaced with last 3 bytes of MAC
-        .password = "",             // empty = open AP
-        .ip = "192.168.4.1",
     },
 });
 ```
 
 The `&#123;id&#125;` placeholder in the SSID is replaced with the last 3 bytes of the device's MAC address (e.g., "MyDevice-AABBCC"). This ensures each device has a unique AP name.
+
+If you omit `default_ap` entirely, `WIFI_CFG_DEFAULTS` supplies the AP
+defaults, which are also available to your code as public macros:
+
+| Macro | Value |
+|---|---|
+| `WIFI_CFG_DEFAULT_AP_SSID` | `"ESP32-Config"` |
+| `WIFI_CFG_DEFAULT_AP_PASSWORD` | `""` (open network) |
+| `WIFI_CFG_DEFAULT_AP_IP` | `"192.168.4.1"` (also the gateway) |
+
+The remaining defaults are `netmask` `"255.255.255.0"`, `max_connections` 4,
+and a DHCP range of `"192.168.4.2"`–`"192.168.4.20"`.
 
 ## Starting AP Manually
 

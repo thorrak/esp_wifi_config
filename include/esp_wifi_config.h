@@ -20,16 +20,19 @@
  *
  * void app_main(void) {
  *     // Init với default networks
+ *     // Always start from WIFI_CFG_DEFAULTS: init does not patch fields you
+ *     // leave at zero, so an uninitialised struct is rejected rather than
+ *     // silently fixed up.
  *     wifi_cfg_init(&(wifi_cfg_config_t){
+ *         WIFI_CFG_DEFAULTS,
  *         .default_networks = (wifi_network_t[]){
  *             {"MyWiFi", "password123", 10},      // priority 10
  *             {"BackupWiFi", "backup456", 5},     // priority 5 (fallback)
  *         },
  *         .default_network_count = 2,
- *         .auto_reconnect = true,
  *
- *         // Provisioning: start AP when no networks or all fail
- *         .provisioning_mode = WIFI_PROV_ON_FAILURE,
+ *         // auto_reconnect and provisioning_mode = WIFI_PROV_ON_FAILURE are
+ *         // already the defaults; only the rest needs stating.
  *         .stop_provisioning_on_connect = true,
  *         .provisioning_teardown_delay_ms = 5000,
  *         .enable_ap = true,
@@ -402,18 +405,34 @@ typedef struct {
  * with a single enum governing startup behavior for all provisioning interfaces.
  */
 typedef enum {
-    WIFI_PROV_ALWAYS,             ///< [DISABLED] Start provisioning at init, regardless of state. Currently treated as WIFI_PROV_MANUAL — see note in esp_wifi_config.c.
-    WIFI_PROV_ON_FAILURE,         ///< Start when unprovisioned OR all networks fail to connect
+    /// Start when unprovisioned OR all networks fail to connect. **The
+    /// default**, and deliberately the zero value: a zero-initialised config
+    /// must select a mode that works.
+    WIFI_PROV_ON_FAILURE = 0,
     WIFI_PROV_WHEN_UNPROVISIONED, ///< Start only if no saved networks exist
     WIFI_PROV_MANUAL,             ///< Only via explicit API call (e.g., button press)
+    /// [DISABLED] Start provisioning at init regardless of state. Currently
+    /// treated as WIFI_PROV_MANUAL — see the note in esp_wifi_config.c.
+    ///
+    /// Moved off zero in 0.2.0. It used to be the value a zero-initialised
+    /// config selected, so omitting `provisioning_mode` silently chose the one
+    /// mode that does nothing.
+    WIFI_PROV_ALWAYS,
 } wifi_provisioning_mode_t;
 
 /**
  * @brief Action to take when max_reconnect_attempts is exhausted after a post-connect disconnect
  */
 typedef enum {
-    WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,  ///< [DISABLED] Start provisioning + keep retrying. Currently treated as "continue retrying indefinitely" — see note in esp_wifi_config.c.
-    WIFI_ON_RECONNECT_EXHAUSTED_RESTART,    ///< Restart the device (esp_restart)
+    /// Restart the device (`esp_restart`). **The default**, and deliberately
+    /// the zero value — it is also the only one of the two that works.
+    /// Only ever reached when `max_reconnect_attempts` is non-zero.
+    WIFI_ON_RECONNECT_EXHAUSTED_RESTART = 0,
+    /// [DISABLED] Start provisioning + keep retrying. Currently treated as
+    /// "continue retrying indefinitely" — see the note in esp_wifi_config.c.
+    ///
+    /// Moved off zero in 0.2.0, for the same reason as WIFI_PROV_ALWAYS.
+    WIFI_ON_RECONNECT_EXHAUSTED_PROVISION,
 } wifi_reconnect_exhausted_action_t;
 
 /**
@@ -821,38 +840,29 @@ typedef struct {
     uint8_t max_retry_per_network;      ///< Max retry per network. 0 → default 3 (CONFIG_WIFI_CFG_DEFAULT_RETRY)
     uint32_t retry_interval_ms;         ///< Initial retry interval (ms). 0 → default 5000 (CONFIG_WIFI_CFG_RETRY_INTERVAL_MS)
     uint32_t retry_max_interval_ms;     ///< Max retry interval for exponential backoff (ms). 0 → default 60000
-    /// Auto reconnect on disconnect. **Default true.**
+    /// Auto reconnect after a post-connect disconnect. **Default true**, set
+    /// by WIFI_CFG_DEFAULT_CONFIG().
     ///
-    /// A zero-initialised struct cannot distinguish "field omitted" from
-    /// an explicit `false`, so wifi_cfg_init() unconditionally derives
-    /// this field from `disable_auto_reconnect` — leaving it out yields
-    /// the documented default. Setting `.auto_reconnect = false` on its
-    /// own therefore does NOT turn reconnect off; set
-    /// `.disable_auto_reconnect = true` instead.
+    /// Start from the macro and this behaves like any other field:
+    /// `.auto_reconnect = false` disables it. wifi_cfg_init() no longer
+    /// rewrites it, so a struct you zero-initialise yourself gets `false` --
+    /// which is why the macro is not optional.
     ///
-    /// Note: wifi_cfg_disconnect() clears this at runtime so an explicit
-    /// disconnect is not immediately undone by the reconnect logic.
+    /// This is configuration, not state. An explicit wifi_cfg_disconnect()
+    /// suppresses reconnection until the next wifi_cfg_connect(), and does it
+    /// without touching this field.
     bool auto_reconnect;
-    /// Opt out of auto-reconnect. Inverted twin of `auto_reconnect`,
-    /// added because `false` and "not set" share a bit pattern and the
-    /// documented default is true. Default false (reconnect enabled).
-    bool disable_auto_reconnect;
     uint16_t max_reconnect_attempts;    ///< Max reconnect attempts after post-connect disconnect. Default 0 = infinite; 0 is a real value and is never re-defaulted.
-    /// Action when max_reconnect_attempts is reached. **Not defaulted by
-    /// wifi_cfg_init()** — the zero value is
-    /// WIFI_ON_RECONNECT_EXHAUSTED_PROVISION, which is [DISABLED] and
-    /// currently behaves as "retry indefinitely". Omitting this field
-    /// also blocks wifi_cfg_stop_http() while `enable_ap` is set and
-    /// `max_reconnect_attempts > 0`. Set it explicitly; init logs a
-    /// warning when it is left at zero.
+    /// Action when `max_reconnect_attempts` is reached. Defaults to
+    /// WIFI_ON_RECONNECT_EXHAUSTED_RESTART, which is both the zero value and
+    /// the only member that works — the other is [DISABLED]. Only ever
+    /// consulted when `max_reconnect_attempts` is non-zero.
     wifi_reconnect_exhausted_action_t on_reconnect_exhausted;
 
     // Provisioning lifecycle
-    /// Controls when provisioning interfaces (AP/BLE) start. **Not
-    /// defaulted by wifi_cfg_init()** — the zero value is
-    /// WIFI_PROV_ALWAYS, which is [DISABLED] and behaves like
-    /// WIFI_PROV_MANUAL. Set it explicitly (WIFI_PROV_ON_FAILURE is the
-    /// usual choice); init logs a warning when it is left at zero.
+    /// Controls when provisioning interfaces (AP/BLE) start. Defaults to
+    /// WIFI_PROV_ON_FAILURE, which is the zero value: start when unprovisioned
+    /// or when every saved network fails.
     wifi_provisioning_mode_t provisioning_mode;
     bool stop_provisioning_on_connect;              ///< Stop AP/BLE when STA gets IP. Default false.
     uint32_t provisioning_teardown_delay_ms;        ///< Delay before teardown (lets UI show result), ms. Default 0 = tear down immediately.
@@ -876,6 +886,111 @@ typedef struct {
 } wifi_cfg_config_t;
 
 // =============================================================================
+// Defaults the public initialiser macro needs
+// =============================================================================
+//
+// These were private. WIFI_CFG_DEFAULTS is public and expands in the caller's
+// translation unit, so everything it names has to be reachable from here.
+// Naming them is the honest form anyway: the field docs already quote these
+// values, and a caller comparing against one should not have to retype it.
+//
+// The `#ifndef` guards let the component build outside an ESP-IDF Kconfig run
+// (PlatformIO via library.json, or a host-side syntax check). Values match
+// Kconfig.projbuild; change them there, not here.
+
+#ifndef CONFIG_WIFI_CFG_DEFAULT_RETRY
+#define CONFIG_WIFI_CFG_DEFAULT_RETRY 3
+#endif
+
+#ifndef CONFIG_WIFI_CFG_RETRY_INTERVAL_MS
+#define CONFIG_WIFI_CFG_RETRY_INTERVAL_MS 5000
+#endif
+
+#ifndef CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM
+#define CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM 0
+#endif
+
+#ifndef CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD
+#define CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD 115200
+#endif
+
+#define WIFI_CFG_DEFAULT_AP_SSID     "ESP32-Config"
+#define WIFI_CFG_DEFAULT_AP_PASSWORD ""       ///< Empty: an open network
+#define WIFI_CFG_DEFAULT_AP_IP       "192.168.4.1"
+
+/**
+ * @brief Every documented default, as an initialiser. **Start here.**
+ *
+ * @code
+ * wifi_cfg_config_t cfg = WIFI_CFG_DEFAULT_CONFIG();
+ * cfg.enable_ap = true;
+ * cfg.auto_reconnect = false;      // means false, because you started here
+ * wifi_cfg_init(&cfg);
+ * @endcode
+ *
+ * or, in the compound-literal style ESP-IDF components usually use:
+ *
+ * @code
+ * wifi_cfg_init(&(wifi_cfg_config_t){
+ *     WIFI_CFG_DEFAULTS,
+ *     .enable_ap = true,
+ * });
+ * @endcode
+ *
+ * **Why this exists.** `wifi_cfg_init()` used to patch a handful of fields
+ * that were still zero, which is the only way to express "unset" without an
+ * initialiser — and it works for a scalar whose zero is nonsensical while
+ * failing for everything else. A `bool` has no spare value, so
+ * `auto_reconnect` could not be defaulted at all and a zero-initialised
+ * config silently never reconnected. Two enums had `[DISABLED]` members
+ * sitting on zero. Starting from a fully-populated struct removes the whole
+ * class: zero means zero, `false` means false, and init does not rewrite what
+ * you passed.
+ *
+ * @warning A designated initialiser for a **nested struct replaces the whole
+ * sub-struct**, so `{ WIFI_CFG_DEFAULTS, .default_ap = {.ssid = "x"} }` blanks
+ * the other `default_ap` fields. `wifi_cfg_init()` backfills the per-field AP
+ * defaults for exactly this reason; set members individually
+ * (`cfg.default_ap.ssid`) if you want to be sure.
+ */
+#define WIFI_CFG_DEFAULTS                                                      \
+    .max_retry_per_network   = CONFIG_WIFI_CFG_DEFAULT_RETRY,                  \
+    .retry_interval_ms       = CONFIG_WIFI_CFG_RETRY_INTERVAL_MS,              \
+    .retry_max_interval_ms   = 60000,                                          \
+    .auto_reconnect          = true,                                           \
+    .max_reconnect_attempts  = 0,  /* 0 = keep trying forever */               \
+    .on_reconnect_exhausted  = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,            \
+    .provisioning_mode       = WIFI_PROV_ON_FAILURE,                           \
+    .http_post_prov_mode     = WIFI_HTTP_FULL,                                 \
+    .default_ap = {                                                            \
+        .ssid            = WIFI_CFG_DEFAULT_AP_SSID,                           \
+        .password        = WIFI_CFG_DEFAULT_AP_PASSWORD,                       \
+        .max_connections = 4,                                                  \
+        .ip              = WIFI_CFG_DEFAULT_AP_IP,                             \
+        .netmask         = "255.255.255.0",                                    \
+        .gateway         = WIFI_CFG_DEFAULT_AP_IP,                             \
+        .dhcp_start      = "192.168.4.2",                                      \
+        .dhcp_end        = "192.168.4.20",                                     \
+    },                                                                         \
+    .http = {                                                                  \
+        .api_base_path = "/api/wifi",                                          \
+        .auth_username = "admin",                                              \
+        .auth_password = "admin",                                              \
+    },                                                                         \
+    .improv = {                                                                \
+        .serial_uart_num  = CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM,            \
+        .serial_baud_rate = CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD,                \
+    },                                                                         \
+    .prov_ble = {                                                              \
+        .cleanup_delay_ms    = 1000,                                           \
+        .reboot_max_wait_ms  = 15000,                                          \
+        .max_failed_attempts = 3,                                              \
+    }
+
+/** @brief `WIFI_CFG_DEFAULTS` as a complete struct value. See above. */
+#define WIFI_CFG_DEFAULT_CONFIG() ((wifi_cfg_config_t){ WIFI_CFG_DEFAULTS })
+
+// =============================================================================
 // Public API
 // =============================================================================
 
@@ -888,15 +1003,15 @@ typedef struct {
  * - Bắt đầu auto-connect
  * - Khởi tạo HTTP server (nếu enable)
  * 
- * @param config Configuration, or NULL. Every field is optional, but NULL
- *               (and an all-zero struct) is NOT "all defaults": fields whose
- *               zero value is a meaningful choice are taken at face value.
- *               In particular `provisioning_mode` becomes WIFI_PROV_ALWAYS
- *               and `on_reconnect_exhausted` becomes
- *               WIFI_ON_RECONNECT_EXHAUSTED_PROVISION — both [DISABLED]
- *               values. Set those two explicitly. Fields documented with a
- *               non-zero default (retry counts/intervals, `auto_reconnect`,
- *               the `default_ap` sub-fields, `http.auth_*`) are applied here.
+ * @param config Configuration, or NULL for every default unmodified.
+ *
+ *               Build it from WIFI_CFG_DEFAULTS. init does **not** patch
+ *               fields you left at zero — zero means zero — and it rejects a
+ *               config with `retry_interval_ms` or `retry_max_interval_ms` at
+ *               zero, because a zero base makes the backoff `base << retry`
+ *               zero and the device would retry with no delay. Passing a
+ *               struct you memset yourself will fail that check; that is
+ *               deliberate, and the error names the macro.
  * @return ESP_OK on success
  * 
  * @code{.c}

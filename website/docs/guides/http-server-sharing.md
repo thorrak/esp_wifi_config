@@ -33,9 +33,12 @@ If your application already runs an HTTP server, pass it in the config so the li
 httpd_handle_t my_server = start_my_webserver();
 
 wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
     .http = {
         .httpd = my_server,  // Use existing server
-        .api_base_path = "/api/wifi",
+        // api_base_path and auth_username/password come from the macro;
+        // naming .http here replaces the whole sub-struct, and the library
+        // falls back to "/api/wifi" and admin/admin for the blanks.
     },
     // ...
 });
@@ -58,11 +61,12 @@ The `http_post_prov_mode` field controls what happens to the HTTP server after p
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    WIFI_CFG_DEFAULTS,
     .stop_provisioning_on_connect = true,
     .enable_ap = true,
 
     // After provisioning, keep REST API but drop the Web UI
+    // (WIFI_CFG_DEFAULTS sets WIFI_HTTP_FULL)
     .http_post_prov_mode = WIFI_HTTP_API_ONLY,
 });
 ```
@@ -102,10 +106,10 @@ If you want to protect the WiFi configuration endpoints:
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
     .http = {
-        .api_base_path = "/api/wifi",
         .enable_auth = true,
-        .auth_username = "admin",
+        .auth_username = "admin",     // the default; shown for clarity
         .auth_password = "secret",
     },
 });

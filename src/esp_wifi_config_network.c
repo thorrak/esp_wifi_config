@@ -268,6 +268,11 @@ esp_err_t wifi_cfg_list_networks(wifi_network_t *networks, size_t max_count, siz
 esp_err_t wifi_cfg_connect(const char *ssid)
 {
     if (!g_wifi_cfg) return ESP_ERR_INVALID_STATE;
+
+    // Asking to connect lifts the suppression an explicit disconnect set.
+    // Before this existed there was no way back: wifi_cfg_disconnect() cleared
+    // config.auto_reconnect and nothing ever restored it.
+    g_wifi_cfg->reconnect_suppressed = false;
     
     if (!ssid) {
         // Auto connect - send event to task
@@ -316,7 +321,10 @@ esp_err_t wifi_cfg_disconnect(void)
 {
     if (!g_wifi_cfg) return ESP_ERR_INVALID_STATE;
     
-    g_wifi_cfg->config.auto_reconnect = false;
+    // Suppress reconnection until something asks to connect again. Runtime
+    // state, not config: the user's `auto_reconnect` intent is untouched, and
+    // wifi_cfg_connect() lifts this.
+    g_wifi_cfg->reconnect_suppressed = true;
     g_wifi_cfg->connecting = false;
     return esp_wifi_disconnect();
 }

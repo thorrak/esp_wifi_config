@@ -99,35 +99,18 @@ void app_main(void)
 
     // Initialize WiFi Config with Improv + BLE + AP
     wifi_cfg_config_t config = {
-        // Retry configuration
-        .max_retry_per_network = 3,
-        .retry_interval_ms = 5000,
-        .auto_reconnect = true,
+        WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
-        // SoftAP configuration (captive portal)
+        // SoftAP configuration (captive portal). Only the SSID differs from
+        // the defaults; wifi_cfg_init() backfills the rest.
         .default_ap = {
             .ssid = "ESP_{id}",
-            .password = "",
-            .channel = 0,
-            .max_connections = 4,
-            .ip = "192.168.4.1",
-            .netmask = "255.255.255.0",
-            .gateway = "192.168.4.1",
-            .dhcp_start = "192.168.4.2",
-            .dhcp_end = "192.168.4.20",
         },
-        // Provisioning: start AP+BLE+Improv when no networks or all fail
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
+        // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+BLE+Improv
+        // start when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,
         .enable_ap = true,
-
-        // HTTP REST API
-        .http = {
-            .httpd = NULL,
-            .api_base_path = "/api/wifi",
-            .enable_auth = false,
-        },
 
         // Improv BLE owns the BLE host in this example. To use the official
         // ESP-IDF Network Provisioning over BLE instead, disable

@@ -63,9 +63,8 @@ extern "C" {
 #define WIFI_CFG_HAS_BLE_PROVISIONING 1
 #endif
 
-#define WIFI_CFG_DEFAULT_AP_SSID "ESP32-Config"
-#define WIFI_CFG_DEFAULT_AP_PASSWORD ""
-#define WIFI_CFG_DEFAULT_AP_IP "192.168.4.1"
+/* WIFI_CFG_DEFAULT_AP_* now live in the public header: WIFI_CFG_DEFAULTS
+ * expands in the caller's TU and has to be able to name them. */
 #define WIFI_CFG_DEFAULT_BLE_DEVICE_NAME "ESP32-WiFi-{id}"
 
 #ifndef CONFIG_WIFI_CFG_MAX_SCAN_RESULTS
@@ -222,6 +221,14 @@ typedef struct {
     // it is true. Compare with (int32_t)(now - due) >= 0 so tick wrap is safe.
     bool reconnect_pending;
     TickType_t reconnect_due_tick;
+
+    //: An explicit wifi_cfg_disconnect() suppresses auto-reconnect until the
+    //: next wifi_cfg_connect(). This is *runtime state*, deliberately kept out
+    //: of `config`: wifi_cfg_disconnect() used to write config.auto_reconnect
+    //: = false, which conflated the user's intent with a transient condition,
+    //: made the field impossible to default, and never set it back -- one
+    //: disconnect opted the device out of reconnection for the rest of the boot.
+    bool reconnect_suppressed;
     char connected_ssid[32];        // SSID of currently connected network (empty if none)
     
     // Scan results (temporary)

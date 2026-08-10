@@ -92,8 +92,16 @@ void app_main(void)
     esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
     esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_VAR_CHANGED), on_var_changed, NULL);
 
-    // Initialize WiFi Config
+    // Initialize WiFi Config.
+    //
+    // Always start from WIFI_CFG_DEFAULTS: wifi_cfg_init() no longer patches
+    // fields that were left at zero, so a struct built without the macro gets
+    // a zero retry interval (rejected with ESP_ERR_INVALID_ARG) and
+    // auto_reconnect = false. Only the overrides below are specific to this
+    // example; everything else keeps its documented default.
     wifi_cfg_config_t config = {
+        WIFI_CFG_DEFAULTS,
+
         // Default networks (used if NVS is empty)
         // You can also configure networks via REST API or captive portal
         .default_networks = (wifi_network_t[]){
@@ -109,35 +117,21 @@ void app_main(void)
         },
         .default_var_count = 2,
 
-        // Retry configuration
-        .max_retry_per_network = 3,
-        .retry_interval_ms = 5000,
-        .auto_reconnect = true,
-
-        // SoftAP configuration (for captive portal)
+        // SoftAP configuration (for captive portal). Only the SSID differs
+        // from the defaults; wifi_cfg_init() backfills the rest of the
+        // sub-struct, which a designated initialiser would otherwise blank.
         .default_ap = {
-            .ssid = "ESP_{id}",
-            .password = "",           // Open network for easy setup
-            .channel = 0,             // Auto channel selection
-            .max_connections = 4,
-            .ip = "192.168.4.1",
-            .netmask = "255.255.255.0",
-            .gateway = "192.168.4.1",
-            .dhcp_start = "192.168.4.2",
-            .dhcp_end = "192.168.4.20",
+            .ssid = "ESP_{id}",       // {id} expands to the STA MAC suffix
         },
-        // Provisioning: start AP+HTTP when no networks or all fail
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
+
+        // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+HTTP start
+        // when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,  // 5s grace period before stopping AP
         .enable_ap = true,
 
-        // HTTP REST API configuration
-        .http = {
-            .httpd = NULL,               // Create new HTTP server
-            .api_base_path = "/api/wifi",
-            .enable_auth = false,        // No authentication for this example
-        },
+        // HTTP REST API is served on the default base path "/api/wifi" with
+        // authentication off.
     };
 
     ret = wifi_cfg_init(&config);

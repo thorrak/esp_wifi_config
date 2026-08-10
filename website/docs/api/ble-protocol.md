@@ -45,7 +45,7 @@ maintains, and read/write access to the custom variable store.
 | `esp-wifi-config-version` | read | JSON: `{lib, idf, app, fw_version, chip}` |
 | `esp-wifi-config-capabilities` | read | JSON: `{capabilities[], max_networks, max_vars}` |
 | `esp-wifi-config-vars` | read/write | JSON request, see schema below |
-| `esp-wifi-config-network-policy` | read | JSON: `{provisioning_mode, retries, …}` |
+| `esp-wifi-config-network-policy` | read | JSON: `{provisioning_mode, retries, …}`. `provisioning_mode` is a **string** (`"on_failure"`, `"when_unprovisioned"`, `"manual"`, `"always"`), never the raw enum value — so the 0.2.0 enum renumbering does not affect clients. |
 
 ### `esp-wifi-config-vars` request/response schema
 

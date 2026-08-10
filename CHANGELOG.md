@@ -9,34 +9,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Breaking Changes
 
-- **`.auto_reconnect = false` no longer disables auto-reconnect on its
-  own — use the new `.disable_auto_reconnect = true`.** `auto_reconnect`
-  is documented as "default true", but in a zero-initialised
-  `wifi_cfg_config_t` an omitted `bool` and an explicit `false` are the
-  same bit pattern, so `wifi_cfg_init()` had no way to honour the
-  documented default without overriding a deliberate opt-out. The field
-  is now *derived*: `auto_reconnect = !disable_auto_reconnect`. Callers
-  that set `.auto_reconnect = true` are unaffected. Callers that relied
-  on `.auto_reconnect = false` must add `.disable_auto_reconnect = true`
-  or they will now get reconnect behaviour.
-- **`wifi_cfg_config_t` gained a field** (`disable_auto_reconnect`,
-  next to `auto_reconnect`). Source-compatible for designated
-  initialisers — which is what every example and doc uses — but the
-  struct layout changed, so dependents must be rebuilt against the new
-  header (automatic for an IDF component build).
+- **Every `wifi_cfg_config_t` initialiser must now start from
+  `WIFI_CFG_DEFAULTS`.** The new `WIFI_CFG_DEFAULTS` (a
+  designated-initialiser list) and `WIFI_CFG_DEFAULT_CONFIG()` (the same
+  thing as a complete struct value) carry every documented default, so
+  the defaults exist as a *value* rather than as init-time patching.
+  Passing `NULL` to `wifi_cfg_init()` uses them unmodified.
+- **`wifi_cfg_init()` no longer patches unset fields, and rejects a
+  zero backoff.** It used to rewrite `max_retry_per_network`,
+  `retry_interval_ms` and `retry_max_interval_ms` when they were zero.
+  Patching is the only way to express "unset" without an initialiser,
+  and it works for a scalar whose zero is nonsensical while failing for
+  everything else — a `bool` has no spare value, so `auto_reconnect`
+  could not be defaulted at all. Zero now means zero;
+  `retry_interval_ms == 0` or `retry_max_interval_ms == 0` returns
+  `ESP_ERR_INVALID_ARG` (`retry_interval_ms << retry` is the backoff, so
+  a zero base retries with no delay), and `max_retry_per_network == 0`
+  logs a warning.
+- **`wifi_provisioning_mode_t` and `wifi_reconnect_exhausted_action_t`
+  renumbered.** Both had a `[DISABLED]` member on zero, so an omitted
+  field selected the one value that does nothing. The working value is
+  now zero: `WIFI_PROV_ON_FAILURE` (0), `WIFI_PROV_WHEN_UNPROVISIONED`
+  (1), `WIFI_PROV_MANUAL` (2), `WIFI_PROV_ALWAYS` (3); and
+  `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` (0),
+  `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` (1). Source using the
+  enumerator names just needs a recompile. Anything that **stored or
+  transmitted the numeric value** (NVS blobs, config files, custom
+  protocomm/MQTT payloads) must be versioned or migrated. The library's
+  own `esp-wifi-config-network-policy` endpoint reports the mode as a
+  string, so stock provisioning clients are unaffected.
+- **`wifi_cfg_config_t` layout changed.** Source-compatible for
+  designated initialisers — which is what every example and doc uses —
+  but dependents must be rebuilt against the new header (automatic for
+  an IDF component build).
+- **`WIFI_CFG_DEFAULT_AP_SSID` / `_PASSWORD` / `_IP` moved to the public
+  header.** `WIFI_CFG_DEFAULTS` expands in the caller's translation
+  unit, so everything it names has to be reachable from
+  `esp_wifi_config.h`. Applications can now compare against them
+  instead of retyping the literals.
 
 ### Fixed
 
-- **`auto_reconnect` now actually defaults to true.** `wifi_cfg_init()`
-  applied defaults for `max_retry_per_network`, `retry_interval_ms` and
-  `retry_max_interval_ms` only, and never touched `auto_reconnect`. Any
-  application that zero-initialised its config — the documented
-  "everything omitted takes the library default" style — silently got
-  `auto_reconnect == false`, and the whole reconnect block at
-  `esp_wifi_config.c` was gated on it. Measured on an ESP32-S3: after a
-  post-connect disconnect (beacon timeout when the AP goes away) the
-  device emitted one `wifi:disconnected` event and never retried — no
-  `wifi:connecting`, ever.
+- **`auto_reconnect` now actually defaults to true**, via
+  `WIFI_CFG_DEFAULTS`. `wifi_cfg_init()` applied defaults for
+  `max_retry_per_network`, `retry_interval_ms` and
+  `retry_max_interval_ms` only, and never touched `auto_reconnect` —
+  a `bool` has no spare value to mean "unset". Any application that
+  zero-initialised its config — the documented "everything omitted takes
+  the library default" style — silently got `auto_reconnect == false`,
+  and the whole reconnect block at `esp_wifi_config.c` was gated on it.
+  Measured on an ESP32-S3: after a post-connect disconnect (beacon
+  timeout when the AP goes away) the device emitted one
+  `wifi:disconnected` event and never retried — no `wifi:connecting`,
+  ever. `auto_reconnect` stays a plain `bool`: start from the macro and
+  `.auto_reconnect = false` means false.
+- **`wifi_cfg_init(NULL)` finally means "all defaults".** The header
+  claimed this for a long time and did not deliver, because the defaults
+  did not exist as a value anywhere. `NULL` now copies
+  `WIFI_CFG_DEFAULT_CONFIG()` verbatim.
 - **Partial `default_ap` configs now get the per-field AP defaults the
   header documents.** `set_default_ap_config()` ran only when there was
   no AP config at all, so supplying `.default_ap = { .ssid = "X" }`
@@ -69,23 +99,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
-- **`wifi_cfg_init()` warns when a provisioning enum is left at its zero
-  value.** `provisioning_mode` and `on_reconnect_exhausted` both have a
-  `[DISABLED]` value at zero (`WIFI_PROV_ALWAYS` and
-  `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION`), so an omitted field silently
-  selects a mode that does not work. Behaviour is unchanged — remapping
-  zero would override callers who chose it deliberately, and reordering
-  the enums would break the ABI — but the case is no longer silent. The
-  `on_reconnect_exhausted` warning also flags the live side effect: with
-  `enable_ap` set and `max_reconnect_attempts > 0`, the zero value makes
-  `wifi_cfg_stop_http()` return `ESP_ERR_INVALID_STATE`.
+- **`wifi_cfg_init()` warns when a `[DISABLED]` provisioning enum value
+  is selected.** `WIFI_PROV_ALWAYS` and
+  `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` still behave as
+  `WIFI_PROV_MANUAL` and "retry indefinitely" respectively. They are no
+  longer the zero value, so reaching them takes a deliberate choice
+  rather than an omission — but the warning stays, because the choice
+  does not do what its name suggests. The `on_reconnect_exhausted`
+  warning also flags the live side effect: with `enable_ap` set and
+  `max_reconnect_attempts > 0`, that value makes `wifi_cfg_stop_http()`
+  return `ESP_ERR_INVALID_STATE`.
 
 ### Documentation
 
-- Corrected `wifi_cfg_init()`'s `@param config` — it claimed "NULL for
-  all defaults", which is false: fields whose zero value is a meaningful
-  choice are taken at face value, and NULL selects the two `[DISABLED]`
-  provisioning enum values.
+- Every documented default now lives in one place, `WIFI_CFG_DEFAULTS`,
+  so the header's field docs and the values init actually applies can no
+  longer drift apart.
+- `MIGRATION.md` gained a **0.2.0** section covering the macros, the
+  removal of init-time patching, and the enum renumbering (with the
+  old→new numeric tables).
+- Every example and every documented config sample now starts from
+  `WIFI_CFG_DEFAULTS` and shows only its non-default settings.
 - Every field of `wifi_cfg_config_t` now states its default (or states
   that it has none) in the header, including the previously silent
   `stop_provisioning_on_connect`, `provisioning_teardown_delay_ms`,

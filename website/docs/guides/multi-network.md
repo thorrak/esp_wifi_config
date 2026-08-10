@@ -26,6 +26,8 @@ boot → load saved networks from NVS (sorted by priority DESC)
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
+
     // Default networks used when NVS is empty
     .default_networks = (wifi_network_t[]){
         {"PrimaryWifi", "password1", 10},    // priority 10 — tried first
@@ -34,19 +36,44 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     },
     .default_network_count = 3,
 
-    // Retry settings
-    .max_retry_per_network = 3,          // attempts per network before moving on
-    .retry_interval_ms = 5000,           // base interval between retries (5s)
-    .retry_max_interval_ms = 60000,      // max backoff cap (60s)
-    .auto_reconnect = true,              // reconnect after disconnect
-
-    // What to do after reconnect retries are exhausted
-    .max_reconnect_attempts = 10,        // 0 = infinite
-    // _PROVISION is currently disabled (treated as 0 = infinite retry).
-    // Use _RESTART to reboot when the retry budget is exhausted.
-    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,
+    // What to do after reconnect retries are exhausted. The default is
+    // .max_reconnect_attempts = 0 (retry forever); a bounded budget makes
+    // on_reconnect_exhausted reachable.
+    .max_reconnect_attempts = 10,
 });
 ```
+
+## Retry Tuning
+
+`WIFI_CFG_DEFAULTS` supplies the retry policy, so most projects change
+nothing here:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `max_retry_per_network` | 3 | Attempts per network before moving to the next |
+| `retry_interval_ms` | 5000 | Base interval; the backoff is `retry_interval_ms << retry` |
+| `retry_max_interval_ms` | 60000 | Cap on the exponential backoff |
+| `auto_reconnect` | `true` | Reconnect after a post-connect disconnect |
+| `max_reconnect_attempts` | 0 | 0 = retry forever |
+
+Override only what you need — but you must start from the macro, because
+`wifi_cfg_init()` no longer patches fields left at zero:
+
+```c
+wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
+    .max_retry_per_network = 5,       // more patient per network
+    .retry_interval_ms     = 2000,    // faster first retry
+    .retry_max_interval_ms = 30000,   // lower backoff ceiling
+    .auto_reconnect        = false,   // means false — you started from the macro
+});
+```
+
+:::warning
+`retry_interval_ms = 0` or `retry_max_interval_ms = 0` makes
+`wifi_cfg_init()` return `ESP_ERR_INVALID_ARG` — a zero base retries with
+no delay at all. A config built without `WIFI_CFG_DEFAULTS` hits this.
+:::
 
 ## Default Networks vs. Saved Networks
 
@@ -61,8 +88,8 @@ After a successful connection is lost (post-connect disconnect), the library ret
 
 | `on_reconnect_exhausted` | Behavior |
 |---|---|
+| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | Reboot the device via `esp_restart()`. **The default**, and the zero value. |
 | `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` | **Disabled** — kept in the API for compatibility; currently treated as "continue retrying indefinitely" (equivalent to `max_reconnect_attempts = 0`). |
-| `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | Reboot the device via `esp_restart()` |
 
 Set `max_reconnect_attempts = 0` for infinite retries (never exhausted).
 
@@ -100,16 +127,16 @@ Networks can also be managed via the [REST API](../api/rest-api.md), [BLE GATT](
 
 ```
 boot → evaluate provisioning_mode →
-  ├── WIFI_PROV_ALWAYS → [DISABLED — treated as MANUAL] try connect only
-  ├── WIFI_PROV_MANUAL → try connect only (user starts provisioning explicitly)
+  ├── WIFI_PROV_ON_FAILURE (default) →
+  │     ├── no saved networks → start provisioning
+  │     └── has saved networks → try connect →
+  │           ├── success → emit CONNECTED → GOT_IP
+  │           └── all fail → start provisioning
   ├── WIFI_PROV_WHEN_UNPROVISIONED →
   │     ├── no saved networks → start provisioning
   │     └── has saved networks → try connect
-  └── WIFI_PROV_ON_FAILURE →
-        ├── no saved networks → start provisioning
-        └── has saved networks → try connect →
-              ├── success → emit CONNECTED → GOT_IP
-              └── all fail → start provisioning
+  ├── WIFI_PROV_MANUAL → try connect only (user starts provisioning explicitly)
+  └── WIFI_PROV_ALWAYS → [DISABLED — treated as MANUAL] try connect only
 
 Post-connect disconnect:
   1. Auto-reconnect up to max_reconnect_attempts (0 = infinite)

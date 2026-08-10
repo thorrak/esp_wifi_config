@@ -112,41 +112,26 @@ void app_main(void)
 
     // Initialize WiFi Config with BLE
     wifi_cfg_config_t config = {
-        // Retry configuration
-        .max_retry_per_network = 3,
-        .retry_interval_ms = 5000,
-        .auto_reconnect = true,
+        WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
-        // SoftAP configuration (for captive portal)
+        // SoftAP configuration (for captive portal). Only the SSID differs
+        // from the defaults; wifi_cfg_init() backfills the rest.
         .default_ap = {
             .ssid = "ESP_{id}",
-            .password = "",
-            .channel = 0,
-            .max_connections = 4,
-            .ip = "192.168.4.1",
-            .netmask = "255.255.255.0",
-            .gateway = "192.168.4.1",
-            .dhcp_start = "192.168.4.2",
-            .dhcp_end = "192.168.4.20",
         },
-        // Provisioning: start AP+BLE+HTTP when no networks or all fail
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
+        // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+BLE+HTTP
+        // start when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,
         .enable_ap = true,
 
-        // HTTP REST API configuration
-        .http = {
-            .httpd = NULL,
-            .api_base_path = "/api/wifi",
-            .enable_auth = false,
-        },
-
         // Network Provisioning is enabled via
         // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y in sdkconfig.
         // All other parameters now live in this struct.
+        //
+        // device_name is left at its default, "PROV_{id}", where {id} expands
+        // to the last three bytes of the STA MAC.
         .prov_ble = {
-            .device_name = "PROV_{id}",
             .security = WIFI_CFG_PROV_SECURITY_2,
             .pop = "abcd1234",
             .security2_username = "wificfg",
@@ -156,7 +141,6 @@ void app_main(void)
             .security2_verifier_len = sizeof(sec2_verifier),
             .firmware_version = "1.0.0",
             .reset_on_failure = true,
-            .max_failed_attempts = 3,
         },
     };
 

@@ -71,16 +71,19 @@ void app_main(void)
     esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_connected, NULL);
     esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip, NULL);
 
-    // Initialize WiFi Config
+    // Initialize WiFi Config. Always start from WIFI_CFG_DEFAULTS — it
+    // carries every documented default, and wifi_cfg_init() does not patch
+    // fields you leave at zero.
     wifi_cfg_init(&(wifi_cfg_config_t){
+        WIFI_CFG_DEFAULTS,
         .default_networks = (wifi_network_t[]){
             {"HomeWifi", "password123", 10},   // priority 10 (highest)
             {"OfficeWifi", "office456", 5},    // priority 5 (fallback)
         },
         .default_network_count = 2,
 
-        // Start AP provisioning when no networks saved or all fail
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
+        // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: the AP starts
+        // when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,
         .enable_ap = true,
@@ -96,11 +99,16 @@ void app_main(void)
 ### What This Does
 
 1. Initializes NVS and esp_bus (both required prerequisites)
-2. Subscribes to connected and got-IP events
-3. Tries saved networks from NVS first (sorted by priority, highest first)
-4. If no networks are saved, uses the default networks provided in the config
-5. If all networks fail, starts a SoftAP captive portal so the user can configure WiFi via a web browser
-6. After connecting, waits 5 seconds then tears down the provisioning interfaces
+2. Starts from `WIFI_CFG_DEFAULTS` and overrides only what differs — retry
+   policy, `auto_reconnect = true` and `provisioning_mode =
+   WIFI_PROV_ON_FAILURE` all come from the macro. `wifi_cfg_init(NULL)`
+   gives you the defaults unmodified; a config built *without* the macro is
+   rejected with `ESP_ERR_INVALID_ARG` (zero retry interval).
+3. Subscribes to connected and got-IP events
+4. Tries saved networks from NVS first (sorted by priority, highest first)
+5. If no networks are saved, uses the default networks provided in the config
+6. If all networks fail, starts a SoftAP captive portal so the user can configure WiFi via a web browser
+7. After connecting, waits 5 seconds then tears down the provisioning interfaces
 
 ### Required sdkconfig
 

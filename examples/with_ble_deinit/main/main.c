@@ -302,32 +302,18 @@ void app_main(void)
     esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
 
     wifi_cfg_config_t config = {
-        .max_retry_per_network = 3,
-        .retry_interval_ms = 5000,
-        .auto_reconnect = true,
+        WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
+        // Only the SSID differs from the default AP config; wifi_cfg_init()
+        // backfills the rest of the sub-struct.
         .default_ap = {
             .ssid = "ESP_{id}",
-            .password = "",
-            .channel = 0,
-            .max_connections = 4,
-            .ip = "192.168.4.1",
-            .netmask = "255.255.255.0",
-            .gateway = "192.168.4.1",
-            .dhcp_start = "192.168.4.2",
-            .dhcp_end = "192.168.4.20",
         },
-        // Provisioning: start AP+BLE+HTTP when no networks or all fail
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
+        // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+BLE+HTTP
+        // start when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,
         .enable_ap = true,
-
-        .http = {
-            .httpd = NULL,
-            .api_base_path = "/api/wifi",
-            .enable_auth = false,
-        },
 
         // WiFi Config will detect NimBLE already running and use service-only mode.
         // The example uses Improv BLE (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y in
@@ -348,9 +334,9 @@ void app_main(void)
         // sharing the app's, so the handoff semantics differ slightly
         // from the Improv pattern shown here — see the with_ble example
         // for the standard Network Provisioning flow.
-        .improv = {
-            .ble_device_name = NULL,  // use Kconfig default ("ESP32-WiFi-{id}")
-        },
+        //
+        // improv.ble_device_name is left unset, so the BLE GAP name comes from
+        // the Kconfig default ("ESP32-WiFi-{id}").
     };
 
     ret = wifi_cfg_init(&config);

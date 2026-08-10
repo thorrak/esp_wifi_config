@@ -14,6 +14,7 @@ Provide default variables in the init config. These are written to NVS only on f
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
     .default_vars = (wifi_var_t[]){
         {"server_url", "https://api.example.com"},
         {"device_name", "my-device"},

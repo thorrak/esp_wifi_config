@@ -37,7 +37,8 @@ CONFIG_WIFI_CFG_IMPROV_SERIAL_BAUD=115200
 
 ```c
 wifi_cfg_init(&(wifi_cfg_config_t){
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    WIFI_CFG_DEFAULTS,
+    // provisioning_mode is already WIFI_PROV_ON_FAILURE from the macro.
     .stop_provisioning_on_connect = true,
     .enable_ap = true,
     // Transports selected via Kconfig (CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE / _SERIAL)

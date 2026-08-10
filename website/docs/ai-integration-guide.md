@@ -79,11 +79,11 @@ This affects project setup but not runtime code.
 
 | Mode | `provisioning_mode` value | Best for |
 |---|---|---|
-| **When connection fails** | `WIFI_PROV_ON_FAILURE` | Most IoT devices — try saved networks first, fall back to provisioning |
-| **First boot only** | `WIFI_PROV_WHEN_UNPROVISIONED` | Configure once, never show provisioning again |
-| **Manual trigger only** | `WIFI_PROV_MANUAL` | App controls when provisioning starts (e.g., button press, GPIO) |
+| **When connection fails** | `WIFI_PROV_ON_FAILURE` (0, **the default**) | Most IoT devices — try saved networks first, fall back to provisioning |
+| **First boot only** | `WIFI_PROV_WHEN_UNPROVISIONED` (1) | Configure once, never show provisioning again |
+| **Manual trigger only** | `WIFI_PROV_MANUAL` (2) | App controls when provisioning starts (e.g., button press, GPIO) |
 
-**Default recommendation:** `WIFI_PROV_ON_FAILURE` unless the user has a specific reason for another mode.
+**Default recommendation:** `WIFI_PROV_ON_FAILURE`, which `WIFI_CFG_DEFAULTS` already supplies — omit the field entirely unless the user wants another mode.
 
 :::caution `WIFI_PROV_ALWAYS` is disabled
 The value still exists in the enum but is bypassed at runtime (treated as `WIFI_PROV_MANUAL` with a warning log). `wifi_prov_mgr_start_provisioning()` calls `nimble_port_init()`, which fails if the app has already brought up the BLE stack. There is no current path to "always-on BLE provisioning". For an always-accessible config UI, expose the SoftAP captive portal or REST API after provisioning completes instead.
@@ -99,9 +99,13 @@ Only ask about interfaces selected in Q3.
 
 | Setting | Default | Notes |
 |---|---|---|
-| AP SSID | `"ESP32-Config"` (from Kconfig) | Supports `{id}` placeholder for last 3 MAC bytes (e.g., `"MyDevice-{id}"` → `"MyDevice-AABBCC"`) |
-| AP Password | `""` (open network) | Set a password for a secured AP; must be 8+ characters if non-empty |
-| AP IP | `"192.168.4.1"` | Only change if it conflicts with the user's network |
+| AP SSID | `WIFI_CFG_DEFAULT_AP_SSID` = `"ESP32-Config"` | Supports `{id}` placeholder for last 3 MAC bytes (e.g., `"MyDevice-{id}"` → `"MyDevice-AABBCC"`) |
+| AP Password | `WIFI_CFG_DEFAULT_AP_PASSWORD` = `""` (open network) | Set a password for a secured AP; must be 8+ characters if non-empty |
+| AP IP | `WIFI_CFG_DEFAULT_AP_IP` = `"192.168.4.1"` | Only change if it conflicts with the user's network |
+
+These three are public macros in `esp_wifi_config.h`. Naming `.default_ap`
+in a designated initialiser replaces the whole sub-struct;
+`wifi_cfg_init()` backfills the fields you leave blank.
 
 #### Q5b: BLE settings (if Network Provisioning BLE or Improv BLE selected)
 
@@ -112,7 +116,7 @@ Only ask about interfaces selected in Q3.
 | `.prov_ble.device_name` | Network Provisioning BLE | `"PROV_{id}"` | GAP name template; `{id}` replaced with last 3 MAC bytes (e.g. `"PROV_AB12CD"`) |
 | `.prov_ble.security` | Network Provisioning BLE | `WIFI_CFG_PROV_SECURITY_1` | `_DEFAULT` resolves to Security 1. Set `_SECURITY_2` for SRP6a (also requires `security2_salt`/`_verifier`). |
 | `.prov_ble.pop` | Network Provisioning BLE Security 1 | (none — NULL means no-PoP) | Set a per-device secret for production |
-| `.prov_ble.reset_on_failure` / `.max_failed_attempts` | Network Provisioning BLE | `false` / `0` | Set `reset_on_failure=true, max_failed_attempts=3` to accept fresh credentials after a wrong password without rebooting |
+| `.prov_ble.reset_on_failure` / `.max_failed_attempts` | Network Provisioning BLE | `false` / `3` | Set `reset_on_failure = true` to accept fresh credentials after a wrong password without rebooting; the threshold already defaults to 3 |
 | `.prov_ble.memory_policy` | Network Provisioning BLE | `WIFI_CFG_PROV_MEM_FREE_BTDM` | Bluetooth memory cleanup policy on prov deinit. Use `_FREE_BLE` if the app needs Classic BT after prov, `_FREE_BT` if it needs BLE, `_KEEP_ALL` if the app owns the BT stack. See [C API → Bluetooth memory policy](api/c-api). |
 | `.improv.ble_device_name` | Improv BLE GAP advertising | `"ESP32-WiFi-{id}"` | `{id}` replaced with last 3 MAC bytes |
 
@@ -204,14 +208,16 @@ No configuration needed from the user. The library auto-registers commands when 
 
 | Choice | Config |
 |---|---|
-| **Yes, auto-reconnect** (recommended) | omit the field — it is the default |
-| **No, just emit a disconnect event** | `.disable_auto_reconnect = true` |
+| **Yes, auto-reconnect** (recommended) | omit the field — `WIFI_CFG_DEFAULTS` sets it `true` |
+| **No, just emit a disconnect event** | `.auto_reconnect = false` |
 
 :::warning
-`.auto_reconnect = false` does **not** disable it. `wifi_cfg_init()` derives
-`auto_reconnect` from `disable_auto_reconnect`, because a zero-initialised
-struct cannot tell "field omitted" from "explicitly false" — and the
-documented default is `true`. Use `disable_auto_reconnect`.
+`.auto_reconnect = false` only means false if the config **started from
+`WIFI_CFG_DEFAULTS`**. `wifi_cfg_init()` does not patch unset fields, so a
+struct built without the macro gets `false` whether the user asked for it or
+not — and a zero `retry_interval_ms` on top of that makes init return
+`ESP_ERR_INVALID_ARG`. Always emit `WIFI_CFG_DEFAULTS` as the first
+initialiser.
 :::
 
 #### Q8b: Reconnect exhaustion (if auto-reconnect enabled)
@@ -220,8 +226,8 @@ documented default is `true`. Use `disable_auto_reconnect`.
 
 | Choice | Config |
 |---|---|
-| **Retry forever** (default) | `.max_reconnect_attempts = 0` |
-| **After N failures, reboot** | `.max_reconnect_attempts = N`, `.on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART` |
+| **Retry forever** (default) | omit both fields — `max_reconnect_attempts` defaults to 0 |
+| **After N failures, reboot** | `.max_reconnect_attempts = N` — `on_reconnect_exhausted` already defaults to `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` |
 
 :::caution `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` is disabled
 This option still exists in the enum but is bypassed at runtime (treated as `max_reconnect_attempts = 0` — keep retrying indefinitely — with a warning log). The re-enter-provisioning path called `wifi_prov_mgr_start_provisioning()` → `nimble_port_init()`, which fails when the app already owns the BLE stack. Use `_RESTART` or indefinite retry.
@@ -301,7 +307,7 @@ dependencies:
 
 ### 3. main/main.c
 
-Assemble the `wifi_cfg_config_t` struct from the collected answers. The template below shows all fields — **only include fields where the user's answer differs from the default or where the field is required for their chosen interfaces**.
+Assemble the `wifi_cfg_config_t` struct from the collected answers. **`WIFI_CFG_DEFAULTS` must be the first initialiser** — it carries every documented default, and `wifi_cfg_init()` does not patch fields left at zero. The template below shows all fields — **only include fields where the user's answer differs from the default or where the field is required for their chosen interfaces**.
 
 ```c
 #include "esp_wifi_config.h"
@@ -329,6 +335,8 @@ void app_main(void)
 
     // --- WiFi Config initialization ---
     wifi_cfg_init(&(wifi_cfg_config_t){
+        // REQUIRED first initialiser: every documented default.
+        WIFI_CFG_DEFAULTS,
 
         // -- Default networks (Q11) --
         // .default_networks = (wifi_network_t[]){
@@ -337,33 +345,35 @@ void app_main(void)
         // .default_network_count = N,
 
         // -- Provisioning mode (Q4) --
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,  // Q4 answer
+        // Already WIFI_PROV_ON_FAILURE from the macro. Name it only for
+        // another mode:
+        // .provisioning_mode = WIFI_PROV_WHEN_UNPROVISIONED,  // Q4 answer
 
         // -- Provisioning teardown (Q7) --
         .stop_provisioning_on_connect = true,        // Q7a
         .provisioning_teardown_delay_ms = 5000,      // Q7b
 
-        // -- HTTP post-provisioning (Q7c) --
+        // -- HTTP post-provisioning (Q7c; macro sets WIFI_HTTP_FULL) --
         // .http_post_prov_mode = WIFI_HTTP_DISABLED, // Q7c answer
 
         // -- SoftAP (Q3 + Q5a) --
         .enable_ap = true,  // set to true if SoftAP selected in Q3
         // .default_ap = {
-        //     .ssid = "MyDevice-{id}",   // Q5a
-        //     .password = "",             // Q5a
+        //     .ssid = "MyDevice-{id}",   // Q5a; the rest is backfilled
         // },
 
         // -- Reconnection (Q8) --
-        // .auto_reconnect = true,             // Q8a (default is true)
-        // .max_reconnect_attempts = 0,        // Q8b (0 = infinite)
-        // .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART, // Q8b (_PROVISION is disabled)
+        // auto_reconnect is true and max_reconnect_attempts is 0 from the
+        // macro; on_reconnect_exhausted is already _RESTART (_PROVISION is
+        // disabled). Name these only to change them:
+        // .auto_reconnect = false,            // Q8a
+        // .max_reconnect_attempts = 10,       // Q8b (0 = infinite)
 
-        // -- HTTP config (Q6, Q10) --
+        // -- HTTP config (Q6, Q10). api_base_path and auth_username come
+        //    from the macro. --
         // .http = {
         //     .httpd = my_server,             // Q6: pass existing server
-        //     .api_base_path = "/api/wifi",
         //     .enable_auth = true,            // Q10
-        //     .auth_username = "admin",       // Q10
         //     .auth_password = "changeme",    // Q10
         // },
 
@@ -374,17 +384,15 @@ void app_main(void)
         // wifi_prov_mgr's BLE stack. Set
         // .disable_reboot_on_provisioning_success = true only if the
         // app owns the BLE/Wi-Fi handoff itself.
+        // Defaults, so normally omitted: device_name ("PROV_{id}"),
+        // security (Security 1), memory_policy (FREE_BTDM),
+        // max_failed_attempts (3), reboot_max_wait_ms (15000 ms backstop),
+        // disable_reboot_on_provisioning_success (false = reboot on).
         // .prov_ble = {
-        //     .device_name         = "PROV_{id}", // GAP-name template (NULL → "PROV_{id}")
-        //     .security            = WIFI_CFG_PROV_SECURITY_1, // _DEFAULT → Security 1
         //     .pop                 = "1234abcd",  // Security 1 PoP (NULL → no PoP)
-        //     .memory_policy       = WIFI_CFG_PROV_MEM_FREE_BTDM, // see c-api.md
         //     .wifi_conn_attempts  = 5,           // 0 = infinite
         //     .reset_on_failure    = true,        // accept retries without reboot
-        //     .max_failed_attempts = 3,           // 0 → library default (3)
         //     .firmware_version    = "1.0.0",
-        //     // .disable_reboot_on_provisioning_success = false, // default (reboot on)
-        //     // .reboot_max_wait_ms = 3000,      // 0 → 3000 ms backstop
         // },
 
         // -- Improv (Q3 + Q5b + Q5c + Q5d) --
@@ -437,8 +445,9 @@ void app_main(void)
 1. **Only uncomment sections relevant to the user's answers.** Do not include commented-out blocks in the final output — only include active code.
 2. **Subscribe to events before `wifi_cfg_init()`** to catch events fired during initialization.
 3. **Use compound literals** for the config struct (the `&(wifi_cfg_config_t){...}` pattern) — this is idiomatic ESP-IDF C.
-4. **Do not set fields to their default values** — with two exceptions, both enums whose zero value is a real and currently `[DISABLED]` choice rather than "unset". Always set `provisioning_mode` explicitly (`WIFI_PROV_ON_FAILURE` is the usual choice), and always set `on_reconnect_exhausted` explicitly if `max_reconnect_attempts > 0`. Omitting either selects the disabled behaviour silently; `wifi_cfg_init()` logs a warning when it happens.
-5. **Include `#include "esp_console.h"`** only if CLI is enabled.
+4. **Always emit `WIFI_CFG_DEFAULTS` as the first initialiser** in the struct. `wifi_cfg_init()` does not patch fields left at zero: without the macro, `retry_interval_ms` is 0 and init returns `ESP_ERR_INVALID_ARG`, and `auto_reconnect` silently comes out `false`. If the user needs no overrides at all, `wifi_cfg_init(NULL)` is equivalent and simpler.
+5. **Do not set fields to their default values.** There are no longer any exceptions — `provisioning_mode` and `on_reconnect_exhausted` now default to `WIFI_PROV_ON_FAILURE` and `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` via the macro, so omit them unless the user chose something else. (`WIFI_PROV_ALWAYS` and `WIFI_ON_RECONNECT_EXHAUSTED_PROVISION` are `[DISABLED]`; `wifi_cfg_init()` logs a warning if either is selected.)
+6. **Include `#include "esp_console.h"`** only if CLI is enabled.
 
 ---
 
@@ -461,21 +470,34 @@ void app_main(void)
 
 ## Quick Reference: Config Field Defaults
 
-Fields you can omit if the user wants the default behavior:
+All of these come from `WIFI_CFG_DEFAULTS`. Omit them unless the user's
+answer differs:
 
 | Field | Default | Notes |
 |---|---|---|
-| `auto_reconnect` | `true` | Derived from `disable_auto_reconnect`; setting this field directly has no effect |
-| `disable_auto_reconnect` | `false` | The opt-out. Set this, not `auto_reconnect = false` |
-| `max_retry_per_network` | `3` | |
-| `retry_interval_ms` | `5000` | |
-| `retry_max_interval_ms` | `60000` | Exponential backoff cap |
+| `auto_reconnect` | `true` | Plain bool. `false` means false — provided you started from the macro |
+| `max_retry_per_network` | `3` | 0 is accepted but no connection is ever attempted (init warns) |
+| `retry_interval_ms` | `5000` | **0 → `ESP_ERR_INVALID_ARG`** |
+| `retry_max_interval_ms` | `60000` | Exponential backoff cap. **0 → `ESP_ERR_INVALID_ARG`** |
 | `max_reconnect_attempts` | `0` | 0 = infinite |
+| `on_reconnect_exhausted` | `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` | `_PROVISION` is `[DISABLED]` |
+| `provisioning_mode` | `WIFI_PROV_ON_FAILURE` | `WIFI_PROV_ALWAYS` is `[DISABLED]` |
 | `provisioning_teardown_delay_ms` | `0` | Recommend 5000 for captive portal |
 | `http_post_prov_mode` | `WIFI_HTTP_FULL` | |
+| `default_ap.ssid` | `"ESP32-Config"` | `WIFI_CFG_DEFAULT_AP_SSID` |
+| `default_ap.password` | `""` (open) | `WIFI_CFG_DEFAULT_AP_PASSWORD` |
+| `default_ap.ip` / `.gateway` | `"192.168.4.1"` | `WIFI_CFG_DEFAULT_AP_IP` |
+| `default_ap.netmask` | `"255.255.255.0"` | |
+| `default_ap.max_connections` | `4` | |
+| `default_ap.dhcp_start` / `.dhcp_end` | `"192.168.4.2"` / `"192.168.4.20"` | |
 | `http.api_base_path` | `"/api/wifi"` | |
 | `http.auth_username` | `"admin"` | Only relevant if `enable_auth = true` |
 | `http.auth_password` | `"admin"` | Only relevant if `enable_auth = true` |
+| `improv.serial_uart_num` | `0` | From `CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM` |
+| `improv.serial_baud_rate` | `115200` | From `CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD` |
+| `prov_ble.cleanup_delay_ms` | `1000` | |
+| `prov_ble.reboot_max_wait_ms` | `15000` | |
+| `prov_ble.max_failed_attempts` | `3` | |
 
 ---
 
@@ -483,12 +505,17 @@ Fields you can omit if the user wants the default behavior:
 
 If the user describes their use case in general terms, map to these common configurations:
 
+`ON_FAILURE` is the default, so those rows need no `provisioning_mode`
+field at all. `WIFI_PROV_ALWAYS` is `[DISABLED]` — never recommend it; for
+an always-reachable config surface, keep `http_post_prov_mode =
+WIFI_HTTP_FULL` instead.
+
 | Use case | Q4 mode | Interfaces | Post-prov HTTP | Reconnect |
 |---|---|---|---|---|
-| **Consumer IoT device** | `ON_FAILURE` | SoftAP + Web UI | `DISABLED` | Retry forever or re-provision after N |
-| **Development / prototyping** | `ALWAYS` | SoftAP + Web UI + CLI | `FULL` | Retry forever |
-| **Mobile-app-provisioned device** | `ON_FAILURE` | BLE (+ optionally SoftAP) | `DISABLED` | Re-provision after N |
-| **ESPHome-style device** | `ON_FAILURE` | Improv BLE + SoftAP | `DISABLED` | Re-provision after N |
-| **Local dashboard / gateway** | `ALWAYS` | SoftAP + Web UI | `FULL` | Retry forever |
+| **Consumer IoT device** | `ON_FAILURE` (default) | SoftAP + Web UI | `DISABLED` | Retry forever |
+| **Development / prototyping** | `ON_FAILURE` (default) | SoftAP + Web UI + CLI | `FULL` | Retry forever |
+| **Mobile-app-provisioned device** | `ON_FAILURE` (default) | BLE (+ optionally SoftAP) | `DISABLED` | Reboot after N |
+| **ESPHome-style device** | `ON_FAILURE` (default) | Improv BLE + SoftAP | `DISABLED` | Reboot after N |
+| **Local dashboard / gateway** | `ON_FAILURE` (default) | SoftAP + Web UI | `FULL` | Retry forever |
 | **Factory-configured device** | `MANUAL` | SoftAP + BLE (on button press) | `API_ONLY` | Reboot after N |
-| **Headless sensor** | `ON_FAILURE` | SoftAP only | `DISABLED` | Reboot after N |
+| **Headless sensor** | `ON_FAILURE` (default) | SoftAP only | `DISABLED` | Reboot after N |

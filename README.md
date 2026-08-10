@@ -117,18 +117,23 @@ Espressif's `wifi_provisioning` component does not expose a clean way to tear do
 The reboot fires on whichever happens first:
 
 1. The BLE client disconnecting after `WIFI_PROV_EVT_CRED_RECV` (the well-behaved-client path).
-2. A backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS` — default 3000 ms, configurable via `prov_ble.reboot_max_wait_ms`.
+2. A backstop timer set on `WIFI_PROV_EVT_CRED_SUCCESS` — default 15000 ms, configurable via `prov_ble.reboot_max_wait_ms`.
 
 Defaults are designed so most apps need no extra configuration. The relevant fields on `wifi_cfg_prov_config_t`:
 
 ```c
 .prov_ble = {
-    // Default: reboot enabled (zero-initialised → false → reboot on).
+    // Default: reboot enabled (false → reboot on).
     // Set true ONLY if the app handles the BLE / Wi-Fi handoff itself.
     .disable_reboot_on_provisioning_success = false,
-    .reboot_max_wait_ms = 3000,  // 0 → 3000 ms; ignored if reboot disabled
+    .reboot_max_wait_ms = 15000,  // 0 → 15000 ms; ignored if reboot disabled
 }
 ```
+
+The backstop must comfortably exceed the client's status-poll interval
+(Espressif's ESPProvision SDK polls every ~5 s) plus the time to associate and
+get an IP, or the device can reboot in the gap between two polls and the client
+reports a false failure.
 
 If your application does significant work in the `WIFI_CFG_EVT_PROV_CRED_SUCCESS` handler, finish that work before the callback returns (it runs before the reboot) — or extend `reboot_max_wait_ms`. Anything that must persist across the reboot needs to land in NVS first.
 
@@ -153,12 +158,15 @@ void app_main(void)
     nvs_flash_init();
     esp_bus_init();
 
+    // Always start from WIFI_CFG_DEFAULTS. wifi_cfg_init() does not patch
+    // fields you leave at zero, so a config built without it is rejected
+    // (zero retry interval) or silently never reconnects.
     wifi_cfg_init(&(wifi_cfg_config_t){
+        WIFI_CFG_DEFAULTS,
         .default_networks = (wifi_network_t[]){
             {"MyWiFi", "password", 10},
         },
         .default_network_count = 1,
-        .provisioning_mode = WIFI_PROV_ON_FAILURE,
         .stop_provisioning_on_connect = true,
         .enable_ap = true,
     });
@@ -166,6 +174,10 @@ void app_main(void)
     wifi_cfg_wait_connected(30000);
 }
 ```
+
+`provisioning_mode` defaults to `WIFI_PROV_ON_FAILURE`, so the AP and HTTP
+server come up when no networks are saved or every saved network fails.
+`wifi_cfg_init(NULL)` uses the defaults unmodified.
 
 ## Examples
 

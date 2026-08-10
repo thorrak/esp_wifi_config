@@ -237,62 +237,62 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
         goto cleanup;
     }
     
-    // Copy config
+    // Copy config. NULL means "everything at its default" -- which the header
+    // claimed for a long time and did not deliver, because the defaults did
+    // not exist as a value anywhere.
     if (config) {
         memcpy(&g_wifi_cfg->config, config, sizeof(wifi_cfg_config_t));
+    } else {
+        g_wifi_cfg->config = (wifi_cfg_config_t)WIFI_CFG_DEFAULT_CONFIG();
     }
-    
-    // ── Apply documented defaults ────────────────────────────────────────
-    // Scalars whose zero value is nonsensical can be defaulted by testing
-    // for zero: a retry budget or backoff interval of 0 is never a real
-    // choice, so 0 unambiguously means "unset".
+
+    // ── Reject a config that was never initialised ───────────────────────
+    //
+    // init used to patch fields that were still zero. That is the only way to
+    // express "unset" without an initialiser, and it works for a scalar whose
+    // zero is nonsensical while failing for everything else -- a `bool` has no
+    // spare value, so `auto_reconnect` could not be defaulted at all and a
+    // zero-initialised config silently never reconnected. Found on hardware.
+    //
+    // WIFI_CFG_DEFAULTS makes the defaults a value, so the patching is gone
+    // and zero now means zero. The two fields below are the ones where zero is
+    // not merely unusual but unsafe: `retry_interval_ms << retry` is the
+    // backoff, and a zero base retries with no delay at all. Refusing beats
+    // both silently patching (what we removed) and spinning.
+    if (g_wifi_cfg->config.retry_interval_ms == 0 ||
+        g_wifi_cfg->config.retry_max_interval_ms == 0) {
+        ESP_LOGE(TAG, "retry_interval_ms=%lu retry_max_interval_ms=%lu: zero is "
+                      "not a usable backoff and is no longer patched. Start "
+                      "from the defaults:\n"
+                      "    wifi_cfg_config_t cfg = WIFI_CFG_DEFAULT_CONFIG();\n"
+                      "    cfg.enable_ap = true;   /* then your overrides */\n"
+                      "    wifi_cfg_init(&cfg);\n"
+                      "or pass NULL for the defaults unmodified.",
+                 (unsigned long)g_wifi_cfg->config.retry_interval_ms,
+                 (unsigned long)g_wifi_cfg->config.retry_max_interval_ms);
+        ret = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+    }
     if (g_wifi_cfg->config.max_retry_per_network == 0) {
-        g_wifi_cfg->config.max_retry_per_network = CONFIG_WIFI_CFG_DEFAULT_RETRY;
-    }
-    if (g_wifi_cfg->config.retry_interval_ms == 0) {
-        g_wifi_cfg->config.retry_interval_ms = CONFIG_WIFI_CFG_RETRY_INTERVAL_MS;
-    }
-    if (g_wifi_cfg->config.retry_max_interval_ms == 0) {
-        g_wifi_cfg->config.retry_max_interval_ms = 60000;  // 60 seconds max backoff
+        // Not unsafe, but the per-network loop never runs, so the device never
+        // attempts a connection at all -- including the first one.
+        ESP_LOGW(TAG, "max_retry_per_network is 0: no connection will ever be "
+                      "attempted. Set it, or start from WIFI_CFG_DEFAULT_CONFIG().");
     }
 
-    // auto_reconnect is documented "default true", but for a bool in a
-    // zero-initialised struct "omitted" and "explicitly false" are the same
-    // bit pattern — there is no zero-test that can tell them apart. Rather
-    // than silently pick one reading, the field is *derived* from an
-    // unambiguous opt-out (`disable_auto_reconnect`, default false). A
-    // caller who says nothing gets the documented default; a caller who
-    // wants reconnect off states so in a field whose zero value is not the
-    // interesting one. Consequence, called out in CHANGELOG.md: setting
-    // `.auto_reconnect = false` alone no longer disables reconnect.
-    g_wifi_cfg->config.auto_reconnect = !g_wifi_cfg->config.disable_auto_reconnect;
-    // Logged unconditionally, and at INFO rather than WARN: the resolved
-    // value is the *documented* one, so this is not a problem to report. It
-    // is here because the field a caller wrote is no longer necessarily the
-    // field that takes effect, and the one line that says which won is worth
-    // more than any amount of changelog to whoever is reading a boot log at
-    // 2 a.m. wondering why their device reconnects when they asked it not to.
-    ESP_LOGI(TAG, "auto-reconnect %s%s",
-             g_wifi_cfg->config.auto_reconnect ? "enabled" : "disabled",
-             g_wifi_cfg->config.disable_auto_reconnect
-                 ? " (disable_auto_reconnect set)" : " (default)");
-
-    // provisioning_mode and on_reconnect_exhausted are enums whose zero
-    // value is a real, selectable choice — and, awkwardly, the [DISABLED]
-    // one in both cases. Re-mapping zero here would change behaviour for
-    // callers who chose it deliberately, and reordering the enums would
-    // break the ABI, so neither is done. Warn instead so the silent case
-    // stops being silent.
+    // Both of these used to sit on zero, so omitting them selected the one
+    // value that does nothing. They were moved off zero in 0.2.0; reaching
+    // them now takes a deliberate choice, and it is still worth saying that
+    // the choice does not do what its name suggests.
     if (g_wifi_cfg->config.provisioning_mode == WIFI_PROV_ALWAYS) {
-        ESP_LOGW(TAG, "provisioning_mode = WIFI_PROV_ALWAYS (the zero value, and [DISABLED]); "
-                      "provisioning will not auto-start. Set provisioning_mode explicitly "
-                      "(WIFI_PROV_ON_FAILURE is the usual choice).");
+        ESP_LOGW(TAG, "provisioning_mode = WIFI_PROV_ALWAYS is [DISABLED] and "
+                      "behaves as WIFI_PROV_MANUAL: provisioning will not "
+                      "auto-start. WIFI_PROV_ON_FAILURE is the usual choice.");
     }
     if (g_wifi_cfg->config.on_reconnect_exhausted == WIFI_ON_RECONNECT_EXHAUSTED_PROVISION &&
         g_wifi_cfg->config.max_reconnect_attempts > 0) {
         ESP_LOGW(TAG, "on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_PROVISION "
-                      "(the zero value, and [DISABLED]); exhaustion will retry indefinitely"
-                      "%s. Set on_reconnect_exhausted explicitly.",
+                      "is [DISABLED]; exhaustion will retry indefinitely%s.",
                  g_wifi_cfg->config.enable_ap ? " and wifi_cfg_stop_http() will be refused" : "");
     }
 
@@ -888,7 +888,9 @@ static void wifi_cfg_task(void *arg)
                     esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_DISCONNECTED, &disc, sizeof(disc));
 
                     // Auto reconnect with reconnect exhaustion
-                    if (g_wifi_cfg->config.auto_reconnect && !g_wifi_cfg->connecting) {
+                    if (g_wifi_cfg->config.auto_reconnect &&
+                        !g_wifi_cfg->reconnect_suppressed &&
+                        !g_wifi_cfg->connecting) {
                         g_wifi_cfg->reconnect_attempt_count++;
 
                         // Check reconnect exhaustion
@@ -1080,11 +1082,11 @@ static void wifi_cfg_task(void *arg)
         if (g_wifi_cfg->reconnect_pending &&
             (int32_t)(xTaskGetTickCount() - g_wifi_cfg->reconnect_due_tick) >= 0) {
             g_wifi_cfg->reconnect_pending = false;
-            // Re-check auto_reconnect: wifi_cfg_disconnect() clears it, and it
-            // may have been called from another task while we were waiting.
-            // A deliberate disconnect must not be undone by a retry that was
-            // scheduled before it.
-            if (g_wifi_cfg->config.auto_reconnect) {
+            // Re-check suppression: wifi_cfg_disconnect() may have been called
+            // from another task while we were waiting. A deliberate disconnect
+            // must not be undone by a retry scheduled before it.
+            if (g_wifi_cfg->config.auto_reconnect &&
+                !g_wifi_cfg->reconnect_suppressed) {
                 wifi_cfg_start_connect_sequence();
             }
         }

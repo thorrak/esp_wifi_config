@@ -14,8 +14,9 @@ All functions are declared in `esp_wifi_config.h` and return `esp_err_t` unless 
 // Initialize WiFi Config with the given configuration
 esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config);
 
-// Deinitialize WiFi Config, stop all interfaces, free resources
-esp_err_t wifi_cfg_deinit(void);
+// Deinitialize WiFi Config, stop all interfaces, free resources.
+// deinit_wifi = false keeps WiFi connected and the netifs alive.
+esp_err_t wifi_cfg_deinit(bool deinit_wifi);
 ```
 
 ## Status
@@ -108,10 +109,14 @@ esp_err_t wifi_cfg_stop_http(void);
 
 ## Configuration Struct
 
-The `wifi_cfg_config_t` struct controls all behavior:
+The `wifi_cfg_config_t` struct controls all behavior. **Always start from
+`WIFI_CFG_DEFAULTS`** — see [Starting from the defaults](#defaults) below for
+why, and for the full list of what the macro sets.
 
 ```c
 wifi_cfg_config_t config = {
+    WIFI_CFG_DEFAULTS,
+
     // Default networks (seed data for first boot when NVS is empty)
     .default_networks = networks,
     .default_network_count = 2,
@@ -123,53 +128,43 @@ wifi_cfg_config_t config = {
     },
     .default_var_count = 2,
 
-    // Retry config with exponential backoff
-    .max_retry_per_network = 3,
-    .retry_interval_ms = 5000,      // Base interval
-    .retry_max_interval_ms = 60000, // Max backoff
-    .auto_reconnect = true,
-
-    // SoftAP config ({id} = last 3 bytes of MAC)
+    // SoftAP config ({id} = last 3 bytes of MAC). A designated initialiser
+    // replaces the whole sub-struct; wifi_cfg_init() backfills the rest.
     .default_ap = {
         .ssid = "MyDevice-{id}",
-        .password = "",
-        .ip = "192.168.4.1",
     },
 
-    // Provisioning behavior
-    .provisioning_mode = WIFI_PROV_ON_FAILURE,
+    // Provisioning behavior. provisioning_mode is already
+    // WIFI_PROV_ON_FAILURE from the macro.
     .stop_provisioning_on_connect = true,
     .provisioning_teardown_delay_ms = 5000,
     .enable_ap = true,
 
-    // Reconnect exhaustion
-    .max_reconnect_attempts = 10,          // 0 = infinite
-    // _PROVISION is currently disabled (treated as 0 = infinite retry).
-    // Use _RESTART to reboot when the retry budget is exhausted.
-    .on_reconnect_exhausted = WIFI_ON_RECONNECT_EXHAUSTED_RESTART,
+    // Reconnect exhaustion. on_reconnect_exhausted is already
+    // WIFI_ON_RECONNECT_EXHAUSTED_RESTART from the macro —
+    // _PROVISION is currently disabled (treated as infinite retry).
+    .max_reconnect_attempts = 10,          // 0 = infinite (the default)
 
-    // HTTP post-provisioning mode
+    // HTTP post-provisioning mode (the macro sets WIFI_HTTP_FULL)
     .http_post_prov_mode = WIFI_HTTP_API_ONLY,
 
-    // HTTP interface
+    // HTTP interface. api_base_path ("/api/wifi") and auth_username
+    // ("admin") already come from the macro.
     .http = {
-        .api_base_path = "/api/wifi",
         .enable_auth = true,
-        .auth_username = "admin",
         .auth_password = "secret",
     },
 
     // ESP-IDF Network Provisioning over BLE
     // (requires CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y; mutually
-    // exclusive with Improv BLE)
+    // exclusive with Improv BLE). Omitted here and left at their defaults:
+    // device_name ("PROV_{id}"), security (Security 1),
+    // memory_policy (FREE_BTDM), max_failed_attempts (3),
+    // cleanup_delay_ms (1000), reboot_max_wait_ms (15000).
     .prov_ble = {
-        .device_name        = "PROV_{id}",  // GAP-name template (supports {id})
-        .security           = WIFI_CFG_PROV_SECURITY_1,  // _DEFAULT → Security 1
         .pop                = "1234abcd",   // Security 1 PoP
-        .memory_policy      = WIFI_CFG_PROV_MEM_FREE_BTDM, // see below
         .wifi_conn_attempts = 5,            // 0 = infinite (legacy default)
         .reset_on_failure   = true,         // accept retries without reboot
-        .max_failed_attempts = 3,           // 0 → library default (3)
         .firmware_version   = "1.0.0",
     },
 
@@ -178,7 +173,7 @@ wifi_cfg_config_t config = {
     // `device_name` is the human-readable name reported via the Improv
     // Device-Info RPC (what the Improv companion app shows after connect).
     .improv = {
-        .ble_device_name = "ESP32-WiFi-{id}",
+        .ble_device_name = "ESP32-WiFi-{id}",   // also the Kconfig default
         .firmware_name = "my_project",
         .firmware_version = "1.0.0",
         .device_name = "My Device",
@@ -188,6 +183,73 @@ wifi_cfg_config_t config = {
 
 wifi_cfg_init(&config);
 ```
+
+## Starting from the defaults {#defaults}
+
+`wifi_cfg_init()` does **not** patch fields you leave at zero. Two macros in
+`esp_wifi_config.h` supply the documented defaults as a value:
+
+```c
+// Compound-literal style — the house style in the examples
+wifi_cfg_init(&(wifi_cfg_config_t){
+    WIFI_CFG_DEFAULTS,
+    .enable_ap = true,
+});
+
+// Struct-value style, when you want to compute fields
+wifi_cfg_config_t cfg = WIFI_CFG_DEFAULT_CONFIG();
+cfg.enable_ap = true;
+cfg.auto_reconnect = false;   // means false, because you started here
+wifi_cfg_init(&cfg);
+
+// Or take them unmodified
+wifi_cfg_init(NULL);
+```
+
+What the macros set:
+
+| Field | Default |
+|-------|---------|
+| `max_retry_per_network` | `CONFIG_WIFI_CFG_DEFAULT_RETRY` (3) |
+| `retry_interval_ms` | `CONFIG_WIFI_CFG_RETRY_INTERVAL_MS` (5000) |
+| `retry_max_interval_ms` | 60000 |
+| `auto_reconnect` | `true` |
+| `max_reconnect_attempts` | 0 (retry forever) |
+| `on_reconnect_exhausted` | `WIFI_ON_RECONNECT_EXHAUSTED_RESTART` |
+| `provisioning_mode` | `WIFI_PROV_ON_FAILURE` |
+| `http_post_prov_mode` | `WIFI_HTTP_FULL` |
+| `default_ap.ssid` | `WIFI_CFG_DEFAULT_AP_SSID` (`"ESP32-Config"`) |
+| `default_ap.password` | `WIFI_CFG_DEFAULT_AP_PASSWORD` (`""` — open) |
+| `default_ap.max_connections` | 4 |
+| `default_ap.ip` / `.gateway` | `WIFI_CFG_DEFAULT_AP_IP` (`"192.168.4.1"`) |
+| `default_ap.netmask` | `"255.255.255.0"` |
+| `default_ap.dhcp_start` / `.dhcp_end` | `"192.168.4.2"` / `"192.168.4.20"` |
+| `http.api_base_path` | `"/api/wifi"` |
+| `http.auth_username` / `.auth_password` | `"admin"` / `"admin"` |
+| `improv.serial_uart_num` | `CONFIG_WIFI_MGR_IMPROV_SERIAL_UART_NUM` (0) |
+| `improv.serial_baud_rate` | `CONFIG_WIFI_MGR_IMPROV_SERIAL_BAUD` (115200) |
+| `prov_ble.cleanup_delay_ms` | 1000 |
+| `prov_ble.reboot_max_wait_ms` | 15000 |
+| `prov_ble.max_failed_attempts` | 3 |
+
+Everything not listed defaults to zero / `false` / `NULL`, which is the
+intended value for that field.
+
+:::warning
+`wifi_cfg_init()` returns `ESP_ERR_INVALID_ARG` if `retry_interval_ms` or
+`retry_max_interval_ms` is zero — `retry_interval_ms << retry` is the
+backoff, so a zero base retries with no delay at all. Building a config
+without `WIFI_CFG_DEFAULTS` is the usual way to hit this.
+:::
+
+:::note
+A designated initialiser for a nested struct replaces the **whole**
+sub-struct, so `{ WIFI_CFG_DEFAULTS, .default_ap = {.ssid = "x"} }` blanks
+the other `default_ap` fields. `wifi_cfg_init()` backfills the per-field AP
+defaults for exactly this reason; set members individually
+(`cfg.default_ap.ssid`) if you want to be certain. The same applies to
+`.http`, `.improv` and `.prov_ble`.
+:::
 
 ## Network Provisioning configuration (`wifi_cfg_prov_config_t`) {#prov-network-provisioning}
 
@@ -205,7 +267,7 @@ back to the library defaults documented in the table.
 | `random_addr` | Optional 6-byte static random BLE address. |
 | `security` | `WIFI_CFG_PROV_SECURITY_{0,1,2,DEFAULT}`. DEFAULT → Security 1. |
 | `pop` | Security 1 proof-of-possession. NULL or empty → no PoP. |
-| `security2_username` | Security 2 SRP6a username. NULL → `"wificfg"`. |
+| `security2_username` | Security 2 SRP6a username. Metadata only — the username never flows into `wifi_prov_mgr` from the device side, so no default is substituted. |
 | `security2_salt` / `_verifier` (+ lens) | Pre-computed SRP6a parameters. Required when Security 2 is selected — `wifi_cfg_init()` returns `ESP_ERR_INVALID_ARG` if missing. |
 | `memory_policy` | Bluetooth memory cleanup policy on provisioning deinit. See below. |
 | `keep_ble_on_after_stop` | If true, BLE stays advertising after the manager stops. Useful when the app takes over BLE post-provisioning. |
@@ -213,7 +275,7 @@ back to the library defaults documented in the table.
 | `wifi_conn_attempts` | STA connection attempts before CRED_FAIL. 0 → infinite (legacy default). A bounded value gives the manager a chance to report failure cleanly. |
 | `stop_after_success` | Stop the manager on CRED_SUCCESS even when `stop_provisioning_on_connect` is false (useful in MANUAL mode). Ignored while reboot-on-success is active — the reboot supersedes any in-place stop. |
 | `disable_reboot_on_provisioning_success` | **Default false** (reboot enabled). Set true only when the app handles the BLE/Wi-Fi handoff itself. See [Reboot on successful provisioning](../provisioning/ble-gatt.md#reboot-on-successful-provisioning). |
-| `reboot_max_wait_ms` | Backstop window after CRED_SUCCESS before the forced reboot, in ms. 0 → 3000 ms. Ignored when `disable_reboot_on_provisioning_success` is true. |
+| `reboot_max_wait_ms` | Backstop window after CRED_SUCCESS before the forced reboot, in ms. 0 → 15000 ms. Must comfortably exceed the client's status-poll interval (~5 s for Espressif's SDK) plus associate + DHCP, or the client can report a false failure. Ignored when `disable_reboot_on_provisioning_success` is true. |
 | `reset_on_failure` | If true, reset the state machine after `max_failed_attempts` consecutive credential failures so a fresh attempt can be accepted without rebooting. |
 | `max_failed_attempts` | Threshold used when `reset_on_failure` is true. 0 → library default (3). |
 | `firmware_version` | Surfaced via the built-in `esp-wifi-config-version` endpoint. |
