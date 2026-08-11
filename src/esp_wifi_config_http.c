@@ -112,7 +112,22 @@ static esp_err_t send_error(httpd_req_t *req, int code, const char *msg)
     char buf[128];
     snprintf(buf, sizeof(buf), "{\"error\":\"%s\"}", msg);
     httpd_resp_sendstr(req, buf);
-    return ESP_FAIL;
+
+    /* ESP_OK, not ESP_FAIL: the response was produced and sent successfully.
+     *
+     * esp_http_server treats a non-OK return as "this handler could not
+     * respond, close the socket" -- httpd_uri.c:
+     *
+     *     if (uri->handler(req) != ESP_OK) {
+     *         ESP_LOGW(TAG, LOG_FMT("uri handler execution failed"));
+     *         return ESP_FAIL;
+     *     }
+     *
+     * Returning ESP_FAIL here meant every 4xx tore down the connection. With
+     * seven sockets and no LRU purge, a client that collected a few error
+     * responses -- a Web UI polling an endpoint that 404s, say -- churned the
+     * pool until the device stopped accepting connections altogether. */
+    return ESP_OK;
 }
 
 /**
@@ -152,23 +167,140 @@ static esp_err_t handler_options(httpd_req_t *req)
     return ESP_OK;
 }
 
+/**
+ * @brief Read and discard the rest of a request body.
+ *
+ * Every path that refuses a body has to do this. When a handler returns,
+ * esp_http_server hands the socket back to its request parser, and anything
+ * left unread is then taken as the start of the *next* request -- so the
+ * client's following request on that connection is met with a reset instead of
+ * the response it was owed.
+ *
+ * Measured on an ESP32-S3 (IDF 5.5.4, 2026-08-10) before this existed: with an
+ * oversized body the intended 400 raced the server's close and arrived only
+ * about half the time, and on a keep-alive connection the *next* request was
+ * reset every time.
+ */
+static void drain_body(httpd_req_t *req, int remaining)
+{
+    char sink[128];
+    while (remaining > 0) {
+        int want = remaining < (int)sizeof(sink) ? remaining : (int)sizeof(sink);
+        int got = httpd_req_recv(req, sink, want);
+        if (got <= 0) {
+            break;      // timeout or the peer went away; nothing more to do
+        }
+        remaining -= got;
+    }
+}
+
+/**
+ * @brief Reject bodies nested deeper than the httpd task's stack can survive.
+ *
+ * cJSON parses by recursive descent, so nesting depth translates directly into
+ * stack frames -- and `WIFI_CFG_HTTP_MAX_CONTENT` bounds a body's *length*,
+ * which is not the same thing at all: two characters buy one level, so 109
+ * bytes buys fifty.
+ *
+ * Measured on an ESP32-S3 (IDF 5.5.4, 2026-08-10) against the 4 KB
+ * `HTTPD_DEFAULT_CONFIG()` stack: depth 40 was answered normally, depth 50
+ * overflowed the stack and rebooted the device, and depth 200 wedged it hard
+ * enough to need a physical reset. Basic Auth is off by default and the SoftAP
+ * is open by default, so that was reachable by anyone in radio range.
+ *
+ * The limit is deliberately far below the measured cliff and far above
+ * anything this API's own payloads need -- the deepest of them is a flat
+ * object of scalars.
+ */
+static bool json_depth_within_limit(const char *buf, size_t len)
+{
+    int depth = 0;
+    bool in_string = false;
+
+    for (size_t i = 0; i < len; i++) {
+        char c = buf[i];
+
+        if (in_string) {
+            if (c == '\\') {
+                i++;                    // skip whatever was escaped
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        switch (c) {
+            case '"':
+                in_string = true;
+                break;
+            case '[':
+            case '{':
+                if (++depth > WIFI_CFG_JSON_MAX_DEPTH) {
+                    return false;
+                }
+                break;
+            case ']':
+            case '}':
+                /* Clamped at zero. An unbalanced prefix like `]]]` would
+                 * otherwise drive the counter negative and hand the rest of
+                 * the body that much headroom above the limit. cJSON would
+                 * reject such a document before recursing far, so this is
+                 * belt rather than braces -- but the invariant "depth is the
+                 * nesting seen so far" should not depend on that argument. */
+                if (depth > 0) {
+                    depth--;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return true;
+}
+
 static cJSON *read_json_body(httpd_req_t *req)
 {
     int content_len = req->content_len;
-    if (content_len <= 0 || content_len > WIFI_CFG_HTTP_MAX_CONTENT) {
+    if (content_len <= 0) {
         return NULL;
     }
-    
+
+    if (content_len > WIFI_CFG_HTTP_MAX_CONTENT) {
+        // Refused without allocating -- but the body still has to come off the
+        // socket, or the connection is left mid-request. See drain_body().
+        ESP_LOGW(TAG, "body of %d bytes exceeds the %d-byte limit",
+                 content_len, WIFI_CFG_HTTP_MAX_CONTENT);
+        drain_body(req, content_len);
+        return NULL;
+    }
+
     char *buf = malloc(content_len + 1);
-    if (!buf) return NULL;
-    
-    int ret = httpd_req_recv(req, buf, content_len);
-    if (ret <= 0) {
+    if (!buf) {
+        drain_body(req, content_len);
+        return NULL;
+    }
+
+    // Loop, because httpd_req_recv() returns what one read produced. A body
+    // split across TCP segments came back short, which left the tail in the
+    // socket and handed cJSON a truncated document.
+    int received = 0;
+    while (received < content_len) {
+        int got = httpd_req_recv(req, buf + received, content_len - received);
+        if (got <= 0) {
+            free(buf);
+            return NULL;
+        }
+        received += got;
+    }
+    buf[received] = '\0';
+
+    if (!json_depth_within_limit(buf, (size_t)received)) {
+        ESP_LOGW(TAG, "body nested deeper than %d; refusing before cJSON sees it",
+                 WIFI_CFG_JSON_MAX_DEPTH);
         free(buf);
         return NULL;
     }
-    buf[ret] = '\0';
-    
+
     cJSON *json = cJSON_Parse(buf);
     free(buf);
     return json;
@@ -182,7 +314,7 @@ static cJSON *read_json_body(httpd_req_t *req)
 static esp_err_t handler_get_status(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_status_t status;
@@ -214,7 +346,7 @@ static esp_err_t handler_get_status(httpd_req_t *req)
 static esp_err_t handler_get_scan(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_scan_result_t results[WIFI_CFG_MAX_SCAN_RESULTS];
@@ -256,7 +388,7 @@ static esp_err_t handler_get_scan(httpd_req_t *req)
 static esp_err_t handler_get_networks(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_network_t networks[WIFI_CFG_MAX_NETWORKS];
@@ -282,7 +414,7 @@ static esp_err_t handler_get_networks(httpd_req_t *req)
 static esp_err_t handler_post_networks(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     cJSON *json = read_json_body(req);
@@ -326,7 +458,7 @@ static esp_err_t handler_post_networks(httpd_req_t *req)
 static esp_err_t handler_delete_network(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     // Extract SSID from URI
@@ -353,7 +485,7 @@ static esp_err_t handler_delete_network(httpd_req_t *req)
 static esp_err_t handler_put_network(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     // Extract SSID from URI
@@ -403,7 +535,7 @@ static esp_err_t handler_put_network(httpd_req_t *req)
 static esp_err_t handler_post_connect(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     if (req->content_len > 0) {
@@ -427,7 +559,7 @@ static esp_err_t handler_post_connect(httpd_req_t *req)
 static esp_err_t handler_post_disconnect(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_cfg_disconnect();
@@ -438,7 +570,7 @@ static esp_err_t handler_post_disconnect(httpd_req_t *req)
 static esp_err_t handler_get_ap_status(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_ap_status_t status;
@@ -468,7 +600,7 @@ static esp_err_t handler_get_ap_status(httpd_req_t *req)
 static esp_err_t handler_get_ap_config(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_cfg_ap_config_t config;
@@ -495,7 +627,7 @@ static esp_err_t handler_get_ap_config(httpd_req_t *req)
 static esp_err_t handler_put_ap_config(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     cJSON *json = read_json_body(req);
@@ -548,7 +680,7 @@ static esp_err_t handler_put_ap_config(httpd_req_t *req)
 static esp_err_t handler_post_ap_start(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_cfg_ap_config_t *config = NULL;
@@ -579,7 +711,7 @@ static esp_err_t handler_post_ap_start(httpd_req_t *req)
 static esp_err_t handler_post_ap_stop(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_cfg_stop_ap();
@@ -590,7 +722,7 @@ static esp_err_t handler_post_ap_stop(httpd_req_t *req)
 static esp_err_t handler_get_vars(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     wifi_cfg_lock();
@@ -616,7 +748,7 @@ static esp_err_t handler_get_vars(httpd_req_t *req)
 static esp_err_t handler_put_var(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
     // Extract key from URI
@@ -656,7 +788,7 @@ static esp_err_t handler_put_var(httpd_req_t *req)
 static esp_err_t handler_delete_var(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
 
     // Extract key from URI
@@ -683,7 +815,7 @@ static esp_err_t handler_delete_var(httpd_req_t *req)
 static esp_err_t handler_post_factory_reset(httpd_req_t *req)
 {
     if (!check_api_access(req)) {
-        return ESP_FAIL;
+        return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
 
     esp_err_t ret = wifi_cfg_factory_reset();
@@ -1082,6 +1214,16 @@ esp_err_t wifi_cfg_http_init(void)
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.uri_match_fn = httpd_uri_match_wildcard;
         config.max_uri_handlers = WIFI_CFG_HTTP_MAX_HANDLERS;
+        /* Without this, the 8th concurrent connection is accepted at the TCP
+         * layer and then never answered -- the client waits out its own
+         * timeout while the device looks healthy. `max_open_sockets` defaults
+         * to 7, and a browser alone opens up to six to one origin, so the
+         * ordinary case of the Web UI plus an OS captive-portal probe is
+         * already at the limit. Purging the least-recently-used connection to
+         * make room is the behaviour almost every embedded server wants, and
+         * turns "the next client hangs forever" into "the oldest idle one is
+         * dropped". */
+        config.lru_purge_enable = true;
 
         esp_err_t ret = httpd_start(&g_wifi_cfg->httpd, &config);
         if (ret != ESP_OK) {

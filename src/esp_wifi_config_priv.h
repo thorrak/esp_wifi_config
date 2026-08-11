@@ -97,6 +97,15 @@ extern "C" {
 #define WIFI_CFG_MAX_VARS           CONFIG_WIFI_CFG_MAX_VARS
 #define WIFI_CFG_MAX_SCAN_RESULTS   CONFIG_WIFI_CFG_MAX_SCAN_RESULTS
 #define WIFI_CFG_HTTP_MAX_CONTENT   CONFIG_WIFI_CFG_HTTP_MAX_CONTENT_LEN
+
+/* Maximum JSON nesting depth accepted in a request body.
+ *
+ * Bounds recursion in cJSON's parser, which runs on the httpd task's 4 KB
+ * stack. This is not implied by WIFI_CFG_HTTP_MAX_CONTENT: two characters buy
+ * one level of nesting, so a 109-byte body reaches depth 50, which overflowed
+ * the stack and rebooted an ESP32-S3 (measured, IDF 5.5.4). See
+ * json_depth_within_limit() in esp_wifi_config_http.c. */
+#define WIFI_CFG_JSON_MAX_DEPTH     16
 #define WIFI_CFG_TASK_STACK_SIZE    CONFIG_WIFI_CFG_TASK_STACK_SIZE
 #define WIFI_CFG_TASK_PRIORITY      CONFIG_WIFI_CFG_TASK_PRIORITY
 #define WIFI_CFG_HTTP_MAX_HANDLERS  CONFIG_WIFI_CFG_HTTP_MAX_URI_HANDLERS

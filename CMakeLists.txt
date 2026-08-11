@@ -36,10 +36,12 @@ set(PRIV_REQUIRES
 set(EMBED_FILES)
 
 # Add Web UI if enabled
+set(WIFI_CFG_WEBUI_EMBEDDED NO)
 if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
     list(APPEND SRCS "src/esp_wifi_config_webui.c")
     # Embed gzipped frontend files
     if(NOT CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH)
+        set(WIFI_CFG_WEBUI_EMBEDDED YES)
         list(APPEND EMBED_FILES
             "frontend/dist/index.html"
             "frontend/dist/assets/app.js.gz"
@@ -90,6 +92,23 @@ idf_component_register(
     PRIV_REQUIRES ${PRIV_REQUIRES}
     EMBED_FILES ${EMBED_FILES}
 )
+
+# Tell the C side whether the frontend assets were actually embedded.
+#
+# This has to come from CMake because the preprocessor cannot answer it.
+# CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH is a Kconfig `string` with `default ""`,
+# so it is *always* defined -- `#ifndef` on it is false even when no custom
+# path is set. The webui source used exactly that guard, so in every ordinary
+# build the embedded asset table and serve_embedded() were compiled out while
+# the assets themselves were embedded and referenced by nothing. `/` returned
+# 404, which is where all eight captive-portal handlers redirect.
+#
+# CMake gets it right (an empty string is falsy here), and it is the half that
+# decides EMBED_FILES, so it is the half that should say so.
+if(WIFI_CFG_WEBUI_EMBEDDED)
+    idf_component_get_property(lib ${COMPONENT_NAME} COMPONENT_LIB)
+    target_compile_definitions(${lib} PRIVATE WIFI_CFG_WEBUI_EMBEDDED=1)
+endif()
 
 # Add CLI support after component registration.
 # console include paths are propagated via target_link_libraries.

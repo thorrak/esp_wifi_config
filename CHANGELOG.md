@@ -48,8 +48,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `esp_wifi_config.h`. Applications can now compare against them
   instead of retyping the literals.
 
+### Security
+
+- **A ~109-byte HTTP request could reboot the device, and ~409 bytes
+  could wedge it until physically reset.** `read_json_body()` bounded
+  the request body's *length* but not its JSON *nesting depth*, and
+  cJSON parses by recursive descent — two characters buy one level, so
+  a body far inside the 2048-byte limit reached depths that overflowed
+  the HTTP task's 4 KB stack. Measured on an ESP32-S3 with IDF 5.5.4:
+  depth 40 answered normally, depth 50 rebooted, depth 200 stopped the
+  device answering on *any* channel. Basic Auth is off by default and
+  the provisioning SoftAP is open by default, so this was reachable by
+  anyone in radio range of a device being set up. Bodies nested deeper
+  than `WIFI_CFG_JSON_MAX_DEPTH` (16) are now refused with `400` before
+  cJSON sees them. No evidence was found of anything beyond a crash,
+  and no investigation of exploitability beyond that was done.
+
 ### Fixed
 
+- **The bundled Web UI was compiled out of every build that used it**,
+  so `/` returned 404 — and that is where all eight captive-portal
+  detection handlers redirect. A device would come up, advertise its
+  SoftAP, hijack DNS and return a correct 302 to the OS, which then
+  opened the portal and found nothing there.
+  `CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH` is a Kconfig `string` with
+  `default ""`, so it is *always defined* and the `#ifndef` guarding
+  the embedded asset table was always false. CMake reached the opposite
+  conclusion — an empty string is falsy there — and embedded the assets
+  anyway, so they shipped and nothing could reach them. CMake now
+  defines `WIFI_CFG_WEBUI_EMBEDDED` when it populates `EMBED_FILES`,
+  and the C guards test that. No Kconfig change, no flash cost, and
+  builds that set a real custom path are unaffected.
+- **Every HTTP error response tore down the connection.**
+  `send_error()` returned `ESP_FAIL` after successfully sending its
+  response, and `esp_http_server` closes the socket whenever a handler
+  returns non-OK. Any client that collected a few 4xx responses — a Web
+  UI polling an endpoint that 404s, say — burned one connection per
+  error against a pool of seven. It now returns `ESP_OK`, because the
+  response *was* sent.
+- **The 8th concurrent connection hung instead of being refused.**
+  `wifi_cfg_http_init()` left `lru_purge_enable` at its default of
+  false, so once `max_open_sockets` (7) were in use, further
+  connections were accepted at the TCP layer and never answered — the
+  client waited out its own timeout while the device looked healthy. A
+  browser alone opens up to six connections to one origin, so the Web
+  UI plus an OS captive-portal probe was already at the limit. LRU
+  purging is now enabled.
+- **An oversized request body left the connection unusable.**
+  `read_json_body()` refused bodies over `WIFI_CFG_HTTP_MAX_CONTENT`
+  without reading them, so the unread bytes were parsed as the *next*
+  request and the connection was reset — meaning the intended `400`
+  reached the client only about half the time, and a keep-alive
+  client's following request never did. The body is now drained before
+  the refusal.
+- **A request body split across TCP segments was truncated.**
+  `httpd_req_recv()` returns what a single read produced;
+  `read_json_body()` assumed it returned everything. It now loops until
+  `content_len` bytes have arrived.
 - **`auto_reconnect` now actually defaults to true**, via
   `WIFI_CFG_DEFAULTS`. `wifi_cfg_init()` applied defaults for
   `max_retry_per_network`, `retry_interval_ms` and

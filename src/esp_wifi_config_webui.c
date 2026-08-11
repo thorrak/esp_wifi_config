@@ -101,7 +101,15 @@ static bool serve_from_filesystem(httpd_req_t *req, const char *filepath)
     return true;
 }
 
-#ifndef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
+/* Guarded on WIFI_CFG_WEBUI_EMBEDDED, which CMakeLists.txt defines when it
+ * actually put these files in EMBED_FILES.
+ *
+ * NOT on CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH. That is a Kconfig `string` with
+ * `default ""`, so it is always *defined* and `#ifndef` on it is always
+ * false -- which compiled this whole table out of every ordinary build while
+ * CMake went on embedding the files, because an empty string is falsy there.
+ * The assets shipped and nothing could reach them. */
+#ifdef WIFI_CFG_WEBUI_EMBEDDED
 // Embedded files (linked via CMakeLists.txt EMBED_FILES)
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[] asm("_binary_index_html_end");
@@ -136,7 +144,7 @@ static bool serve_embedded(httpd_req_t *req, const char *filepath)
     }
     return false;
 }
-#endif // !CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
+#endif // WIFI_CFG_WEBUI_EMBEDDED
 
 /**
  * @brief Unified handler for all Web UI static files
@@ -156,7 +164,7 @@ static esp_err_t handler_webui_static(httpd_req_t *req)
         return ESP_OK;
     }
 
-#ifndef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
+#ifdef WIFI_CFG_WEBUI_EMBEDDED
     if (serve_embedded(req, filepath)) {
         return ESP_OK;
     }
@@ -195,7 +203,7 @@ esp_err_t wifi_cfg_webui_init(httpd_handle_t httpd)
     };
     httpd_register_uri_handler(httpd, &wildcard_uri);
 
-#ifndef CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH
+#ifdef WIFI_CFG_WEBUI_EMBEDDED
     size_t total_size = (index_html_end - index_html_start) +
                         (app_js_gz_end - app_js_gz_start) +
                         (index_css_gz_end - index_css_gz_start);
