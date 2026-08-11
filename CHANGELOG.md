@@ -66,6 +66,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- **The bundled Web UI was compiled out of every build that used it**,
+  so `/` returned 404 — and that is where all eight captive-portal
+  detection handlers redirect. A device would come up, advertise its
+  SoftAP, hijack DNS and return a correct 302 to the OS, which then
+  opened the portal and found nothing there.
+  `CONFIG_WIFI_CFG_WEBUI_CUSTOM_PATH` is a Kconfig `string` with
+  `default ""`, so it is *always defined* and the `#ifndef` guarding
+  the embedded asset table was always false. CMake reached the opposite
+  conclusion — an empty string is falsy there — and embedded the assets
+  anyway, so they shipped and nothing could reach them. CMake now
+  defines `WIFI_CFG_WEBUI_EMBEDDED` when it populates `EMBED_FILES`,
+  and the C guards test that. No Kconfig change, no flash cost, and
+  builds that set a real custom path are unaffected.
 - **Every HTTP error response tore down the connection.**
   `send_error()` returned `ESP_FAIL` after successfully sending its
   response, and `esp_http_server` closes the socket whenever a handler
