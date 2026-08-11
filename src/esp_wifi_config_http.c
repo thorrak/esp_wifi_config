@@ -241,7 +241,15 @@ static bool json_depth_within_limit(const char *buf, size_t len)
                 break;
             case ']':
             case '}':
-                depth--;
+                /* Clamped at zero. An unbalanced prefix like `]]]` would
+                 * otherwise drive the counter negative and hand the rest of
+                 * the body that much headroom above the limit. cJSON would
+                 * reject such a document before recursing far, so this is
+                 * belt rather than braces -- but the invariant "depth is the
+                 * nesting seen so far" should not depend on that argument. */
+                if (depth > 0) {
+                    depth--;
+                }
                 break;
             default:
                 break;
