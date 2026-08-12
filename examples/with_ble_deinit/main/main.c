@@ -304,11 +304,6 @@ void app_main(void)
     wifi_cfg_config_t config = {
         WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
-        // Only the SSID differs from the default AP config; wifi_cfg_init()
-        // backfills the rest of the sub-struct.
-        .default_ap = {
-            .ssid = "ESP_{id}",
-        },
         // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+BLE+HTTP
         // start when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
@@ -338,6 +333,12 @@ void app_main(void)
         // improv.ble_device_name is left unset, so the BLE GAP name comes from
         // the Kconfig default ("ESP32-WiFi-{id}").
     };
+
+    // Set nested members after the initialiser: a designated initialiser for
+    // a nested struct replaces the whole sub-struct, blanking what
+    // WIFI_CFG_DEFAULTS put there, and GCC warns (-Woverride-init).
+    snprintf(config.default_ap.ssid, sizeof(config.default_ap.ssid),
+             "ESP_{id}");
 
     ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {

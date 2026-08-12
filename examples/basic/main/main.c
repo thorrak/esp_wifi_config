@@ -237,12 +237,11 @@ void app_main(void)
 
         // ── BLE provisioning (Espressif protocomm) ───────────────────────
         // Inert unless CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE is set. Only
-        // the members with non-zero defaults are listed; the struct also
-        // carries advertising identity (device_name, service_uuid128,
-        // manufacturer_data, random_addr), the security 0/1/2 selection with
-        // its PoP and SRP6a salt/verifier, app-info and custom-endpoint
-        // tables, and three credential callbacks. See examples/with_ble and
-        // the field docs on wifi_cfg_prov_config_t.
+        // the three members with non-zero defaults are listed here; the other
+        // ~24 cover advertising identity, security 0/1/2 with its PoP and
+        // SRP6a salt/verifier, the Bluetooth memory policy, custom protocomm
+        // endpoints and the credential callbacks. All of them are catalogued
+        // the same way as this struct, in examples/with_ble.
         .prov_ble = {
             .cleanup_delay_ms    = 1000,   // grace window before protocomm
                                            // shutdown, for custom endpoints
