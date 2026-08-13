@@ -65,11 +65,6 @@ void app_main(void)
     wifi_cfg_config_t config = {
         WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
-        // Only the SSID differs from the default AP config; wifi_cfg_init()
-        // backfills the rest of the sub-struct.
-        .default_ap = {
-            .ssid = "ESP32-Setup-{id}",
-        },
         // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+HTTP start
         // when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
@@ -78,6 +73,12 @@ void app_main(void)
 
         // Web UI is auto-enabled via CONFIG_WIFI_CFG_ENABLE_WEBUI
     };
+
+    // Nested sub-structs are set after the initialiser: a designated
+    // initialiser for a nested struct replaces the whole sub-struct, blanking
+    // what WIFI_CFG_DEFAULTS put there, and GCC warns (-Woverride-init).
+    snprintf(config.default_ap.ssid, sizeof(config.default_ap.ssid),
+             "ESP32-Setup-{id}");
 
     ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {

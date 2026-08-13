@@ -101,11 +101,6 @@ void app_main(void)
     wifi_cfg_config_t config = {
         WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
-        // SoftAP configuration (captive portal). Only the SSID differs from
-        // the defaults; wifi_cfg_init() backfills the rest.
-        .default_ap = {
-            .ssid = "ESP_{id}",
-        },
         // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+BLE+Improv
         // start when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
@@ -118,17 +113,21 @@ void app_main(void)
         // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING (mutually exclusive).
         // See the `with_ble` example for that flow.
 
-        // Improv WiFi — open standard for browser/app provisioning
-        // Transports are selected at compile time via Kconfig:
-        //   CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y   (Web Bluetooth)
-        //   CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y (Web Serial)
-        .improv = {
-            .firmware_name = "wifi_improv_example",
-            .firmware_version = "1.0.0",
-            .device_name = "ESP32 Improv Demo",
-            .on_identify = on_improv_identify, // LED flash on Identify RPC
-        },
     };
+
+    // Nested sub-structs are set after the initialiser: a designated
+    // initialiser for a nested struct replaces the whole sub-struct, blanking
+    // what WIFI_CFG_DEFAULTS put there, and GCC warns (-Woverride-init).
+    snprintf(config.default_ap.ssid, sizeof(config.default_ap.ssid),
+             "ESP_{id}");
+    // Improv WiFi — open standard for browser/app provisioning. Transports
+    // are selected at compile time via Kconfig:
+    //   CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE=y    (Web Bluetooth)
+    //   CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL=y (Web Serial)
+    config.improv.firmware_name    = "wifi_improv_example";
+    config.improv.firmware_version = "1.0.0";
+    config.improv.device_name      = "ESP32 Improv Demo";
+    config.improv.on_identify      = on_improv_identify;  // LED on Identify RPC
 
     ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {

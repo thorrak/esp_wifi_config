@@ -15,6 +15,11 @@
  * provisioning protocol. See MIGRATION.md for the protocol-level migration
  * notes if you have client tools that still talk the old JSON-over-GATT
  * format.
+ *
+ * app_main() also builds an `all_prov_options` struct that is never used: it
+ * writes out every wifi_cfg_prov_config_t field with its default, so this file
+ * is the catalogue for BLE provisioning the way examples/basic is for
+ * wifi_cfg_config_t. Read it; write what `config` does above it.
  */
 
 #include <stdio.h>
@@ -114,35 +119,146 @@ void app_main(void)
     wifi_cfg_config_t config = {
         WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields
 
-        // SoftAP configuration (for captive portal). Only the SSID differs
-        // from the defaults; wifi_cfg_init() backfills the rest.
-        .default_ap = {
-            .ssid = "ESP_{id}",
-        },
         // provisioning_mode defaults to WIFI_PROV_ON_FAILURE: AP+BLE+HTTP
         // start when no networks are saved or every saved network fails.
         .stop_provisioning_on_connect = true,
         .provisioning_teardown_delay_ms = 5000,
         .enable_ap = true,
-
-        // Network Provisioning is enabled via
-        // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y in sdkconfig.
-        // All other parameters now live in this struct.
-        //
-        // device_name is left at its default, "PROV_{id}", where {id} expands
-        // to the last three bytes of the STA MAC.
-        .prov_ble = {
-            .security = WIFI_CFG_PROV_SECURITY_2,
-            .pop = "abcd1234",
-            .security2_username = "wificfg",
-            .security2_salt = sec2_salt,
-            .security2_salt_len = sizeof(sec2_salt),
-            .security2_verifier = sec2_verifier,
-            .security2_verifier_len = sizeof(sec2_verifier),
-            .firmware_version = "1.0.0",
-            .reset_on_failure = true,
-        },
     };
+
+    // Nested sub-structs are set after the initialiser, not inside it. A
+    // designated initialiser for a nested struct replaces the *whole*
+    // sub-struct, so `.prov_ble = { .security = ... }` would blank the
+    // cleanup, reboot-wait and failed-attempt values WIFI_CFG_DEFAULTS just
+    // filled in — and GCC says so (-Woverride-init). Each of those three
+    // happens to have a fallback at its use site, so it worked; not relying on
+    // that is better, and the same applies to default_ap, which has no
+    // fallbacks of its own beyond wifi_cfg_init()'s backfill.
+    snprintf(config.default_ap.ssid, sizeof(config.default_ap.ssid),
+             "ESP_{id}");   // {id} expands to the STA MAC suffix
+
+    // Network Provisioning is enabled via
+    // CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y in sdkconfig; everything
+    // else about it lives in this sub-struct. device_name is left at its
+    // default, "PROV_{id}".
+    config.prov_ble.security               = WIFI_CFG_PROV_SECURITY_2;
+    config.prov_ble.pop                    = "abcd1234";
+    config.prov_ble.security2_username     = "wificfg";
+    config.prov_ble.security2_salt         = sec2_salt;
+    config.prov_ble.security2_salt_len     = sizeof(sec2_salt);
+    config.prov_ble.security2_verifier     = sec2_verifier;
+    config.prov_ble.security2_verifier_len = sizeof(sec2_verifier);
+    config.prov_ble.firmware_version       = "1.0.0";
+    config.prov_ble.reset_on_failure       = true;
+
+    // ---- Every BLE provisioning option, with its default ----------------
+    //
+    // Never used; it exists to be read. examples/basic carries the same
+    // catalogue for wifi_cfg_config_t and points here for this sub-struct,
+    // because ~27 BLE fields would swamp a "basic" example and none of them
+    // are reachable without CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE.
+    //
+    // Deliberately built without WIFI_CFG_DEFAULTS: restating a field the
+    // macro already set is an override, and GCC warns on every one. That is
+    // safe here precisely because nothing initialises from this struct — the
+    // zeroed-new-field hazard the macro exists to prevent cannot bite a struct
+    // that is only read. It does mean the literals below *pin* their values:
+    // if a library default changes, this catalogue goes stale while `config`
+    // above follows it automatically.
+    const wifi_cfg_prov_config_t all_prov_options = {
+        // ── BLE identity and discovery ───────────────────────────────────
+        // NULL on all four means "use the default".
+        .device_name           = NULL,  // GAP name; default "PROV_{id}",
+                                        // {id} = last 3 STA MAC bytes
+        .service_uuid128       = NULL,  // 16-byte advertised service UUID;
+                                        // default is IDF's. Espressif
+                                        // recommends a product-specific one
+        .manufacturer_data     = NULL,  // appended to the scan response; must
+                                        // fit alongside the name in 31 bytes
+        .manufacturer_data_len = 0,
+        .random_addr           = NULL,  // 6-byte static random address; NULL
+                                        // uses the controller's public one
+
+        // ── Security ─────────────────────────────────────────────────────
+        // DEFAULT resolves to Security 1. Security 0 is plaintext and for
+        // testing only; Security 2 (SRP6a + AES-GCM) is the recommended
+        // production choice and is what this example selects above.
+        .security               = WIFI_CFG_PROV_SECURITY_DEFAULT,
+        .pop                    = NULL,  // Security 1 proof-of-possession;
+                                         // NULL or "" = no-PoP mode
+        // Security 2. The salt and verifier are derived offline from a
+        // username+password pair and baked in; the raw password never reaches
+        // the device. wifi_cfg_prov_validate() refuses to start Security 2
+        // without both. The username is metadata — it never flows into
+        // wifi_prov_mgr from this side, but the client must use the same one.
+        .security2_username     = NULL,
+        .security2_salt         = NULL,
+        .security2_salt_len     = 0,
+        .security2_verifier     = NULL,
+        .security2_verifier_len = 0,
+
+        // ── Bluetooth memory after provisioning stops ────────────────────
+        // FREE_BTDM reclaims the most RAM and is right when the application
+        // does not use Bluetooth afterwards. FREE_BLE keeps Classic BT
+        // (ESP32 only), FREE_BT keeps BLE, KEEP_ALL releases nothing. Getting
+        // this wrong faults inside the BT controller — picking FREE_BTDM and
+        // then calling a Classic BT function will crash. The library
+        // auto-overrides to KEEP_ALL, with a warning, when it finds the
+        // controller already enabled by the application.
+        .memory_policy          = WIFI_CFG_PROV_MEM_FREE_BTDM,
+        .keep_ble_on_after_stop = false,
+
+        // ── Lifecycle ────────────────────────────────────────────────────
+        // Disables the workaround for the IDF NimBLE bug where only the first
+        // client to connect after a restart can complete a session. Leave it
+        // false unless you have measured that you do not need it.
+        .disable_disconnect_restart = false,
+        .cleanup_delay_ms           = 1000,   // grace window between a stop
+                                              // request and protocomm
+                                              // shutdown, for custom endpoints
+        .wifi_conn_attempts         = 0,      // 0 = the manager's own default
+        .stop_after_success         = false,  // stop on CRED_SUCCESS even when
+                                              // stop_provisioning_on_connect
+                                              // is false; useful in MANUAL mode
+        // The device reboots once the client disconnects after a successful
+        // provisioning. Suppress it if the application has post-connect work
+        // that a restart would lose.
+        .disable_reboot_on_provisioning_success = false,
+        .reboot_max_wait_ms                     = 15000,  // backstop if the
+                                                          // client never
+                                                          // disconnects
+        .reset_on_failure    = true,   // clear credentials after repeated
+                                       // failures so the device is
+                                       // provisionable again — this example
+                                       // sets it
+        .max_failed_attempts = 3,
+
+        // ── Reported to the client ───────────────────────────────────────
+        // firmware_version surfaces on the esp-wifi-config-version endpoint.
+        // app_infos feeds wifi_prov_mgr_set_app_info(), which the Espressif
+        // provisioning apps read to show capabilities before a session opens.
+        .firmware_version = NULL,
+        .app_infos        = NULL,
+        .app_info_count   = 0,
+
+        // ── Custom protocomm endpoints ───────────────────────────────────
+        // Created before the manager starts and registered after, matching
+        // ESP-IDF's ordering requirement. The library registers five of its
+        // own (esp-wifi-config-version, -capabilities, -vars,
+        // -network-policy, -network-info); these are yours, numbered from
+        // 0xFF54 upward alongside them.
+        .custom_endpoints     = NULL,
+        .custom_endpoint_count = 0,
+
+        // ── Credential callbacks ─────────────────────────────────────────
+        // Fired as credentials arrive, fail and succeed. event_ctx is passed
+        // back to all three.
+        .on_credentials_received = NULL,
+        .on_credentials_failed   = NULL,
+        .on_credentials_success  = NULL,
+        .event_ctx               = NULL,
+    };
+    (void)all_prov_options;  // documentation, not configuration
 
     ret = wifi_cfg_init(&config);
     if (ret != ESP_OK) {
