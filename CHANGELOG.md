@@ -66,6 +66,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- **Improv BLE never checked the RPC command checksum.** The Improv
+  packet is `[command, length, ...data, checksum]` in both directions,
+  and the checksum is the only integrity check the protocol has above
+  the link layer. The library appended a correct one to every result —
+  its own comment cites the spec requiring it — while the command path
+  handed the raw GATT write straight to `wifi_cfg_improv_handle_rpc()`,
+  which validates the length field and nothing else. A corrupted
+  `SEND_WIFI_SETTINGS` was therefore executed: the mangled SSID and
+  passphrase were written to NVS and connected to.
+  `improv_ble_frame_valid()` now checks length and checksum in
+  `improv_ble_cmd_task()`, which is the one path both NimBLE and
+  Bluedroid reach the core through, and a bad frame answers
+  `IMPROV_ERROR_INVALID_RPC`. **Note for client authors:** the length
+  check is exact, so a frame that omits the trailing checksum byte is
+  now rejected rather than accepted with its last payload byte read as
+  the checksum. Conforming clients always send it; one that had been
+  getting away without it will start seeing `INVALID_RPC`.
+- **`esp-wifi-config-network-info` was unreachable over BLE
+  provisioning.** It was registered but never created:
+  `wifi_prov_mgr_endpoint_register()` attaches a handler to a name,
+  `wifi_prov_mgr_endpoint_create()` allocates the GATT characteristic,
+  and only four of the five built-in endpoints got the second call. The
+  handler was live with nothing able to reach it — including the
+  `network-info` command in this repo's own `tools/wifi_ble_cli`.
+  Endpoint discovery on a device returned nine characteristic names and
+  that one was not among them. Nothing logged, because registering a
+  handler succeeds whether or not a characteristic exists to route to
+  it; only the create can tell. Both calls now go through checked
+  wrappers that log the failure and name the endpoint.
 - **The bundled Web UI was compiled out of every build that used it**,
   so `/` returned 404 — and that is where all eight captive-portal
   detection handlers redirect. A device would come up, advertise its

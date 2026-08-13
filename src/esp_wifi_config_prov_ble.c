@@ -345,6 +345,38 @@ esp_err_t wifi_cfg_prov_validate(const wifi_cfg_prov_config_t *prov)
 
 #define PROV_LIB_VERSION_STRING     "esp_wifi_config 0.1.0"
 
+/*
+ * wifi_prov_mgr_endpoint_create() and _register() both return esp_err_t, and
+ * both used to be called for effect. The failure that hid behind that: an
+ * endpoint registered but never created has a handler and no GATT
+ * characteristic, so it is unreachable while looking present in the source.
+ * Nothing logged, because registering a handler succeeds whether or not a
+ * characteristic exists to reach it — only the create can tell.
+ *
+ * Neither failure is worth aborting provisioning over; a device that offers
+ * four of five custom endpoints is more useful than one that refuses to
+ * provision. Logging is the point.
+ */
+static void endpoint_create_checked(const char *name)
+{
+    esp_err_t err = WIFI_PROV_MGR_ENDPOINT_CREATE(name);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "endpoint '%s' not created (%s); its handler will be "
+                      "unreachable", name, esp_err_to_name(err));
+    }
+}
+
+static void endpoint_register_checked(const char *name,
+                                      protocomm_req_handler_t handler,
+                                      void *user_ctx)
+{
+    esp_err_t err = WIFI_PROV_MGR_ENDPOINT_REGISTER(name, handler, user_ctx);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "endpoint '%s' handler not registered (%s)",
+                 name, esp_err_to_name(err));
+    }
+}
+
 static esp_err_t make_json_response(cJSON *doc, uint8_t **out, ssize_t *out_len)
 {
     char *str = cJSON_PrintUnformatted(doc);
@@ -957,15 +989,24 @@ esp_err_t wifi_cfg_prov_start(void)
 
     // Built-in endpoints — create BEFORE start so the manager includes
     // them in the initial protocol set.
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VERSION);
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_CAPABILITIES);
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_VARS);
-    WIFI_PROV_MGR_ENDPOINT_CREATE(PROV_ENDPOINT_NETWORK_POLICY);
+    //
+    // Creating is what allocates the GATT characteristic; registering only
+    // attaches a handler to a name. The two fail independently, and only the
+    // create is in a position to notice a name the transport will have no way
+    // to reach — which is why PROV_ENDPOINT_NETWORK_INFO was registered here
+    // for several releases while never being created, leaving its handler
+    // unreachable and absent from every GATT dump. Both results are checked
+    // now so the next one says so at boot instead of from a bus trace.
+    endpoint_create_checked(PROV_ENDPOINT_VERSION);
+    endpoint_create_checked(PROV_ENDPOINT_CAPABILITIES);
+    endpoint_create_checked(PROV_ENDPOINT_VARS);
+    endpoint_create_checked(PROV_ENDPOINT_NETWORK_POLICY);
+    endpoint_create_checked(PROV_ENDPOINT_NETWORK_INFO);
 
     // User-supplied custom endpoints
     for (size_t i = 0; i < prov->custom_endpoint_count; i++) {
         if (!prov->custom_endpoints[i].name) continue;
-        WIFI_PROV_MGR_ENDPOINT_CREATE(prov->custom_endpoints[i].name);
+        endpoint_create_checked(prov->custom_endpoints[i].name);
     }
 
     WIFI_PROV_SECURITY_T sec = resolve_security();
@@ -1025,16 +1066,16 @@ esp_err_t wifi_cfg_prov_start(void)
     }
 
     // Register endpoint handlers AFTER start (per Espressif sample code).
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VERSION,        version_endpoint,        NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_CAPABILITIES,   capabilities_endpoint,   NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_VARS,           vars_endpoint,           NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_POLICY, network_policy_endpoint, NULL);
-    WIFI_PROV_MGR_ENDPOINT_REGISTER(PROV_ENDPOINT_NETWORK_INFO,   network_info_endpoint,   NULL);
+    endpoint_register_checked(PROV_ENDPOINT_VERSION,        version_endpoint,        NULL);
+    endpoint_register_checked(PROV_ENDPOINT_CAPABILITIES,   capabilities_endpoint,   NULL);
+    endpoint_register_checked(PROV_ENDPOINT_VARS,           vars_endpoint,           NULL);
+    endpoint_register_checked(PROV_ENDPOINT_NETWORK_POLICY, network_policy_endpoint, NULL);
+    endpoint_register_checked(PROV_ENDPOINT_NETWORK_INFO,   network_info_endpoint,   NULL);
 
     for (size_t i = 0; i < prov->custom_endpoint_count; i++) {
         const wifi_cfg_prov_custom_endpoint_t *ep = &prov->custom_endpoints[i];
         if (!ep->name || !ep->handler) continue;
-        WIFI_PROV_MGR_ENDPOINT_REGISTER(ep->name, ep->handler, ep->user_ctx);
+        endpoint_register_checked(ep->name, ep->handler, ep->user_ctx);
     }
 
     // Subscribe to BLE transport disconnects for the IDF NimBLE workaround.

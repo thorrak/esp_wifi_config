@@ -603,11 +603,60 @@ static void ble_state_change_cb(improv_state_t state, improv_error_t error, void
 // Command processing task
 // =============================================================================
 
+/*
+ * Improv frames an RPC command as [command, data_length, ...data, checksum],
+ * the checksum a plain sum of everything before it keeping only the LSB
+ * (https://www.improv-wifi.com/ble/). It is the only integrity check the
+ * protocol has above the link layer.
+ *
+ * Validated here rather than in the protocol core because the core is shared
+ * with Improv Serial, which has its own transport-level checksum and frames
+ * differently. ble_response_cb() below already appends a checksum to every
+ * result for the same reason; this is the missing half of that pair.
+ *
+ * Both host stacks reach this through s_cmd_queue, so one check covers
+ * NimBLE and Bluedroid.
+ */
+static bool improv_ble_frame_valid(const uint8_t *data, size_t len)
+{
+    if (len < 3) {
+        ESP_LOGW(TAG, "RPC command too short: %u bytes", (unsigned)len);
+        return false;
+    }
+
+    /* Header is 2 bytes, then data[1] payload bytes, then 1 checksum byte.
+     * Exact equality, so a frame that omits the checksum is rejected rather
+     * than silently treated as one whose last payload byte is the checksum. */
+    if ((size_t)data[1] + 3u != len) {
+        ESP_LOGW(TAG, "RPC command length mismatch: header claims %u payload "
+                      "bytes, frame is %u", (unsigned)data[1], (unsigned)len);
+        return false;
+    }
+
+    uint8_t checksum = 0;
+    for (size_t i = 0; i + 1 < len; i++) {
+        checksum += data[i];
+    }
+    if (checksum != data[len - 1]) {
+        ESP_LOGW(TAG, "RPC command checksum: got 0x%02x, computed 0x%02x",
+                 data[len - 1], checksum);
+        return false;
+    }
+    return true;
+}
+
 static void improv_ble_cmd_task(void *param)
 {
     improv_ble_cmd_msg_t msg;
     while (xQueueReceive(s_cmd_queue, &msg, portMAX_DELAY) == pdTRUE) {
-        wifi_cfg_improv_handle_rpc(msg.data, msg.length, ble_response_cb, NULL);
+        if (improv_ble_frame_valid(msg.data, msg.length)) {
+            wifi_cfg_improv_handle_rpc(msg.data, msg.length, ble_response_cb, NULL);
+        } else {
+            /* Reported the same way the core reports its own frame errors, so
+             * a client sees one error code for "that frame was not usable"
+             * regardless of which layer noticed. */
+            wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
+        }
         free(msg.data);
     }
     vTaskDelete(NULL);
