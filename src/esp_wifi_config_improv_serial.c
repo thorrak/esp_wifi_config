@@ -26,7 +26,14 @@
 
 static const char *TAG = "wifi_cfg_improv_ser";
 
-#define IMPROV_SERIAL_BUF_SIZE  256
+/* Frame overhead: "IMPROV" + version + type + length + checksum. */
+#define IMPROV_SERIAL_FRAME_OVERHEAD (IMPROV_SERIAL_HEADER_LEN + 4)
+/* The frame's length field is one byte, so this is the hard ceiling on what a
+ * frame can carry -- and it is below what the protocol core can build: an RPC
+ * packet is [cmd][len][<=255 payload], so its payload must stay under 253 to
+ * be expressible here at all. */
+#define IMPROV_SERIAL_MAX_DATA  255
+#define IMPROV_SERIAL_BUF_SIZE  (IMPROV_SERIAL_FRAME_OVERHEAD + IMPROV_SERIAL_MAX_DATA)
 #define IMPROV_SERIAL_RX_BUF    512
 #define IMPROV_SERIAL_TASK_STACK 4096
 
@@ -59,8 +66,28 @@ static void serial_send_packet(uint8_t type, const uint8_t *data, size_t len)
     // Type
     buf[offset++] = type;
 
-    // Length
-    if (len > 200) len = 200;  // Safety cap
+    /*
+     * Length.
+     *
+     * This used to clamp: `if (len > 200) len = 200;`. That wrote the clamped
+     * length into the frame and copied only that many bytes -- but the RPC
+     * packet nested inside still declared its original length, so the client
+     * received a frame whose inner header claimed more payload than had been
+     * sent. A Wi-Fi scan reaches this immediately: measured 2026-08-17, a
+     * bench with eleven neighbouring APs produced a 218-byte RPC packet that
+     * arrived as 200 bytes declaring 216, with a neighbour's SSID severed
+     * mid-string.
+     *
+     * Dropping is strictly better than truncating. A missing response is a
+     * timeout the caller can see; a malformed one is a parse error that looks
+     * like a client bug. The buffer is now sized to the format's own ceiling,
+     * so this is reachable only by a packet no frame could have expressed.
+     */
+    if (len > IMPROV_SERIAL_MAX_DATA) {
+        ESP_LOGE(TAG, "refusing to send a %u-byte packet: the frame length "
+                      "field is one byte", (unsigned)len);
+        return;
+    }
     buf[offset++] = (uint8_t)len;
 
     // Data
