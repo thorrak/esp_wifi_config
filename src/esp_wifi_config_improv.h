@@ -132,8 +132,35 @@ typedef void (*improv_response_cb_t)(uint8_t type, const uint8_t *data, size_t l
  * @param response_cb Callback to send response
  * @param cb_ctx      Opaque context passed to response_cb
  */
+/**
+ * @brief How a transport wants multi-part RPC results delivered.
+ *
+ * The two Improv specifications disagree about GET_WIFI_NETWORKS, and neither
+ * is a superset of the other, so the core cannot pick one:
+ *
+ * - BLE (improv-wifi.com/ble): "This command will trigger one RPC Response
+ *   which will contain a multiple of 3 strings where the first contains the
+ *   SSID..." -- every network in a single response.
+ * - Serial (improv-wifi.com/serial): "This command will trigger at least one
+ *   RPC Response. The final response (or the first if no networks are found)
+ *   will have 0 strings in the body." -- one response per network, then an
+ *   empty one.
+ *
+ * The difference is not cosmetic on serial. A response is carried in a frame
+ * whose length field is one byte, so a single response holding every network
+ * overflows on any busy band: measured on a bench with nine neighbours, the
+ * combined payload reached 243 bytes against a 253-byte ceiling, and one more
+ * SSID put it over. Per-network responses are a few dozen bytes each and
+ * cannot overflow.
+ */
+typedef enum {
+    IMPROV_RPC_STYLE_SINGLE,   /**< BLE: one response holding every network. */
+    IMPROV_RPC_STYLE_CHUNKED,  /**< Serial: one per network, then an empty one. */
+} improv_rpc_style_t;
+
 void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
-                                improv_response_cb_t response_cb, void *cb_ctx);
+                                improv_response_cb_t response_cb, void *cb_ctx,
+                                improv_rpc_style_t style);
 
 /**
  * @brief Get the current Improv state.

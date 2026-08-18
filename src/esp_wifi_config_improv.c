@@ -273,7 +273,8 @@ static const char *auth_mode_str(wifi_auth_mode_t auth)
     }
 }
 
-static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
+static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
+                                     improv_rpc_style_t style)
 {
     ESP_LOGI(TAG, "RPC: Get WiFi Networks (scan)");
 
@@ -293,9 +294,11 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
     }
     ESP_LOGI(TAG, "Scan found %zu networks", count);
 
-    // Per the Improv spec, scan results are ONE RPC response containing
-    // a multiple of 3 strings: [SSID, RSSI, auth] for each network.
-    // Max payload is 255 bytes (data_len is uint8_t).
+    /*
+     * The two specifications disagree here, so the transport says which it
+     * wants. See improv_rpc_style_t in the header for both quotes and for why
+     * the difference matters more on serial than it looks.
+     */
     uint8_t payload[255];
     size_t poff = 0;
 
@@ -304,10 +307,24 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
         snprintf(rssi_str, sizeof(rssi_str), "%d", results[i].rssi);
         const char *auth_str = auth_mode_str(results[i].auth);
 
-        // Check if this network fits in the remaining space
         size_t needed = 1 + strlen(results[i].ssid)
                       + 1 + strlen(rssi_str)
                       + 1 + strlen(auth_str);
+
+        if (style == IMPROV_RPC_STYLE_CHUNKED) {
+            /* One response per network. Three strings each, so a response is
+             * a few dozen bytes and no amount of neighbours can overflow the
+             * frame that carries it. */
+            poff = 0;
+            append_tlv_string(payload, sizeof(payload), &poff, results[i].ssid);
+            append_tlv_string(payload, sizeof(payload), &poff, rssi_str);
+            append_tlv_string(payload, sizeof(payload), &poff, auth_str);
+            send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
+            continue;
+        }
+
+        /* One response for all of them. Networks that do not fit are dropped,
+         * which is the BLE spec's shape and its cost. */
         if (poff + needed > sizeof(payload)) break;
 
         append_tlv_string(payload, sizeof(payload), &poff, results[i].ssid);
@@ -315,7 +332,14 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
         append_tlv_string(payload, sizeof(payload), &poff, auth_str);
     }
 
-    send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
+    if (style == IMPROV_RPC_STYLE_CHUNKED) {
+        /* "The final response (or the first if no networks are found) will
+         * have 0 strings in the body." A client cannot otherwise tell the end
+         * of the list from a slow radio. */
+        send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, 0, cb, ctx);
+    } else {
+        send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
+    }
 
     free(results);
 }
@@ -325,7 +349,8 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx)
 // =============================================================================
 
 void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
-                                improv_response_cb_t response_cb, void *cb_ctx)
+                                improv_response_cb_t response_cb, void *cb_ctx,
+                                improv_rpc_style_t style)
 {
     if (!data || len < 2) {
         wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
@@ -359,7 +384,7 @@ void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
             break;
 
         case IMPROV_RPC_GET_WIFI_NETWORKS:
-            handle_get_wifi_networks(response_cb, cb_ctx);
+            handle_get_wifi_networks(response_cb, cb_ctx, style);
             break;
 
         default:
@@ -531,8 +556,9 @@ void wifi_cfg_improv_set_state(improv_state_t state) { (void)state; }
 void wifi_cfg_improv_set_error(improv_error_t error) { (void)error; }
 void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx) { (void)cb; (void)ctx; }
 void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
-                                improv_response_cb_t response_cb, void *cb_ctx) {
-    (void)data; (void)len; (void)response_cb; (void)cb_ctx;
+                                improv_response_cb_t response_cb, void *cb_ctx,
+                                improv_rpc_style_t style) {
+    (void)data; (void)len; (void)response_cb; (void)cb_ctx; (void)style;
 }
 
 #endif // CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE || CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL

@@ -230,8 +230,12 @@ static void serial_rx_task(void *param)
                     // Valid packet received
                     switch (pkt_type) {
                         case IMPROV_SERIAL_TYPE_RPC_COMMAND:
+                            /* Serial spec: one RPC Response per network,
+                             * then one with 0 strings. A single combined
+                             * response does not fit this transport's frame. */
                             wifi_cfg_improv_handle_rpc(rx_buf, pkt_len,
-                                                       serial_response_cb, NULL);
+                                                       serial_response_cb, NULL,
+                                                       IMPROV_RPC_STYLE_CHUNKED);
                             break;
 
                         case IMPROV_SERIAL_TYPE_CURRENT_STATE:
