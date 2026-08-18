@@ -19,6 +19,7 @@
 #include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include "driver/uart.h"
+#include "soc/uart_pins.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -254,12 +255,55 @@ esp_err_t wifi_cfg_improv_serial_init(void)
             .source_clk = UART_SCLK_DEFAULT,
         };
 
-        esp_err_t ret = uart_driver_install(uart_num, IMPROV_SERIAL_RX_BUF, 0, 0, NULL, 0);
+        // Documented order is configure, route, then install.
+        esp_err_t ret = uart_param_config(uart_num, &uart_config);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "UART param config failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
+
+        /*
+         * Route the peripheral to pins.
+         *
+         * Without this the UART is clocked, configured and driven, and its TX
+         * signal reaches no pad unless something else happened to have muxed
+         * it already. With the console on UART0 something else does —
+         * `cpu_start` logs "GPIO 3 and 1 are used as console UART I/O pins" —
+         * which is why this omission stayed invisible.
+         *
+         * It is invisible in the worst possible place. Improv Serial frames
+         * binary packets, so the console MUST be disabled on its UART
+         * (CONFIG_ESP_CONSOLE_NONE, as this component's own Kconfig help
+         * says) or log text corrupts the stream. That is precisely the case
+         * with nothing left to configure the pins — so the transport was mute
+         * in the only configuration it is correct to run it in, while logging
+         * that it had initialised and started.
+         *
+         * Only UART0's IOMUX defaults are applied. On several targets the
+         * defaults for UART1/UART2 land on the SPI flash bus (ESP32: U1TXD is
+         * GPIO10, U1RXD GPIO9), so driving them blind would be worse than
+         * doing nothing.
+         */
+        if (uart_num == 0) {
+            ret = uart_set_pin(uart_num, U0TXD_GPIO_NUM, U0RXD_GPIO_NUM,
+                               UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "UART pin routing failed: %s", esp_err_to_name(ret));
+                return ret;
+            }
+        } else {
+            ESP_LOGW(TAG, "UART%d pins are not configured by this component. "
+                          "If nothing else has routed them, Improv Serial will "
+                          "run and transmit nothing; call uart_set_pin() for "
+                          "UART%d before wifi_cfg_init().",
+                     uart_num, uart_num);
+        }
+
+        ret = uart_driver_install(uart_num, IMPROV_SERIAL_RX_BUF, 0, 0, NULL, 0);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "UART driver install failed: %s", esp_err_to_name(ret));
             return ret;
         }
-        uart_param_config(uart_num, &uart_config);
     }
 
     s_uart_num = uart_num;
