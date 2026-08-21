@@ -148,7 +148,7 @@ unused.*
 - Add `GET /api/wifi/events` endpoint (guarded by `CONFIG_WIFI_CFG_ENABLE_SSE`)
 - Events to stream: `status_change`, `scan_complete`, `network_added`, `network_removed`, `var_changed`
 - Format: standard SSE (`event: <type>\ndata: <json>\n\n`)
-- Subscribe internally with `wifi_cfg_event_subscribe()` and forward to all connected SSE clients
+- Register a `WIFI_CFG_EVENT` handler internally and forward to all connected SSE clients
 - Add `CONFIG_WIFI_CFG_SSE_MAX_CLIENTS` Kconfig option (default 2)
 
 **Flash/RAM cost:** New source file (~1-2KB compiled), plus per-client

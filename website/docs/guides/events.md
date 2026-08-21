@@ -1,28 +1,25 @@
 ---
 sidebar_position: 3
 title: Events
-description: Event-driven architecture — subscribing to WiFi events with callbacks
+description: Event-driven architecture — handling WiFi events on the default event loop
 ---
 
 # Events
 
-ESP WiFi Config notifies your application through callbacks rather than making
-you poll for state changes. Subscribe to the events you care about and the
-library calls you when they happen.
-
-There is nothing to initialise. Subscriptions live in a fixed-size table that is
-valid before `wifi_cfg_init()` — subscribe first, and you will catch the events
-emitted during startup.
+ESP WiFi Config publishes its events on ESP-IDF's default event loop, under the
+event base `WIFI_CFG_EVENT`. If you already handle `WIFI_EVENT` or `IP_EVENT`,
+there is nothing new to learn — it is the same API.
 
 ```c
 #include "esp_wifi_config.h"
 
-wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_connected, NULL, NULL);
+esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                           on_got_ip, NULL);
 ```
 
 ## Available Events
 
-| Event | Payload Type | Description |
+| Event ID | Payload Type | Description |
 |---|---|---|
 | `WIFI_CFG_EVENT_CONNECTED` | `wifi_connected_t` | STA associated with an AP |
 | `WIFI_CFG_EVENT_DISCONNECTED` | `wifi_disconnected_t` | STA lost its association |
@@ -43,111 +40,132 @@ wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_connected, NULL, NULL);
 | `WIFI_CFG_EVENT_PROV_CRED_FAIL` | `int` (reason) | Connect with provisioned credentials failed |
 | `WIFI_CFG_EVENT_PROV_CRED_SUCCESS` | none | Connect with provisioned credentials succeeded |
 
-Pass `WIFI_CFG_EVENT_ANY` instead of a specific id to receive all of them
-through one handler.
+Pass `ESP_EVENT_ANY_ID` instead of a specific id to receive all of them through
+one handler.
 
-## Callback Signature
+## Handler Signature
+
+The standard esp_event handler:
 
 ```c
-void callback(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+void handler(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
 ```
 
-- `event` — Which event fired. Use `wifi_cfg_event_name()` to turn it into a
+- `arg` — the context pointer you passed when registering
+- `base` — always `WIFI_CFG_EVENT` for these
+- `event_id` — one of the ids above. `wifi_cfg_event_name(event_id)` gives you a
   string for logging.
-- `data` — Pointer to the payload, or `NULL` for events that carry none. Cast
-  it to the type in the table above.
-- `len` — Payload size in bytes, `0` when `data` is `NULL`.
-- `ctx` — The context pointer you passed when subscribing.
+- `event_data` — pointer to the payload, or `NULL` for events that carry none.
+  The loop hands you a private copy, valid for the duration of the handler.
 
-:::warning Callbacks run synchronously
-Handlers are invoked **on the task that emitted the event** — usually the
-library's internal WiFi task. Two rules follow:
+:::note Handlers run on the event loop task
+Not on the task that emitted the event — so a slow handler will not stall the
+WiFi state machine, block an HTTP request, or consume the httpd task's stack.
 
-- **Keep handlers short.** They run inline in the library's state machine, so
-  blocking delays reconnects, scans and provisioning.
-- **Do not call back into `wifi_cfg_*` functions that re-enter the state
-  machine** from inside a handler. Set a flag, or post to your own queue, and
-  do the work on your own task.
-
-The payload is only valid for the duration of the call. Copy anything you need
-to keep.
+It does share the system event loop with `WIFI_EVENT` and `IP_EVENT` handlers,
+so a handler that blocks delays those. Keep handlers short and push heavy work
+onto your own task.
 :::
 
-## Example: Subscribing to Events
+## Registering
+
+The default event loop must exist before you register. `wifi_cfg_init()` creates
+it, so you have two options:
+
+**Register before init** (catches events emitted during startup) — create the
+loop yourself first. Creating it twice is harmless; the library tolerates a loop
+that already exists.
 
 ```c
-static void on_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+void app_main(void)
+{
+    nvs_flash_init();
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED, on_connected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,    on_got_ip,    NULL);
+
+    wifi_cfg_init(&(wifi_cfg_config_t){ WIFI_CFG_DEFAULTS, .enable_ap = true });
+}
+```
+
+**Register after init** — simpler, but you miss anything emitted while
+`wifi_cfg_init()` was running.
+
+## Example Handlers
+
+```c
+static void on_connected(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     const wifi_connected_t *info = (const wifi_connected_t *)data;
     ESP_LOGI(TAG, "Connected to %s, RSSI: %d", info->ssid, info->rssi);
 }
 
-static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     const esp_netif_ip_info_t *ip = (const esp_netif_ip_info_t *)data;
     ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&ip->ip));
 }
 
-static void on_var_changed(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_var_changed(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     const wifi_var_t *var = (const wifi_var_t *)data;
     ESP_LOGI(TAG, "Variable changed: %s = %s", var->key, var->value);
-}
-
-void app_main(void)
-{
-    nvs_flash_init();
-
-    // Subscribe before init to catch events emitted during startup
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED,   on_connected,   NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP,      on_got_ip,      NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_VAR_CHANGED, on_var_changed, NULL, NULL);
-
-    wifi_cfg_init(&(wifi_cfg_config_t){ WIFI_CFG_DEFAULTS, .enable_ap = true });
 }
 ```
 
 ### One handler for everything
 
 ```c
-static void on_any(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_any(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
-    ESP_LOGI(TAG, "wifi event: %s", wifi_cfg_event_name(event));
+    ESP_LOGI(TAG, "wifi event: %s", wifi_cfg_event_name(id));
 
-    switch (event) {
+    switch (id) {
         case WIFI_CFG_EVENT_GOT_IP:       /* ... */ break;
         case WIFI_CFG_EVENT_DISCONNECTED: /* ... */ break;
         default: break;
     }
 }
 
-wifi_cfg_event_subscribe(WIFI_CFG_EVENT_ANY, on_any, NULL, NULL);
+esp_event_handler_register(WIFI_CFG_EVENT, ESP_EVENT_ANY_ID, on_any, NULL);
 ```
 
-## Unsubscribing
+## Unregistering
 
-Pass a handle out of `wifi_cfg_event_subscribe()` and hand it back later:
+Use the instance API when you need to unregister later:
 
 ```c
-int handle;
-wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, &handle);
+esp_event_handler_instance_t inst;
+esp_event_handler_instance_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                                    on_got_ip, NULL, &inst);
 // ...
-wifi_cfg_event_unsubscribe(handle);
+esp_event_handler_instance_unregister(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP, inst);
 ```
 
-Subscriptions survive `wifi_cfg_deinit()`, so an application that subscribes
-once at startup does not need to re-subscribe after a deinit/init cycle.
+Registrations are owned by the event loop, not by the library, so they survive
+`wifi_cfg_deinit()`.
 
-## Table Size
+## Dropped Events
 
-The subscription table holds `CONFIG_WIFI_CFG_MAX_EVENT_SUBS` entries (default
-8, about 12 bytes each) and never grows. Subscribing past the limit returns
-`ESP_ERR_NO_MEM` rather than allocating, so the failure shows up at startup
-instead of as a dropped event later. The library itself uses two slots when
-Improv is enabled.
+`esp_event_post()` is called with a zero timeout so that a full loop queue never
+blocks the WiFi state machine — trading a stalled reconnect for a lost
+notification would be the worse failure. If a post does fail, the library logs
+it at warning level:
+
+```
+W (12345) wifi_cfg_event: event 'got_ip' not posted: ESP_ERR_TIMEOUT
+```
+
+If you see that, raise `CONFIG_ESP_SYSTEM_EVENT_QUEUE_SIZE` or find the handler
+that is blocking the loop.
 
 ## Event Timing
 
 - `CONNECTED` fires when the WiFi STA association completes (before IP assignment)
 - `GOT_IP` fires when DHCP assigns an IP address — this is typically the event you want to trigger application logic
 - `PROVISIONING_STOPPED` fires after the teardown delay (`provisioning_teardown_delay_ms`) when `stop_provisioning_on_connect` is true
+
+Because delivery is asynchronous, a handler runs shortly *after* the state change
+that caused it. `wifi_cfg_add_network()` returns before its
+`NETWORK_ADDED` handler runs.

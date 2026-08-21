@@ -30,7 +30,7 @@ It's a one-stop shop: enable the channels you want at build time, fill in a `wif
 - **Embedded Web UI** — responsive Preact frontend (~10 KB gzipped) served on the captive portal, or [bring your own](https://configwifi.com/docs/guides/custom-webui)
 - **REST API** with optional HTTP Basic Auth
 - **Custom variable store** — application key/value settings flow through every provisioning interface
-- **Event-driven** via `wifi_cfg_event_subscribe()` callbacks (connected, disconnected, got IP, provisioning started/stopped)
+- **Event-driven** on ESP-IDF's default event loop under `WIFI_CFG_EVENT` (connected, disconnected, got IP, provisioning started/stopped)
 
 **Targets:** ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-H2
 
@@ -72,7 +72,7 @@ What `wifi_provisioning` does on its own is hand a single set of credentials to 
 | Serial CLI | — | ✅ |
 | REST API with optional Basic Auth | — | ✅ |
 | Custom application key/value store | — | ✅ (exposed via every interface, plus a custom protocomm endpoint over BLE) |
-| Event-driven integration via callbacks | — | ✅ |
+| Event-driven integration via `esp_event` | — | ✅ |
 
 In short: if all you need is to hand off WiFi credentials once over BLE, Espressif's component on its own is enough. If you want a device that remembers multiple networks, decides on its own when to reopen provisioning, exposes the same configuration over a captive portal and serial console, and emits events your application can react to — that's the rest of this library.
 

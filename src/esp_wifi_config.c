@@ -831,6 +831,9 @@ static void wifi_cfg_task(void *arg)
                     wifi_disconnected_t disc = {.reason = evt.data.disconnect.reason};
                     strncpy(disc.ssid, evt.data.disconnect.ssid, sizeof(disc.ssid) - 1);
                     wifi_cfg_event_post(WIFI_CFG_EVENT_DISCONNECTED, &disc, sizeof(disc));
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+                    wifi_cfg_improv_on_disconnected();
+#endif
 
                     // Auto reconnect with reconnect exhaustion
                     if (g_wifi_cfg->config.auto_reconnect &&
@@ -907,6 +910,9 @@ static void wifi_cfg_task(void *arg)
                     }
                     wifi_cfg_event_post(WIFI_CFG_EVENT_CONNECTED, &conn, sizeof(conn));
                     wifi_cfg_event_post(WIFI_CFG_EVENT_GOT_IP, &evt.data.got_ip.ip_info, sizeof(esp_netif_ip_info_t));
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+                    wifi_cfg_improv_on_got_ip();
+#endif
 
                     // Reset reconnect counter on successful connection
                     g_wifi_cfg->reconnect_attempt_count = 0;

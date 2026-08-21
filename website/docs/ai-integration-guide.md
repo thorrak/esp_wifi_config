@@ -315,7 +315,7 @@ Assemble the `wifi_cfg_config_t` struct from the collected answers. **`WIFI_CFG_
 
 static const char *TAG = "app";
 
-static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     wifi_got_ip_t *info = (wifi_got_ip_t *)data;
     ESP_LOGI(TAG, "Connected! IP: %s", info->ip);
@@ -328,7 +328,7 @@ void app_main(void)
     nvs_flash_init();
 
     // --- Event subscriptions (before wifi_cfg_init) ---
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL);
 
     // --- WiFi Config initialization ---
     wifi_cfg_init(&(wifi_cfg_config_t){
@@ -451,7 +451,7 @@ void app_main(void)
 ## Gotchas
 
 1. **Must init NVS first**: Call `nvs_flash_init()` before `wifi_cfg_init()`. For robustness, handle `ESP_ERR_NVS_NO_FREE_PAGES` by erasing and re-initializing.
-2. **Event callbacks run synchronously** on the library's task: keep them short and never call back into `wifi_cfg_*` from inside one.
+2. **Events go to the default event loop** under the `WIFI_CFG_EVENT` base. Handlers run on the event loop task, not on the emitting task.
 3. **BLE requires Bluetooth enabled**: `CONFIG_BT_ENABLED=y` and either `CONFIG_BT_BLUEDROID_ENABLED=y` or `CONFIG_BT_NIMBLE_ENABLED=y`.
 4. **BLE needs larger partition table**: Use `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` when enabling BLE.
 5. **NimBLE needs stack size**: Set `CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144` when using NimBLE.
@@ -459,7 +459,7 @@ void app_main(void)
 7. **Network Provisioning BLE and Improv BLE are mutually exclusive**: `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` and `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` cannot be enabled together — they each want to own the BLE GAP advertising and the host stack. Improv Serial is independent of BLE and remains safe alongside Network Provisioning.
 8. **Default networks are seeds**: They're only written to NVS on first boot. After that, NVS is the source of truth.
 9. **ESP32 is 2.4GHz only**: The device cannot connect to 5GHz WiFi networks.
-10. **Subscribe to events before init**: Call `wifi_cfg_event_subscribe()` before `wifi_cfg_init()` to catch events fired during initialization. No bus setup is needed — the subscription table is valid before init.
+10. **Register handlers before init**: call `esp_event_loop_create_default()` then `esp_event_handler_register()` before `wifi_cfg_init()` to catch events fired during initialization. `wifi_cfg_init()` creates the loop too, so creating it first is harmless.
 11. **ESP32-S2 has no Bluetooth**: BLE and Improv BLE cannot be used.
 12. **ESP32-H2 has no WiFi**: This library cannot be used on ESP32-H2.
 

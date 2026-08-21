@@ -18,86 +18,75 @@ longer exist. See "The `esp_bus` dependency is gone" for the current
 
 ### The `esp_bus` dependency is gone
 
-`esp_wifi_config` no longer depends on `esp_bus`. Events are delivered by
-direct callback instead, and the bus's request/action surface is simply
-the library's own C API, which every action already forwarded to.
+`esp_wifi_config` no longer depends on `esp_bus`. Events now go to ESP-IDF's
+**default event loop** under a new event base, `WIFI_CFG_EVENT` — the same
+loop the library already used for `WIFI_EVENT` and `IP_EVENT`, and which it
+creates itself in `wifi_cfg_init()`. The bus's request/action surface is
+simply the library's own C API, which every action already forwarded to.
 
 Remove the dependency from `idf_component.yml`, drop
-`#include "esp_bus.h"` and the `esp_bus_init()` call, and rewrite
-subscriptions:
+`#include "esp_bus.h"` and the `esp_bus_init()` call, and re-register your
+handlers:
 
 ```diff
 -#include "esp_bus.h"
 -
 -esp_bus_init();
 -esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip, NULL);
-+wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, NULL);
++ESP_ERROR_CHECK(esp_event_loop_create_default());
++esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL);
 ```
 
-Handler signatures take the event id instead of its name:
+Handlers take the standard esp_event signature:
 
 ```diff
 -void on_got_ip(const char *event, const void *data, size_t len, void *ctx)
-+void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
++void on_got_ip(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
 ```
 
-Code that branched on the event string becomes a switch:
+Code that branched on the event string becomes a switch on `event_id`:
 
 ```diff
 -if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_CONNECTED)) == 0) {
-+if (event == WIFI_CFG_EVENT_CONNECTED) {
++if (event_id == WIFI_CFG_EVENT_CONNECTED) {
 ```
 
-Every `WIFI_CFG_EVT_<NAME>` string macro is now a
-`WIFI_CFG_EVENT_<NAME>` enumerator — the names match, so the rename is
-mechanical. `WIFI_EVT()`, `WIFI_REQ()`, `WIFI_MODULE` and every
-`WIFI_ACTION_*` macro were removed with no replacement: call the
-matching public function directly (`WIFI_ACTION_GET_STATUS` →
-`wifi_cfg_get_status()`, `WIFI_ACTION_CONNECT` → `wifi_cfg_connect()`,
-and so on).
+Every `WIFI_CFG_EVT_<NAME>` string macro is now a `WIFI_CFG_EVENT_<NAME>`
+enumerator of `wifi_cfg_event_t` — the names match, so the rename is
+mechanical. A wildcard subscription becomes `ESP_EVENT_ANY_ID`.
+`WIFI_EVT()`, `WIFI_REQ()`, `WIFI_MODULE` and every `WIFI_ACTION_*` macro
+were removed with no replacement: call the matching public function directly
+(`WIFI_ACTION_GET_STATUS` → `wifi_cfg_get_status()`, `WIFI_ACTION_CONNECT` →
+`wifi_cfg_connect()`, and so on).
 
-Two behavioural changes matter more than the renaming:
+**Register before init to catch startup events.** `esp_event_handler_register()`
+requires the default loop to exist. `wifi_cfg_init()` creates it, so either call
+`esp_event_loop_create_default()` yourself first (creating it twice is
+harmless — the library tolerates `ESP_ERR_INVALID_STATE`), or register after
+`wifi_cfg_init()` and accept missing what it emitted.
 
-- **Callbacks are now synchronous.** `esp_bus_emit()` copied the payload
-  to the heap and queued it for the bus task; handlers ran there. A
-  handler now runs inline, on the task that emitted the event — usually
-  the library's WiFi task. Keep handlers short, and do not call back
-  into a `wifi_cfg_*` function that re-enters the state machine. If you
-  need the old decoupling, post to your own queue from the handler.
-- **Events can no longer be silently dropped.** The bus queued events
-  with a zero timeout, so a full queue discarded them and the library
-  ignored the error. Direct dispatch has no queue to overflow.
+Two behavioural notes:
 
-The subscription table is fixed-size
-(`CONFIG_WIFI_CFG_MAX_EVENT_SUBS`, default 8). Subscribing past the
-limit returns `ESP_ERR_NO_MEM` instead of allocating, so check the
-return value or raise the limit.
+- **Delivery is still asynchronous**, as it was under `esp_bus` — handlers run
+  on the system event loop task, not on the task that emitted the event. A slow
+  handler will not stall the WiFi state machine or consume the httpd task's
+  stack. It does share the loop with `WIFI_EVENT` and `IP_EVENT` handlers, so
+  keep handlers short.
+- **A dropped event is now logged.** `esp_bus_emit()` enqueued with a zero
+  timeout and every call site in the library discarded its return, so a full
+  queue lost events silently. The library still posts with a zero timeout —
+  blocking the state machine would be worse — but it checks the result and logs
+  a warning naming the event.
 
-If your application used `esp_bus` for its own modules, it still works —
-it is just no longer pulled in as a transitive dependency, so declare it
-in your own `idf_component.yml`.
+If your application used `esp_bus` for its own modules, it still works — it is
+just no longer pulled in as a transitive dependency, so declare it in your own
+`idf_component.yml`. Bridging library events onto the bus is four lines:
 
-
-Every `wifi_cfg_config_t` initialiser must now start from
-`WIFI_CFG_DEFAULTS` (or `WIFI_CFG_DEFAULT_CONFIG()`, or pass `NULL`).
-`wifi_cfg_init()` no longer patches fields you left at zero, and two
-provisioning enums were renumbered so their zero value is a working one.
-
-**TL;DR** — one line into every config, then delete the lines that were
-only restating a default:
-
-```diff
- wifi_cfg_init(&(wifi_cfg_config_t){
-+    WIFI_CFG_DEFAULTS,
-     .default_networks = my_networks,
-     .default_network_count = 2,
--    .max_retry_per_network = 3,
--    .retry_interval_ms = 5000,
--    .auto_reconnect = true,
--    .provisioning_mode = WIFI_PROV_ON_FAILURE,
-     .stop_provisioning_on_connect = true,
-     .enable_ap = true,
- });
+```c
+static void to_bus(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    esp_bus_emit("wifi", wifi_cfg_event_name(id), data, 0);
+}
+esp_event_handler_register(WIFI_CFG_EVENT, ESP_EVENT_ANY_ID, to_bus, NULL);
 ```
 
 ### The defaults are a value now
@@ -587,7 +576,7 @@ provisioning; the subscription API sees every library event.
 strings named `WIFI_CFG_EVT_*`, subscribed with `esp_bus_sub`.)
 
 ```c
-// Event ids (subscribe with wifi_cfg_event_subscribe)
+// Event ids on the WIFI_CFG_EVENT base (esp_event_handler_register)
 WIFI_CFG_EVENT_PROVISIONING_STARTED   // no data
 WIFI_CFG_EVENT_PROVISIONING_STOPPED   // no data
 WIFI_CFG_EVENT_PROV_CRED_RECV         // data: wifi_cfg_prov_creds_t
@@ -1062,7 +1051,7 @@ The built-in mDNS integration has been removed. It was a convenience wrapper tha
 ```c
 #include "mdns.h"
 
-static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     mdns_init();
     mdns_hostname_set("my-device");

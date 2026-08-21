@@ -51,15 +51,15 @@ static void init_console(void)
 /**
  * @brief Callback for WiFi events
  */
-static void on_wifi_event(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_wifi_event(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
-    if (event == WIFI_CFG_EVENT_CONNECTED) {
+    if (event_id == WIFI_CFG_EVENT_CONNECTED) {
         const wifi_connected_t *info = (const wifi_connected_t *)data;
         ESP_LOGI(TAG, "Connected to %s", info->ssid);
-    } else if (event == WIFI_CFG_EVENT_DISCONNECTED) {
+    } else if (event_id == WIFI_CFG_EVENT_DISCONNECTED) {
         const wifi_disconnected_t *info = (const wifi_disconnected_t *)data;
         ESP_LOGW(TAG, "Disconnected from %s (reason: %d)", info->ssid, info->reason);
-    } else if (event == WIFI_CFG_EVENT_GOT_IP) {
+    } else if (event_id == WIFI_CFG_EVENT_GOT_IP) {
         wifi_status_t status;
         if (wifi_cfg_get_status(&status) == ESP_OK) {
             ESP_LOGI(TAG, "Got IP: %s", status.ip);
@@ -81,10 +81,18 @@ void app_main(void)
     ESP_LOGI(TAG, "  ESP WiFi Config - CLI Example");
     ESP_LOGI(TAG, "==============================================");
 
+    // The default event loop must exist before registering handlers.
+    // wifi_cfg_init() creates it too, but registering first is what catches
+    // the events emitted during startup.
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
     // Subscribe to WiFi events
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_wifi_event, NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_DISCONNECTED, on_wifi_event, NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_wifi_event, NULL, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED,
+                               on_wifi_event, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_DISCONNECTED,
+                               on_wifi_event, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                               on_wifi_event, NULL);
 
     // Initialize WiFi Config with CLI enabled
     wifi_cfg_config_t config = {

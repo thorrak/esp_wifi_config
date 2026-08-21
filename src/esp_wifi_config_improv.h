@@ -209,6 +209,21 @@ void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx);
 /**
  * @brief Initialize the Improv protocol core and enabled transports.
  */
+/**
+ * @brief Tell Improv the station reached the network
+ *
+ * Called directly by the WiFi state machine. Improv is part of this library,
+ * so it does not go through the event loop to hear from it -- that would add a
+ * task hop and a payload copy to a call between two files in the same
+ * component.
+ */
+void wifi_cfg_improv_on_got_ip(void);
+
+/**
+ * @brief Tell Improv the station failed or lost its association
+ */
+void wifi_cfg_improv_on_disconnected(void);
+
 esp_err_t wifi_cfg_improv_init(void);
 
 /**

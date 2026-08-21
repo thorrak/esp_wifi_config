@@ -44,13 +44,13 @@ This minimal example connects to WiFi with automatic provisioning when no networ
 
 static const char *TAG = "my_app";
 
-static void on_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_connected(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     wifi_connected_t *info = (wifi_connected_t *)data;
     ESP_LOGI(TAG, "Connected to %s, RSSI: %d", info->ssid, info->rssi);
 }
 
-static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     wifi_got_ip_t *info = (wifi_got_ip_t *)data;
     ESP_LOGI(TAG, "Got IP: %s", info->ip);
@@ -61,10 +61,13 @@ void app_main(void)
     // Initialize NVS (required)
     nvs_flash_init();
 
-    // Subscribe to WiFi events (optional). Do this before wifi_cfg_init()
-    // to catch events emitted during startup.
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_connected, NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, NULL);
+    // Events are published on the default event loop. Create it before
+    // registering so you catch what is emitted during startup —
+    // wifi_cfg_init() creates it too, and a second create is harmless.
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED, on_connected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,    on_got_ip,    NULL);
 
     // Initialize WiFi Config. Always start from WIFI_CFG_DEFAULTS — it
     // carries every documented default, and wifi_cfg_init() does not patch
@@ -93,7 +96,7 @@ void app_main(void)
 
 ### What This Does
 
-1. Initializes NVS (a required prerequisite) and registers event callbacks
+1. Initializes NVS (a required prerequisite) and registers event handlers
 2. Starts from `WIFI_CFG_DEFAULTS` and overrides only what differs — retry
    policy, `auto_reconnect = true` and `provisioning_mode =
    WIFI_PROV_ON_FAILURE` all come from the macro. `wifi_cfg_init(NULL)`

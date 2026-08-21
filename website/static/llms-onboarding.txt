@@ -333,11 +333,16 @@ Generate a clean WiFi configuration source file with ONLY the code relevant
 
 Rules:
 - Call nvs_flash_init() before wifi_cfg_init() (if the user has not called it elsewhere in his/her code)
-- Subscribe to events (wifi_cfg_event_subscribe) BEFORE wifi_cfg_init().
-- Event handlers have the signature
-    void cb(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
-  and run SYNCHRONOUSLY on the library's task. Keep them short and never call
-  a wifi_cfg_* function that re-enters the state machine from inside one.
+- Events are published on ESP-IDF's DEFAULT EVENT LOOP under the event base
+  WIFI_CFG_EVENT. Register with esp_event_handler_register(), exactly as for
+  WIFI_EVENT / IP_EVENT:
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP, cb, NULL);
+  Use ESP_EVENT_ANY_ID for all events.
+- Handler signature is the standard esp_event one:
+    void cb(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
+- To catch startup events, call esp_event_loop_create_default() and register
+  BEFORE wifi_cfg_init(). wifi_cfg_init() also creates the loop; creating it
+  twice is harmless.
 - For C code, use compound literal for config: &(wifi_cfg_config_t){...}
 - ALWAYS make WIFI_CFG_DEFAULTS the FIRST initialiser in the struct:
     wifi_cfg_init(&(wifi_cfg_config_t){
@@ -448,11 +453,11 @@ GOTCHAS — ALWAYS VERIFY THESE IN GENERATED CODE
 ================================================================================
 
 1. nvs_flash_init() MUST be called before wifi_cfg_init().
-2. wifi_cfg_event_subscribe() calls MUST come before wifi_cfg_init() to catch
-   early events. There is no bus to initialise — subscriptions live in a static
-   table and are valid before init.
-3. Event callbacks run synchronously on the emitting task. Do NOT block in one,
-   and do NOT call back into wifi_cfg from inside one.
+2. To catch early events, call esp_event_loop_create_default() and register
+   handlers BEFORE wifi_cfg_init(). Registering without a loop fails;
+   wifi_cfg_init() also creates the loop, so creating it first is harmless.
+3. Handlers run on the event loop task, shared with WIFI_EVENT / IP_EVENT.
+   Do NOT block in one — push heavy work to your own task.
 4. Network Provisioning BLE requires CONFIG_BT_ENABLED=y + a host stack +
    CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING=y. The custom JSON-over-GATT
    service (UUID 0xFFE0) and CONFIG_WIFI_CFG_ENABLE_CUSTOM_BLE were removed

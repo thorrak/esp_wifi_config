@@ -55,21 +55,27 @@
  * printf("RSSI: %d dBm (%d%%)\n", status.rssi, status.quality);
  * @endcode
  * 
- * @subsection eventcb Event Callbacks
+ * @subsection eventcb Event Handlers
+ *
+ * Events are published on the default event loop under ::WIFI_CFG_EVENT —
+ * register for them exactly as you do for WIFI_EVENT or IP_EVENT.
+ *
  * @code{.c}
- * // Handlers run synchronously on the library's task -- keep them short and
- * // do not call back into wifi_cfg from inside one.
- * void on_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx) {
+ * void on_connected(void *arg, esp_event_base_t base, int32_t id, void *data) {
  *     const wifi_connected_t *info = (const wifi_connected_t *)data;
  *     ESP_LOGI(TAG, "Connected to %s", info->ssid);
  * }
- * wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_connected, NULL, NULL);
  *
- * // One handler for everything, dispatching on the event id
- * void on_any(wifi_cfg_event_t event, const void *data, size_t len, void *ctx) {
- *     ESP_LOGI(TAG, "wifi event: %s", wifi_cfg_event_name(event));
+ * void on_any(void *arg, esp_event_base_t base, int32_t id, void *data) {
+ *     ESP_LOGI(TAG, "wifi event: %s", wifi_cfg_event_name(id));
  * }
- * wifi_cfg_event_subscribe(WIFI_CFG_EVENT_ANY, on_any, NULL, NULL);
+ *
+ * // The loop must exist before registering. wifi_cfg_init() creates it, so
+ * // either create it yourself first (to catch startup events) or register
+ * // afterwards.
+ * ESP_ERROR_CHECK(esp_event_loop_create_default());
+ * esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED, on_connected, NULL);
+ * esp_event_handler_register(WIFI_CFG_EVENT, ESP_EVENT_ANY_ID, on_any, NULL);
  * @endcode
  *
  * Anything the bus actions used to reach is a plain function call: status is
@@ -104,11 +110,12 @@
  * wifi_cfg_get_var("server_url", value, sizeof(value));
  * 
  * // Subscribe variable changes
- * void on_var_changed(wifi_cfg_event_t event, const void *data, size_t len, void *ctx) {
+ * void on_var_changed(void *arg, esp_event_base_t base, int32_t id, void *data) {
  *     const wifi_var_t *var = (const wifi_var_t *)data;
  *     ESP_LOGI(TAG, "Var changed: %s = %s", var->key, var->value);
  * }
- * wifi_cfg_event_subscribe(WIFI_CFG_EVENT_VAR_CHANGED, on_var_changed, NULL, NULL);
+ * esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_VAR_CHANGED,
+ *                            on_var_changed, NULL);
  * @endcode
  * 
  * @subsection http HTTP REST API
@@ -154,8 +161,8 @@
  * 
  * @section events Events
  *
- * Subscribe with wifi_cfg_event_subscribe(). The full list of event ids and
- * their payload types is documented on ::wifi_cfg_event_t.
+ * Published on the default event loop under ::WIFI_CFG_EVENT. The full list of
+ * event ids and their payload types is documented on ::wifi_cfg_event_t.
  */
 
 #pragma once
@@ -165,6 +172,7 @@
 #include "esp_err.h"
 #include "esp_wifi_types.h"
 #include "esp_http_server.h"
+#include "esp_event.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -175,12 +183,26 @@ extern "C" {
 // =============================================================================
 
 /**
- * @brief Event identifiers delivered to subscribers
+ * @brief Event base for every event this library publishes
  *
- * Every event carries an optional payload whose type is fixed per event; the
- * @c data / @c len pair handed to a ::wifi_cfg_event_cb_t points at it. The
- * payload is owned by the library and is only valid for the duration of the
- * callback -- copy anything that must outlive the call.
+ * Events go to ESP-IDF's default event loop, alongside WIFI_EVENT and
+ * IP_EVENT. Register for them the same way:
+ *
+ * @code{.c}
+ * esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+ *                            on_got_ip, NULL);
+ * @endcode
+ *
+ * Use ESP_EVENT_ANY_ID as the event id to receive all of them.
+ */
+ESP_EVENT_DECLARE_BASE(WIFI_CFG_EVENT);
+
+/**
+ * @brief Event identifiers, used as the event_id on ::WIFI_CFG_EVENT
+ *
+ * Every event carries an optional payload whose type is fixed per event. The
+ * event loop copies it, so the @c event_data your handler receives is a
+ * private copy valid for the duration of the handler.
  *
  * | Event                                | Payload                |
  * |--------------------------------------|------------------------|
@@ -229,29 +251,28 @@ typedef enum {
     WIFI_CFG_EVENT_PROV_CRED_SUCCESS,    ///< Connect with provisioned credentials succeeded
 
     WIFI_CFG_EVENT_MAX,                  ///< Number of distinct events (not an event)
-    WIFI_CFG_EVENT_ANY = 0xFF,           ///< Wildcard: subscribe to every event
 } wifi_cfg_event_t;
 
 /**
- * @brief Event subscriber callback
+ * @brief Handler signature
  *
- * Invoked **synchronously**, on whichever task emitted the event -- usually the
- * library's internal WiFi task, and for a few events the caller of the public
- * API that triggered them (e.g. wifi_cfg_add_network()). Two consequences:
+ * Standard esp_event handler — the same shape you already use for WIFI_EVENT
+ * and IP_EVENT:
  *
- *  - Keep the callback short. It runs inline in the library's state machine,
- *    so blocking here delays reconnects, scans and provisioning.
- *  - Do not call back into a wifi_cfg function that would re-enter the same
- *    state machine. Set a flag or post to your own queue instead.
+ * @code{.c}
+ * void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
+ * {
+ *     const esp_netif_ip_info_t *ip = (const esp_netif_ip_info_t *)data;
+ *     ESP_LOGI(TAG, "got " IPSTR, IP2STR(&ip->ip));
+ * }
+ * @endcode
  *
- * @param event Which event fired
- * @param data  Event payload, or NULL when the event carries none. Valid only
- *              for the duration of this call.
- * @param len   Payload length in bytes, 0 when @p data is NULL
- * @param ctx   The @c ctx passed to wifi_cfg_event_subscribe()
+ * Handlers run on the system event loop task, not on the task that emitted the
+ * event, so they neither block the WiFi state machine nor consume the httpd
+ * task's stack. They do share the loop with WIFI_EVENT and IP_EVENT handlers,
+ * so a handler that blocks delays those — keep them short and do the heavy
+ * work on your own task.
  */
-typedef void (*wifi_cfg_event_cb_t)(wifi_cfg_event_t event, const void *data,
-                                    size_t len, void *ctx);
 
 // =============================================================================
 // Data Types
@@ -581,9 +602,9 @@ typedef struct {
  *
  * Optional struct callbacks invoked alongside the corresponding library
  * events (::WIFI_CFG_EVENT_PROV_CRED_RECV and friends). Use whichever path
- * fits the app — these fields when only the provisioning flow matters,
- * wifi_cfg_event_subscribe() when one handler should see everything. Both
- * fire for every event.
+ * fits the app — these fields when only the provisioning flow matters, an
+ * ::WIFI_CFG_EVENT handler when one place should see everything. The struct
+ * callbacks fire inline; the events are delivered on the event loop task.
  */
 typedef void (*wifi_cfg_prov_on_creds_recv_t)(const wifi_cfg_prov_creds_t *creds, void *ctx);
 typedef void (*wifi_cfg_prov_on_creds_fail_t)(int reason, void *ctx);
@@ -1316,46 +1337,10 @@ esp_err_t wifi_cfg_factory_reset(void);
 // =============================================================================
 
 /**
- * @brief Subscribe to library events
- *
- * Subscriptions live in a fixed-size table (CONFIG_WIFI_CFG_MAX_EVENT_SUBS,
- * default 8) -- no allocation happens here, and the call fails with
- * ESP_ERR_NO_MEM once the table is full rather than growing it.
- *
- * Subscribing is independent of wifi_cfg_init(): register before init to catch
- * events emitted during startup. Subscriptions survive wifi_cfg_deinit().
- *
- * Read ::wifi_cfg_event_cb_t before writing a handler -- callbacks run
- * synchronously on the emitting task, which constrains what they may do.
- *
- * @param event      Event to listen for, or ::WIFI_CFG_EVENT_ANY for all of them
- * @param cb         Handler, must not be NULL
- * @param ctx        Opaque pointer handed back to @p cb
- * @param out_handle Receives a handle for wifi_cfg_event_unsubscribe(); may be
- *                   NULL if the subscription is never removed
- *
- * @return ESP_OK on success
- *         ESP_ERR_INVALID_ARG if @p cb is NULL or @p event is out of range
- *         ESP_ERR_NO_MEM if the subscription table is full
- */
-esp_err_t wifi_cfg_event_subscribe(wifi_cfg_event_t event, wifi_cfg_event_cb_t cb,
-                                   void *ctx, int *out_handle);
-
-/**
- * @brief Remove a subscription
- *
- * Safe to call from inside an event callback; the current dispatch still
- * completes against the subscriber list as it stood when the event fired.
- *
- * @param handle Handle from wifi_cfg_event_subscribe()
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG if @p handle is not valid
- */
-esp_err_t wifi_cfg_event_unsubscribe(int handle);
-
-/**
  * @brief Human-readable name for an event, for logging
  *
- * @param event Event id
+ * @param event Event id (an ::wifi_cfg_event_t, or the int32_t your handler
+ *              received)
  * @return Static string, or "unknown" if @p event is out of range. Never NULL.
  */
 const char *wifi_cfg_event_name(wifi_cfg_event_t event);

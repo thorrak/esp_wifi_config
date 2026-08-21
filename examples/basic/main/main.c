@@ -28,7 +28,7 @@ static const char *TAG = "wifi_example";
 /**
  * @brief Callback for WiFi connected event
  */
-static void on_wifi_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_wifi_connected(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_connected_t *info = (const wifi_connected_t *)data;
     ESP_LOGI(TAG, "WiFi connected to %s (RSSI: %d dBm, Channel: %d)",
@@ -38,7 +38,7 @@ static void on_wifi_connected(wifi_cfg_event_t event, const void *data, size_t l
 /**
  * @brief Callback for WiFi disconnected event
  */
-static void on_wifi_disconnected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_wifi_disconnected(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_disconnected_t *info = (const wifi_disconnected_t *)data;
     ESP_LOGW(TAG, "WiFi disconnected from %s (reason: %d)", info->ssid, info->reason);
@@ -47,7 +47,7 @@ static void on_wifi_disconnected(wifi_cfg_event_t event, const void *data, size_
 /**
  * @brief Callback for got IP event
  */
-static void on_wifi_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_wifi_got_ip(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     ESP_LOGI(TAG, "Got IP address");
 
@@ -66,7 +66,7 @@ static void on_wifi_got_ip(wifi_cfg_event_t event, const void *data, size_t len,
 /**
  * @brief Callback for variable changed event
  */
-static void on_var_changed(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+static void on_var_changed(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_var_t *var = (const wifi_var_t *)data;
     ESP_LOGI(TAG, "Variable changed: %s = %s", var->key, var->value);
@@ -84,11 +84,20 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Starting WiFi Config example");
 
+    // The default event loop must exist before registering handlers.
+    // wifi_cfg_init() creates it too, but registering first is what catches
+    // the events emitted during startup.
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
     // Subscribe to WiFi events (before wifi_cfg_init to catch early events)
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_wifi_connected, NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_DISCONNECTED, on_wifi_disconnected, NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_wifi_got_ip, NULL, NULL);
-    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_VAR_CHANGED, on_var_changed, NULL, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED,
+                               on_wifi_connected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_DISCONNECTED,
+                               on_wifi_disconnected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                               on_wifi_got_ip, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_VAR_CHANGED,
+                               on_var_changed, NULL);
 
     // This is how to write it: start from WIFI_CFG_DEFAULTS, then set only
     // what differs. The macro is not optional — wifi_cfg_init() no longer

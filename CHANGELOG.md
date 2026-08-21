@@ -9,31 +9,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Breaking Changes
 
-- **The `esp_bus` dependency is removed.** Events are delivered by direct
-  callback; the bus's action surface was a string-dispatch shim over the
-  public C API, so it is gone with no replacement — call the matching
-  `wifi_cfg_*` function. Subscribe with `wifi_cfg_event_subscribe()`;
-  there is no bus to initialise, and subscriptions are valid before
-  `wifi_cfg_init()`. Each `WIFI_CFG_EVT_<NAME>` string macro becomes a
-  `WIFI_CFG_EVENT_<NAME>` enumerator of the new `wifi_cfg_event_t`, and
-  handlers take that enum instead of a `const char *`. `WIFI_EVT()`,
-  `WIFI_REQ()`, `WIFI_MODULE` and every `WIFI_ACTION_*` macro were
-  removed. See MIGRATION.md.
+- **The `esp_bus` dependency is removed; events move to `esp_event`.**
+  The library now publishes its events on ESP-IDF's default event loop
+  under a new base, `WIFI_CFG_EVENT` — the same loop it already consumed
+  `WIFI_EVENT` and `IP_EVENT` from, and which it creates itself in
+  `wifi_cfg_init()`. Register with `esp_event_handler_register()`, using
+  `ESP_EVENT_ANY_ID` for a catch-all; handlers take the standard
+  esp_event signature. Each `WIFI_CFG_EVT_<NAME>` string macro becomes a
+  `WIFI_CFG_EVENT_<NAME>` enumerator of the new `wifi_cfg_event_t`.
+  `WIFI_EVT()`, `WIFI_REQ()`, `WIFI_MODULE` and every `WIFI_ACTION_*`
+  macro were removed — the bus's action surface was a string-dispatch
+  shim over the public C API, so call the matching `wifi_cfg_*` function
+  directly. See MIGRATION.md.
 
-  Two behavioural changes come with it. Callbacks now run
-  **synchronously**, on the task that emitted the event, so a handler
-  must be short and must not re-enter the library's state machine —
-  `esp_bus` ran them on its own task. And events can no longer be
-  silently dropped: the bus queued them with a zero timeout and the
-  library ignored the resulting error, so a full queue discarded them.
+  To catch events emitted during startup, call
+  `esp_event_loop_create_default()` and register before
+  `wifi_cfg_init()`; creating the loop twice is harmless.
 
-  Measured on esp32s3 / IDF 5.5.3, this saves **~6.1–6.2 KB of flash**
-  across every example configuration (`basic` 855,120 → 848,912 bytes)
-  and about **5.4 KB of heap** — the bus ran a 4 KB-stack task and a
-  16 × 64-byte queue. Static RAM rises 48 bytes: the 96-byte
-  subscription table, less the bus's own statics. Per-event cost drops
-  from two heap allocations, a queue copy and a mutex round-trip to a
-  spinlocked scan of a fixed array.
+  Delivery stays asynchronous, so handlers do not run on the WiFi state
+  machine's task or on the httpd task. One failure mode is fixed:
+  `esp_bus_emit()` enqueued with a zero timeout and all seventeen call
+  sites ignored the error, so a full queue dropped events silently. The
+  library still posts with a zero timeout — blocking the state machine
+  would be worse — but now checks the result and logs a warning naming
+  the event.
+
+  Measured on esp32s3 / IDF 5.5.3: **~5.9 KB of flash** saved across
+  every example configuration (`basic` 855,120 → 849,232 bytes) and
+  about **5.4 KB of heap**, since `esp_bus` ran a 4 KB-stack task and a
+  16 × 64-byte queue while `esp_event`'s loop already exists and is
+  already paid for. Static RAM is unchanged. The library also drops from
+  one third-party dependency to none.
 
 - **Every `wifi_cfg_config_t` initialiser must now start from
   `WIFI_CFG_DEFAULTS`.** The new `WIFI_CFG_DEFAULTS` (a

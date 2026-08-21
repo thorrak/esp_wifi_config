@@ -1,82 +1,28 @@
 /**
  * @file esp_wifi_config_event.c
- * @brief Event subscription table and synchronous dispatch
+ * @brief Event base definition and posting
  *
- * Replaces the esp_bus module this library used to register. The bus gave us
- * asynchronous, pattern-matched delivery on its own task; what the library
- * actually needed was "call these functions when this happens", so that is
- * what this is.
+ * The library publishes its events on ESP-IDF's default event loop, the same
+ * loop it already consumes WIFI_EVENT, IP_EVENT and WIFI_PROV_EVENT from. It
+ * creates that loop itself during wifi_cfg_init(), so there is no separate
+ * event system to initialise, no task of our own, and no subscriber table --
+ * esp_event owns all three.
  *
- * The table is a fixed-size array of slots, not a linked list. A subscription
- * never allocates, dispatch never allocates, and a full table is reported to
- * the caller instead of being grown. That trade is deliberate: the failure is
- * visible at subscribe time, at startup, rather than as a heap exhaustion or a
- * silently dropped event much later.
- *
- * Dispatch is synchronous and runs on the emitting task. See the warning on
- * ::wifi_cfg_event_cb_t for what that means for handlers.
+ * Handlers therefore run on the system event loop task, not on the task that
+ * emitted the event. That is what keeps a slow subscriber from stalling the
+ * WiFi state machine, and keeps application code off the httpd task's stack.
  */
 
 #include "esp_wifi_config_priv.h"
-#include <string.h>
+#include "esp_log.h"
 
-#ifndef CONFIG_WIFI_CFG_MAX_EVENT_SUBS
-#define CONFIG_WIFI_CFG_MAX_EVENT_SUBS 8
-#endif
+static const char *TAG = "wifi_cfg_event";
 
-typedef struct {
-    wifi_cfg_event_cb_t cb;   ///< NULL marks a free slot
-    void               *ctx;
-    uint8_t             event; ///< event id, or WIFI_CFG_EVENT_ANY
-} sub_slot_t;
-
-static sub_slot_t s_subs[CONFIG_WIFI_CFG_MAX_EVENT_SUBS];
-
-// Guards the table only. Handlers are called with the lock released, so a
-// handler is free to subscribe, unsubscribe, or emit without deadlocking.
-static portMUX_TYPE s_subs_lock = portMUX_INITIALIZER_UNLOCKED;
+ESP_EVENT_DEFINE_BASE(WIFI_CFG_EVENT);
 
 // =============================================================================
 // Public API
 // =============================================================================
-
-esp_err_t wifi_cfg_event_subscribe(wifi_cfg_event_t event, wifi_cfg_event_cb_t cb,
-                                   void *ctx, int *out_handle)
-{
-    if (!cb) return ESP_ERR_INVALID_ARG;
-    if (event >= WIFI_CFG_EVENT_MAX && event != WIFI_CFG_EVENT_ANY) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    portENTER_CRITICAL(&s_subs_lock);
-    for (int i = 0; i < CONFIG_WIFI_CFG_MAX_EVENT_SUBS; i++) {
-        if (s_subs[i].cb == NULL) {
-            s_subs[i].ctx   = ctx;
-            s_subs[i].event = (uint8_t)event;
-            s_subs[i].cb    = cb;   // written last: this is what makes it live
-            portEXIT_CRITICAL(&s_subs_lock);
-            if (out_handle) *out_handle = i;
-            return ESP_OK;
-        }
-    }
-    portEXIT_CRITICAL(&s_subs_lock);
-
-    // Out of slots. Raise CONFIG_WIFI_CFG_MAX_EVENT_SUBS rather than retrying.
-    return ESP_ERR_NO_MEM;
-}
-
-esp_err_t wifi_cfg_event_unsubscribe(int handle)
-{
-    if (handle < 0 || handle >= CONFIG_WIFI_CFG_MAX_EVENT_SUBS) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    portENTER_CRITICAL(&s_subs_lock);
-    s_subs[handle].cb  = NULL;
-    s_subs[handle].ctx = NULL;
-    portEXIT_CRITICAL(&s_subs_lock);
-    return ESP_OK;
-}
 
 const char *wifi_cfg_event_name(wifi_cfg_event_t event)
 {
@@ -102,7 +48,7 @@ const char *wifi_cfg_event_name(wifi_cfg_event_t event)
         [WIFI_CFG_EVENT_PROV_CRED_SUCCESS]    = "prov_cred_success",
     };
 
-    if (event >= WIFI_CFG_EVENT_MAX) return "unknown";
+    if (event < 0 || event >= WIFI_CFG_EVENT_MAX) return "unknown";
     return names[event] ? names[event] : "unknown";
 }
 
@@ -112,22 +58,17 @@ const char *wifi_cfg_event_name(wifi_cfg_event_t event)
 
 void wifi_cfg_event_post(wifi_cfg_event_t event, const void *data, size_t len)
 {
-    // Snapshot the matching slots so handlers run outside the lock. The table
-    // is small and fixed, so this is a bounded stack copy rather than a malloc.
-    sub_slot_t matched[CONFIG_WIFI_CFG_MAX_EVENT_SUBS];
-    int n = 0;
+    // Zero timeout on purpose. Several of these fire from the WiFi state
+    // machine; blocking it because a subscriber is slow would trade a lost
+    // notification for a stalled reconnect, which is the worse failure.
+    esp_err_t err = esp_event_post(WIFI_CFG_EVENT, (int32_t)event, data, len, 0);
 
-    portENTER_CRITICAL(&s_subs_lock);
-    for (int i = 0; i < CONFIG_WIFI_CFG_MAX_EVENT_SUBS; i++) {
-        if (s_subs[i].cb &&
-            (s_subs[i].event == (uint8_t)event ||
-             s_subs[i].event == (uint8_t)WIFI_CFG_EVENT_ANY)) {
-            matched[n++] = s_subs[i];
-        }
-    }
-    portEXIT_CRITICAL(&s_subs_lock);
-
-    for (int i = 0; i < n; i++) {
-        matched[i].cb(event, data, len, matched[i].ctx);
+    if (err != ESP_OK) {
+        // The predecessor dropped events here silently -- esp_bus_emit()
+        // enqueued with a zero timeout and every call site discarded its
+        // return. A full loop queue is still a dropped event, but it is no
+        // longer an invisible one.
+        ESP_LOGW(TAG, "event '%s' not posted: %s",
+                 wifi_cfg_event_name(event), esp_err_to_name(err));
     }
 }
