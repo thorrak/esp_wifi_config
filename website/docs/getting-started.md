@@ -22,7 +22,7 @@ dependencies:
   thorrak/esp_wifi_config: "*"
 ```
 
-The component manager will automatically download `esp_wifi_config` and its dependency `esp_bus` on the next build.
+The component manager will download `esp_wifi_config` on the next build. It has no third-party dependencies.
 
 ### Manual Installation
 
@@ -33,27 +33,24 @@ cd components
 git clone https://github.com/thorrak/esp_wifi_config.git
 ```
 
-You will also need to install [esp_bus](https://github.com/thorrak/esp_bus) the same way.
-
 ## Quick Start
 
 This minimal example connects to WiFi with automatic provisioning when no networks are saved or all saved networks fail:
 
 ```c
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
 
 static const char *TAG = "my_app";
 
-static void on_connected(const char *event, const void *data, size_t len, void *ctx)
+static void on_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     wifi_connected_t *info = (wifi_connected_t *)data;
     ESP_LOGI(TAG, "Connected to %s, RSSI: %d", info->ssid, info->rssi);
 }
 
-static void on_got_ip(const char *event, const void *data, size_t len, void *ctx)
+static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     wifi_got_ip_t *info = (wifi_got_ip_t *)data;
     ESP_LOGI(TAG, "Got IP: %s", info->ip);
@@ -64,12 +61,10 @@ void app_main(void)
     // Initialize NVS (required)
     nvs_flash_init();
 
-    // Initialize esp_bus (required before wifi_cfg_init)
-    esp_bus_init();
-
-    // Subscribe to WiFi events (optional)
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip, NULL);
+    // Subscribe to WiFi events (optional). Do this before wifi_cfg_init()
+    // to catch events emitted during startup.
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_connected, NULL, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, NULL);
 
     // Initialize WiFi Config. Always start from WIFI_CFG_DEFAULTS — it
     // carries every documented default, and wifi_cfg_init() does not patch
@@ -98,7 +93,7 @@ void app_main(void)
 
 ### What This Does
 
-1. Initializes NVS and esp_bus (both required prerequisites)
+1. Initializes NVS (a required prerequisite) and registers event callbacks
 2. Starts from `WIFI_CFG_DEFAULTS` and overrides only what differs — retry
    policy, `auto_reconnect = true` and `provisioning_mode =
    WIFI_PROV_ON_FAILURE` all come from the macro. `wifi_cfg_init(NULL)`

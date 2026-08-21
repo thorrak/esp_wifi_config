@@ -17,7 +17,6 @@
 #include "esp_littlefs.h"
 #include "nvs_flash.h"
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 
 static const char *TAG = "wifi_webui_custom";
 
@@ -59,12 +58,12 @@ static esp_err_t init_littlefs(void)
 /**
  * @brief Callback for WiFi events
  */
-static void on_wifi_event(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_event(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
-    if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_CONNECTED)) == 0) {
+    if (event == WIFI_CFG_EVENT_CONNECTED) {
         const wifi_connected_t *info = (const wifi_connected_t *)data;
         ESP_LOGI(TAG, "Connected to %s", info->ssid);
-    } else if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_GOT_IP)) == 0) {
+    } else if (event == WIFI_CFG_EVENT_GOT_IP) {
         wifi_status_t status;
         if (wifi_cfg_get_status(&status) == ESP_OK) {
             ESP_LOGI(TAG, "Got IP: %s", status.ip);
@@ -90,12 +89,9 @@ void app_main(void)
     // Initialize LittleFS for custom frontend
     init_littlefs();
 
-    // Initialize esp_bus
-    ESP_ERROR_CHECK(esp_bus_init());
-
     // Subscribe to WiFi events
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_event, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_event, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_wifi_event, NULL, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_wifi_event, NULL, NULL);
 
     // Initialize WiFi Config
     wifi_cfg_config_t config = {

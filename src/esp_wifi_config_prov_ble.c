@@ -48,7 +48,6 @@
     defined(CONFIG_WIFI_CFG_NETWORK_PROVISIONING_BLE)
 
 #include "esp_wifi_config_priv.h"
-#include "esp_bus.h"
 #include "esp_log.h"
 #include "esp_idf_version.h"
 #include "esp_mac.h"
@@ -731,7 +730,7 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                 wifi_cfg_update_network(&net);
             }
 
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROV_CRED_RECV, &creds, sizeof(creds));
+            wifi_cfg_event_post(WIFI_CFG_EVENT_PROV_CRED_RECV, &creds, sizeof(creds));
             if (prov_cfg && prov_cfg->on_credentials_received) {
                 prov_cfg->on_credentials_received(&creds, prov_cfg->event_ctx);
             }
@@ -754,7 +753,7 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                     s_failed_attempts = 0;
                 }
             }
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROV_CRED_FAIL, &reason_val, sizeof(reason_val));
+            wifi_cfg_event_post(WIFI_CFG_EVENT_PROV_CRED_FAIL, &reason_val, sizeof(reason_val));
             if (prov_cfg && prov_cfg->on_credentials_failed) {
                 prov_cfg->on_credentials_failed(reason_val, prov_cfg->event_ctx);
             }
@@ -764,7 +763,7 @@ static void prov_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         case WIFI_PROV_EVT_CRED_SUCCESS:
             ESP_LOGI(TAG, "Provisioning credentials accepted");
             s_failed_attempts = 0;
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROV_CRED_SUCCESS, NULL, 0);
+            wifi_cfg_event_post(WIFI_CFG_EVENT_PROV_CRED_SUCCESS, NULL, 0);
             if (prov_cfg && prov_cfg->on_credentials_success) {
                 prov_cfg->on_credentials_success(prov_cfg->event_ctx);
             }

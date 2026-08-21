@@ -6,7 +6,7 @@
  * 
  * ESP WiFi Config cung cấp:
  * - Multi-network: Lưu nhiều mạng WiFi với priority, tự động retry
- * - esp_bus integration: Actions và Events để tương tác
+ * - Event callbacks: Subscribe để nhận thông báo trạng thái
  * - HTTP REST API: Cấu hình từ xa qua web
  * - SoftAP: Captive portal khi không kết nối được
  * - NVS Storage: Lưu networks, variables, AP config
@@ -55,25 +55,25 @@
  * printf("RSSI: %d dBm (%d%%)\n", status.rssi, status.quality);
  * @endcode
  * 
- * @subsection espbus esp_bus Integration
+ * @subsection eventcb Event Callbacks
  * @code{.c}
- * #include "esp_bus.h"
- * 
- * // Lấy status qua esp_bus
- * wifi_status_t status;
- * esp_bus_req(WIFI_REQ(WIFI_ACTION_GET_STATUS), NULL, 0, 
- *             &status, sizeof(status), NULL, 100);
- * 
- * // Subscribe events
- * void on_connected(const char *event, const void *data, size_t len, void *ctx) {
- *     wifi_connected_t *info = (wifi_connected_t *)data;
+ * // Handlers run synchronously on the library's task -- keep them short and
+ * // do not call back into wifi_cfg from inside one.
+ * void on_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx) {
+ *     const wifi_connected_t *info = (const wifi_connected_t *)data;
  *     ESP_LOGI(TAG, "Connected to %s", info->ssid);
  * }
- * esp_bus_subscribe(WIFI_EVT(WIFI_EVENT_CONNECTED), on_connected, NULL);
- * 
- * // Auto-route: WiFi connected -> LED on
- * esp_bus_connect(WIFI_EVT(WIFI_EVENT_CONNECTED), "led1.on", NULL, 0);
+ * wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_connected, NULL, NULL);
+ *
+ * // One handler for everything, dispatching on the event id
+ * void on_any(wifi_cfg_event_t event, const void *data, size_t len, void *ctx) {
+ *     ESP_LOGI(TAG, "wifi event: %s", wifi_cfg_event_name(event));
+ * }
+ * wifi_cfg_event_subscribe(WIFI_CFG_EVENT_ANY, on_any, NULL, NULL);
  * @endcode
+ *
+ * Anything the bus actions used to reach is a plain function call: status is
+ * wifi_cfg_get_status(), connecting is wifi_cfg_connect(), and so on.
  * 
  * @subsection softap SoftAP Mode
  * @code{.c}
@@ -104,11 +104,11 @@
  * wifi_cfg_get_var("server_url", value, sizeof(value));
  * 
  * // Subscribe variable changes
- * void on_var_changed(const char *event, const void *data, size_t len, void *ctx) {
- *     wifi_var_t *var = (wifi_var_t *)data;
+ * void on_var_changed(wifi_cfg_event_t event, const void *data, size_t len, void *ctx) {
+ *     const wifi_var_t *var = (const wifi_var_t *)data;
  *     ESP_LOGI(TAG, "Var changed: %s = %s", var->key, var->value);
  * }
- * esp_bus_subscribe(WIFI_EVT(WIFI_EVENT_VAR_CHANGED), on_var_changed, NULL);
+ * wifi_cfg_event_subscribe(WIFI_CFG_EVENT_VAR_CHANGED, on_var_changed, NULL, NULL);
  * @endcode
  * 
  * @subsection http HTTP REST API
@@ -152,23 +152,10 @@
  * httpd_register_uri_handler(server, &my_api);
  * @endcode
  * 
- * @section events Events (esp_bus)
- * 
- * | Event | Data | Mô tả |
- * |-------|------|-------|
- * | wifi:connected | wifi_connected_t | Đã kết nối mạng |
- * | wifi:disconnected | wifi_disconnected_t | Mất kết nối |
- * | wifi:connecting | string (ssid) | Đang thử kết nối |
- * | wifi:got_ip | esp_netif_ip_info_t | Đã nhận IP |
- * | wifi:lost_ip | none | Mất IP |
- * | wifi:scan_done | uint16 (count) | Quét xong |
- * | wifi:ap_start | none | AP đã bật |
- * | wifi:ap_stop | none | AP đã tắt |
- * | wifi:network_added | wifi_network_t | Mạng mới được thêm |
- * | wifi:network_removed | string (ssid) | Mạng bị xóa |
- * | wifi:var_changed | wifi_var_t | Variable thay đổi |
- * | wifi:provisioning_started | none | Provisioning interfaces started |
- * | wifi:provisioning_stopped | none | Provisioning interfaces stopped |
+ * @section events Events
+ *
+ * Subscribe with wifi_cfg_event_subscribe(). The full list of event ids and
+ * their payload types is documented on ::wifi_cfg_event_t.
  */
 
 #pragma once
@@ -184,77 +171,87 @@ extern "C" {
 #endif
 
 // =============================================================================
-// Module Constants (esp_bus)
+// Events
 // =============================================================================
 
-#define WIFI_MODULE                 "wifi"  ///< esp_bus module name
+/**
+ * @brief Event identifiers delivered to subscribers
+ *
+ * Every event carries an optional payload whose type is fixed per event; the
+ * @c data / @c len pair handed to a ::wifi_cfg_event_cb_t points at it. The
+ * payload is owned by the library and is only valid for the duration of the
+ * callback -- copy anything that must outlive the call.
+ *
+ * | Event                                | Payload                |
+ * |--------------------------------------|------------------------|
+ * | ::WIFI_CFG_EVENT_CONNECTED           | wifi_connected_t       |
+ * | ::WIFI_CFG_EVENT_DISCONNECTED        | wifi_disconnected_t    |
+ * | ::WIFI_CFG_EVENT_CONNECTING          | char[] (SSID, NUL-terminated) |
+ * | ::WIFI_CFG_EVENT_SCAN_DONE           | uint16_t (AP count)    |
+ * | ::WIFI_CFG_EVENT_GOT_IP              | esp_netif_ip_info_t    |
+ * | ::WIFI_CFG_EVENT_LOST_IP             | none                   |
+ * | ::WIFI_CFG_EVENT_AP_START            | none                   |
+ * | ::WIFI_CFG_EVENT_AP_STOP             | none                   |
+ * | ::WIFI_CFG_EVENT_AP_STA_CONNECTED    | uint8_t[6] (STA MAC)   |
+ * | ::WIFI_CFG_EVENT_NETWORK_ADDED       | wifi_network_t         |
+ * | ::WIFI_CFG_EVENT_NETWORK_UPDATED     | wifi_network_t         |
+ * | ::WIFI_CFG_EVENT_NETWORK_REMOVED     | char[] (SSID)          |
+ * | ::WIFI_CFG_EVENT_VAR_CHANGED         | wifi_var_t             |
+ * | ::WIFI_CFG_EVENT_PROVISIONING_STARTED| none                   |
+ * | ::WIFI_CFG_EVENT_PROVISIONING_STOPPED| none                   |
+ * | ::WIFI_CFG_EVENT_PROV_CRED_RECV      | wifi_cfg_prov_creds_t  |
+ * | ::WIFI_CFG_EVENT_PROV_CRED_FAIL      | int (reason)           |
+ * | ::WIFI_CFG_EVENT_PROV_CRED_SUCCESS   | none                   |
+ */
+typedef enum {
+    // Connection
+    WIFI_CFG_EVENT_CONNECTED = 0,        ///< Associated with an AP
+    WIFI_CFG_EVENT_DISCONNECTED,         ///< Lost association
+    WIFI_CFG_EVENT_CONNECTING,           ///< Association attempt started
+    WIFI_CFG_EVENT_SCAN_DONE,            ///< Scan finished
+    WIFI_CFG_EVENT_GOT_IP,               ///< DHCP/static IP acquired
+    WIFI_CFG_EVENT_LOST_IP,              ///< IP lease lost
+    WIFI_CFG_EVENT_AP_START,             ///< SoftAP started
+    WIFI_CFG_EVENT_AP_STOP,              ///< SoftAP stopped
+    WIFI_CFG_EVENT_AP_STA_CONNECTED,     ///< A station joined the SoftAP
 
-// Actions - WiFi Station
-#define WIFI_ACTION_CONNECT         "connect"       ///< Kết nối mạng
-#define WIFI_ACTION_DISCONNECT      "disconnect"    ///< Ngắt kết nối
-#define WIFI_ACTION_SCAN            "scan"          ///< Quét mạng
-#define WIFI_ACTION_GET_STATUS      "get_status"    ///< Lấy trạng thái
+    // Configuration changes
+    WIFI_CFG_EVENT_NETWORK_ADDED,        ///< Network added to the store
+    WIFI_CFG_EVENT_NETWORK_UPDATED,      ///< Stored network updated
+    WIFI_CFG_EVENT_NETWORK_REMOVED,      ///< Network removed from the store
+    WIFI_CFG_EVENT_VAR_CHANGED,          ///< Custom variable set or deleted
 
-// Actions - SoftAP
-#define WIFI_ACTION_START_AP        "start_ap"      ///< Bật SoftAP
-#define WIFI_ACTION_STOP_AP         "stop_ap"       ///< Tắt SoftAP
-#define WIFI_ACTION_GET_AP_STATUS   "get_ap_status" ///< Trạng thái AP
-#define WIFI_ACTION_SET_AP_CONFIG   "set_ap_config" ///< Cập nhật config AP
-#define WIFI_ACTION_GET_AP_CONFIG   "get_ap_config" ///< Lấy config AP
+    // Provisioning
+    WIFI_CFG_EVENT_PROVISIONING_STARTED, ///< Provisioning interfaces up (AP/BLE)
+    WIFI_CFG_EVENT_PROVISIONING_STOPPED, ///< Provisioning interfaces down
+    WIFI_CFG_EVENT_PROV_CRED_RECV,       ///< Provisioning client sent credentials
+    WIFI_CFG_EVENT_PROV_CRED_FAIL,       ///< Connect with provisioned credentials failed
+    WIFI_CFG_EVENT_PROV_CRED_SUCCESS,    ///< Connect with provisioned credentials succeeded
 
-// Actions - Network Config
-#define WIFI_ACTION_ADD_NETWORK     "add_network"    ///< Thêm mạng
-#define WIFI_ACTION_UPDATE_NETWORK  "update_network" ///< Cập nhật mạng
-#define WIFI_ACTION_REMOVE_NETWORK  "remove_network" ///< Xóa mạng
-#define WIFI_ACTION_GET_NETWORK     "get_network"    ///< Lấy thông tin 1 mạng
-#define WIFI_ACTION_LIST_NETWORKS   "list_networks"  ///< Danh sách mạng
-
-// Actions - Custom Variables
-#define WIFI_ACTION_SET_VAR         "set_var"   ///< Set variable
-#define WIFI_ACTION_GET_VAR         "get_var"   ///< Get variable
-#define WIFI_ACTION_DEL_VAR         "del_var"   ///< Delete variable
-#define WIFI_ACTION_LIST_VARS       "list_vars" ///< List all variables
-
-// Actions - System
-#define WIFI_ACTION_FACTORY_RESET   "factory_reset" ///< Factory reset (erase all NVS data)
-
-// Events - Connection (prefix WIFI_CFG để tránh conflict với ESP-IDF)
-#define WIFI_CFG_EVT_CONNECTED        "connected"     ///< Đã kết nối (data: wifi_connected_t)
-#define WIFI_CFG_EVT_DISCONNECTED     "disconnected"  ///< Mất kết nối (data: wifi_disconnected_t)
-#define WIFI_CFG_EVT_CONNECTING       "connecting"    ///< Đang kết nối (data: ssid string)
-#define WIFI_CFG_EVT_SCAN_DONE        "scan_done"     ///< Quét xong (data: uint16 count)
-#define WIFI_CFG_EVT_GOT_IP           "got_ip"        ///< Nhận IP (data: esp_netif_ip_info_t)
-#define WIFI_CFG_EVT_LOST_IP          "lost_ip"       ///< Mất IP
-#define WIFI_CFG_EVT_AP_START         "ap_start"      ///< AP bật
-#define WIFI_CFG_EVT_AP_STOP          "ap_stop"       ///< AP tắt
-#define WIFI_CFG_EVT_AP_STA_CONNECTED "ap_sta_connected" ///< Client kết nối AP
-
-// Events - Config Changed
-#define WIFI_CFG_EVT_NETWORK_ADDED    "network_added"   ///< Mạng được thêm
-#define WIFI_CFG_EVT_NETWORK_UPDATED  "network_updated" ///< Mạng được cập nhật
-#define WIFI_CFG_EVT_NETWORK_REMOVED  "network_removed" ///< Mạng bị xóa
-#define WIFI_CFG_EVT_VAR_CHANGED      "var_changed"     ///< Variable thay đổi
-
-// Events - Provisioning
-#define WIFI_CFG_EVT_PROVISIONING_STARTED  "provisioning_started"  ///< Provisioning interfaces started (AP/BLE)
-#define WIFI_CFG_EVT_PROVISIONING_STOPPED  "provisioning_stopped"  ///< Provisioning interfaces stopped
-#define WIFI_CFG_EVT_PROV_CRED_RECV        "prov_cred_recv"        ///< BLE prov client sent credentials (data: wifi_cfg_prov_creds_t)
-#define WIFI_CFG_EVT_PROV_CRED_FAIL        "prov_cred_fail"        ///< STA connect with provisioned creds failed (data: int reason)
-#define WIFI_CFG_EVT_PROV_CRED_SUCCESS     "prov_cred_success"     ///< STA connect with provisioned creds succeeded (no data)
+    WIFI_CFG_EVENT_MAX,                  ///< Number of distinct events (not an event)
+    WIFI_CFG_EVENT_ANY = 0xFF,           ///< Wildcard: subscribe to every event
+} wifi_cfg_event_t;
 
 /**
- * @brief Helper macro tạo request pattern
- * @param action Action name (e.g., WIFI_ACTION_CONNECT)
- * @return Pattern string "wifi.action"
+ * @brief Event subscriber callback
+ *
+ * Invoked **synchronously**, on whichever task emitted the event -- usually the
+ * library's internal WiFi task, and for a few events the caller of the public
+ * API that triggered them (e.g. wifi_cfg_add_network()). Two consequences:
+ *
+ *  - Keep the callback short. It runs inline in the library's state machine,
+ *    so blocking here delays reconnects, scans and provisioning.
+ *  - Do not call back into a wifi_cfg function that would re-enter the same
+ *    state machine. Set a flag or post to your own queue instead.
+ *
+ * @param event Which event fired
+ * @param data  Event payload, or NULL when the event carries none. Valid only
+ *              for the duration of this call.
+ * @param len   Payload length in bytes, 0 when @p data is NULL
+ * @param ctx   The @c ctx passed to wifi_cfg_event_subscribe()
  */
-#define WIFI_REQ(action)   WIFI_MODULE "." action
-
-/**
- * @brief Helper macro tạo event pattern
- * @param event Event name (e.g., WIFI_EVENT_CONNECTED)
- * @return Pattern string "wifi:event"
- */
-#define WIFI_EVT(event)    WIFI_MODULE ":" event
+typedef void (*wifi_cfg_event_cb_t)(wifi_cfg_event_t event, const void *data,
+                                    size_t len, void *ctx);
 
 // =============================================================================
 // Data Types
@@ -531,7 +528,7 @@ typedef enum {
 /**
  * @brief WiFi credentials received via provisioning
  *
- * Passed to WIFI_CFG_EVT_PROV_CRED_RECV subscribers and to the
+ * Passed to ::WIFI_CFG_EVENT_PROV_CRED_RECV subscribers and to the
  * on_credentials_received callback. SSID is NUL-terminated.
  */
 typedef struct {
@@ -582,10 +579,11 @@ typedef struct {
 /**
  * @brief Provisioning event callbacks
  *
- * Optional struct callbacks invoked alongside the corresponding esp_bus
- * events (WIFI_CFG_EVT_PROV_CRED_*). Use whichever path fits the app —
- * struct callbacks for direct in-process notification, bus events for
- * cross-module routing. Both fire for every event.
+ * Optional struct callbacks invoked alongside the corresponding library
+ * events (::WIFI_CFG_EVENT_PROV_CRED_RECV and friends). Use whichever path
+ * fits the app — these fields when only the provisioning flow matters,
+ * wifi_cfg_event_subscribe() when one handler should see everything. Both
+ * fire for every event.
  */
 typedef void (*wifi_cfg_prov_on_creds_recv_t)(const wifi_cfg_prov_creds_t *creds, void *ctx);
 typedef void (*wifi_cfg_prov_on_creds_fail_t)(int reason, void *ctx);
@@ -1312,6 +1310,55 @@ esp_err_t wifi_cfg_scan(wifi_scan_result_t *results, size_t max_count, size_t *c
  * @return ESP_OK on success
  */
 esp_err_t wifi_cfg_factory_reset(void);
+
+// =============================================================================
+// Event API
+// =============================================================================
+
+/**
+ * @brief Subscribe to library events
+ *
+ * Subscriptions live in a fixed-size table (CONFIG_WIFI_CFG_MAX_EVENT_SUBS,
+ * default 8) -- no allocation happens here, and the call fails with
+ * ESP_ERR_NO_MEM once the table is full rather than growing it.
+ *
+ * Subscribing is independent of wifi_cfg_init(): register before init to catch
+ * events emitted during startup. Subscriptions survive wifi_cfg_deinit().
+ *
+ * Read ::wifi_cfg_event_cb_t before writing a handler -- callbacks run
+ * synchronously on the emitting task, which constrains what they may do.
+ *
+ * @param event      Event to listen for, or ::WIFI_CFG_EVENT_ANY for all of them
+ * @param cb         Handler, must not be NULL
+ * @param ctx        Opaque pointer handed back to @p cb
+ * @param out_handle Receives a handle for wifi_cfg_event_unsubscribe(); may be
+ *                   NULL if the subscription is never removed
+ *
+ * @return ESP_OK on success
+ *         ESP_ERR_INVALID_ARG if @p cb is NULL or @p event is out of range
+ *         ESP_ERR_NO_MEM if the subscription table is full
+ */
+esp_err_t wifi_cfg_event_subscribe(wifi_cfg_event_t event, wifi_cfg_event_cb_t cb,
+                                   void *ctx, int *out_handle);
+
+/**
+ * @brief Remove a subscription
+ *
+ * Safe to call from inside an event callback; the current dispatch still
+ * completes against the subscriber list as it stood when the event fired.
+ *
+ * @param handle Handle from wifi_cfg_event_subscribe()
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if @p handle is not valid
+ */
+esp_err_t wifi_cfg_event_unsubscribe(int handle);
+
+/**
+ * @brief Human-readable name for an event, for logging
+ *
+ * @param event Event id
+ * @return Static string, or "unknown" if @p event is out of range. Never NULL.
+ */
+const char *wifi_cfg_event_name(wifi_cfg_event_t event);
 
 #ifdef __cplusplus
 }

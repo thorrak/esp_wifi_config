@@ -22,14 +22,13 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 
 static const char *TAG = "wifi_example";
 
 /**
  * @brief Callback for WiFi connected event
  */
-static void on_wifi_connected(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_connected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     const wifi_connected_t *info = (const wifi_connected_t *)data;
     ESP_LOGI(TAG, "WiFi connected to %s (RSSI: %d dBm, Channel: %d)",
@@ -39,7 +38,7 @@ static void on_wifi_connected(const char *event, const void *data, size_t len, v
 /**
  * @brief Callback for WiFi disconnected event
  */
-static void on_wifi_disconnected(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_disconnected(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     const wifi_disconnected_t *info = (const wifi_disconnected_t *)data;
     ESP_LOGW(TAG, "WiFi disconnected from %s (reason: %d)", info->ssid, info->reason);
@@ -48,7 +47,7 @@ static void on_wifi_disconnected(const char *event, const void *data, size_t len
 /**
  * @brief Callback for got IP event
  */
-static void on_wifi_got_ip(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     ESP_LOGI(TAG, "Got IP address");
 
@@ -67,7 +66,7 @@ static void on_wifi_got_ip(const char *event, const void *data, size_t len, void
 /**
  * @brief Callback for variable changed event
  */
-static void on_var_changed(const char *event, const void *data, size_t len, void *ctx)
+static void on_var_changed(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     const wifi_var_t *var = (const wifi_var_t *)data;
     ESP_LOGI(TAG, "Variable changed: %s = %s", var->key, var->value);
@@ -85,18 +84,11 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Starting WiFi Config example");
 
-    // Initialize esp_bus first (required by wifi_cfg)
-    ret = esp_bus_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize esp_bus: %s", esp_err_to_name(ret));
-        return;
-    }
-
     // Subscribe to WiFi events (before wifi_cfg_init to catch early events)
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_VAR_CHANGED), on_var_changed, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_CONNECTED, on_wifi_connected, NULL, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_DISCONNECTED, on_wifi_disconnected, NULL, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_wifi_got_ip, NULL, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_VAR_CHANGED, on_var_changed, NULL, NULL);
 
     // This is how to write it: start from WIFI_CFG_DEFAULTS, then set only
     // what differs. The macro is not optional — wifi_cfg_init() no longer

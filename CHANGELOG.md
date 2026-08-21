@@ -9,6 +9,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Breaking Changes
 
+- **The `esp_bus` dependency is removed.** Events are delivered by direct
+  callback; the bus's action surface was a string-dispatch shim over the
+  public C API, so it is gone with no replacement — call the matching
+  `wifi_cfg_*` function. Subscribe with `wifi_cfg_event_subscribe()`;
+  there is no bus to initialise, and subscriptions are valid before
+  `wifi_cfg_init()`. Each `WIFI_CFG_EVT_<NAME>` string macro becomes a
+  `WIFI_CFG_EVENT_<NAME>` enumerator of the new `wifi_cfg_event_t`, and
+  handlers take that enum instead of a `const char *`. `WIFI_EVT()`,
+  `WIFI_REQ()`, `WIFI_MODULE` and every `WIFI_ACTION_*` macro were
+  removed. See MIGRATION.md.
+
+  Two behavioural changes come with it. Callbacks now run
+  **synchronously**, on the task that emitted the event, so a handler
+  must be short and must not re-enter the library's state machine —
+  `esp_bus` ran them on its own task. And events can no longer be
+  silently dropped: the bus queued them with a zero timeout and the
+  library ignored the resulting error, so a full queue discarded them.
+
+  Measured on esp32s3 / IDF 5.5.3, this saves **~6.1–6.2 KB of flash**
+  across every example configuration (`basic` 855,120 → 848,912 bytes)
+  and about **5.4 KB of heap** — the bus ran a 4 KB-stack task and a
+  16 × 64-byte queue. Static RAM rises 48 bytes: the 96-byte
+  subscription table, less the bus's own statics. Per-event cost drops
+  from two heap allocations, a queue copy and a mutex round-trip to a
+  spinlocked scan of a fixed array.
+
 - **Every `wifi_cfg_config_t` initialiser must now start from
   `WIFI_CFG_DEFAULTS`.** The new `WIFI_CFG_DEFAULTS` (a
   designated-initialiser list) and `WIFI_CFG_DEFAULT_CONFIG()` (the same

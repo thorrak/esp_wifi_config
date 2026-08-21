@@ -143,7 +143,7 @@ behaviour.
 
 ### Implications for application code
 
-- **`prov_ble.on_credentials_success` and the `WIFI_CFG_EVT_PROV_CRED_SUCCESS`
+- **`prov_ble.on_credentials_success` and the `WIFI_CFG_EVENT_PROV_CRED_SUCCESS`
   bus event still fire** — the callback runs before the reboot is
   scheduled. Anything that must persist needs to land in NVS inside
   that callback. If you need a wider window for the work to complete,

@@ -20,7 +20,6 @@ Every project using ESP WiFi Config needs:
 
 1. **ESP-IDF >= 5.4** installed and configured (5.0.0 was supported by 0.0.x; the new Network Provisioning integration in 0.1.0 needs 5.4 or newer)
 2. **NVS flash** initialized before calling `wifi_cfg_init()`
-3. **esp_bus** initialized before calling `wifi_cfg_init()`
 
 ---
 
@@ -50,7 +49,7 @@ Questions are numbered. Some are conditional — only ask them if the indicated 
 | Method | Action |
 |---|---|
 | **ESP-IDF Component Manager** (recommended) | Add `thorrak/esp_wifi_config: "*"` to `main/idf_component.yml` |
-| **Manual** | Clone into `components/` along with `esp_bus` |
+| **Manual** | Clone into `components/` (no third-party dependencies) |
 | **PlatformIO** | Add to `lib_deps` in `platformio.ini` |
 
 This affects project setup but not runtime code.
@@ -311,13 +310,12 @@ Assemble the `wifi_cfg_config_t` struct from the collected answers. **`WIFI_CFG_
 
 ```c
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
 
 static const char *TAG = "app";
 
-static void on_got_ip(const char *event, const void *data, size_t len, void *ctx)
+static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     wifi_got_ip_t *info = (wifi_got_ip_t *)data;
     ESP_LOGI(TAG, "Connected! IP: %s", info->ip);
@@ -328,10 +326,9 @@ void app_main(void)
 {
     // --- Required initialization ---
     nvs_flash_init();
-    esp_bus_init();
 
     // --- Event subscriptions (before wifi_cfg_init) ---
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip, NULL);
+    wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, NULL);
 
     // --- WiFi Config initialization ---
     wifi_cfg_init(&(wifi_cfg_config_t){
@@ -454,7 +451,7 @@ void app_main(void)
 ## Gotchas
 
 1. **Must init NVS first**: Call `nvs_flash_init()` before `wifi_cfg_init()`. For robustness, handle `ESP_ERR_NVS_NO_FREE_PAGES` by erasing and re-initializing.
-2. **Must init esp_bus first**: Call `esp_bus_init()` before `wifi_cfg_init()`.
+2. **Event callbacks run synchronously** on the library's task: keep them short and never call back into `wifi_cfg_*` from inside one.
 3. **BLE requires Bluetooth enabled**: `CONFIG_BT_ENABLED=y` and either `CONFIG_BT_BLUEDROID_ENABLED=y` or `CONFIG_BT_NIMBLE_ENABLED=y`.
 4. **BLE needs larger partition table**: Use `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y` when enabling BLE.
 5. **NimBLE needs stack size**: Set `CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144` when using NimBLE.
@@ -462,7 +459,7 @@ void app_main(void)
 7. **Network Provisioning BLE and Improv BLE are mutually exclusive**: `CONFIG_WIFI_CFG_ENABLE_NETWORK_PROVISIONING` and `CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE` cannot be enabled together — they each want to own the BLE GAP advertising and the host stack. Improv Serial is independent of BLE and remains safe alongside Network Provisioning.
 8. **Default networks are seeds**: They're only written to NVS on first boot. After that, NVS is the source of truth.
 9. **ESP32 is 2.4GHz only**: The device cannot connect to 5GHz WiFi networks.
-10. **Subscribe to events before init**: Call `esp_bus_sub()` before `wifi_cfg_init()` to catch events fired during initialization.
+10. **Subscribe to events before init**: Call `wifi_cfg_event_subscribe()` before `wifi_cfg_init()` to catch events fired during initialization. No bus setup is needed — the subscription table is valid before init.
 11. **ESP32-S2 has no Bluetooth**: BLE and Improv BLE cannot be used.
 12. **ESP32-H2 has no WiFi**: This library cannot be used on ESP32-H2.
 

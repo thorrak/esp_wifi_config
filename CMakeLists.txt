@@ -2,7 +2,7 @@ set(SRCS
     "src/esp_wifi_config.c"
     "src/esp_wifi_config_network.c"
     "src/esp_wifi_config_ap.c"
-    "src/esp_wifi_config_bus.c"
+    "src/esp_wifi_config_event.c"
     "src/esp_wifi_config_nvs.c"
     "src/esp_wifi_config_http.c"
     "src/esp_wifi_config_dns.c"
@@ -14,7 +14,6 @@ set(SRCS
 )
 
 set(PRIV_REQUIRES
-    esp_bus
     json
     mbedtls
     esp_app_format

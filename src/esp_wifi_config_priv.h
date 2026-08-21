@@ -161,7 +161,7 @@ typedef struct {
         } connect_req;
         uint8_t mac[6];
     } data;
-} wifi_cfg_event_t;
+} wifi_cfg_internal_msg_t;
 
 // =============================================================================
 // Internal Context
@@ -278,7 +278,7 @@ esp_err_t wifi_cfg_http_deinit(void);
 
 // Send event to task queue (from event handlers or other contexts)
 void wifi_cfg_send_event(wifi_cfg_internal_evt_t type);
-void wifi_cfg_send_event_data(const wifi_cfg_event_t *event);
+void wifi_cfg_send_event_data(const wifi_cfg_internal_msg_t *event);
 
 // Start connect sequence (non-blocking, called from task)
 void wifi_cfg_start_connect_sequence(void);
@@ -314,13 +314,15 @@ esp_err_t wifi_cfg_http_unregister_provisioning_handlers(void);
 void wifi_cfg_http_transition_post_prov(wifi_http_post_prov_mode_t mode);
 
 // =============================================================================
-// esp_bus Handler (esp_wifi_config_bus.c)
+// Event Dispatch (esp_wifi_config_event.c)
 // =============================================================================
 
-esp_err_t wifi_cfg_bus_handler(const char *action,
-                               const void *req_data, size_t req_len,
-                               void *res_buf, size_t res_buf_size, size_t *res_len,
-                               void *ctx);
+/**
+ * Deliver @p event to every matching subscriber, synchronously, on the calling
+ * task. Returns as soon as the last handler returns; there is no queue and no
+ * copy, so @p data only needs to stay alive for the duration of the call.
+ */
+void wifi_cfg_event_post(wifi_cfg_event_t event, const void *data, size_t len);
 
 // =============================================================================
 // DNS Server (esp_wifi_config_dns.c) - Captive Portal

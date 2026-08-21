@@ -1,14 +1,82 @@
 # Migration Guide
 
 This document tracks breaking changes that affect downstream firmware
-using `esp_wifi_config`. The first section covers the most recent change
-(`WIFI_CFG_DEFAULTS` and the enum renumbering); then 0.1.0 (custom BLE
-replaced by ESP-IDF Network Provisioning); the rest covers the historic
-rename from `esp_wifi_manager`.
+using `esp_wifi_config`. The first section covers the most recent changes
+(the `esp_bus` dependency removed, `WIFI_CFG_DEFAULTS`, and the enum
+renumbering); then 0.1.0 (custom BLE replaced by ESP-IDF Network
+Provisioning); the rest covers the historic rename from
+`esp_wifi_manager`.
+
+Note that the event constants were renamed twice. Anything below that
+names `WIFI_CFG_EVT_*` describes an older migration; those names no
+longer exist. See "The `esp_bus` dependency is gone" for the current
+`WIFI_CFG_EVENT_*` enum.
 
 ---
 
 ## 0.2.0 — `WIFI_CFG_DEFAULTS`, and two enums renumbered
+
+### The `esp_bus` dependency is gone
+
+`esp_wifi_config` no longer depends on `esp_bus`. Events are delivered by
+direct callback instead, and the bus's request/action surface is simply
+the library's own C API, which every action already forwarded to.
+
+Remove the dependency from `idf_component.yml`, drop
+`#include "esp_bus.h"` and the `esp_bus_init()` call, and rewrite
+subscriptions:
+
+```diff
+-#include "esp_bus.h"
+-
+-esp_bus_init();
+-esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_got_ip, NULL);
++wifi_cfg_event_subscribe(WIFI_CFG_EVENT_GOT_IP, on_got_ip, NULL, NULL);
+```
+
+Handler signatures take the event id instead of its name:
+
+```diff
+-void on_got_ip(const char *event, const void *data, size_t len, void *ctx)
++void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
+```
+
+Code that branched on the event string becomes a switch:
+
+```diff
+-if (strcmp(event, WIFI_EVT(WIFI_CFG_EVT_CONNECTED)) == 0) {
++if (event == WIFI_CFG_EVENT_CONNECTED) {
+```
+
+Every `WIFI_CFG_EVT_<NAME>` string macro is now a
+`WIFI_CFG_EVENT_<NAME>` enumerator — the names match, so the rename is
+mechanical. `WIFI_EVT()`, `WIFI_REQ()`, `WIFI_MODULE` and every
+`WIFI_ACTION_*` macro were removed with no replacement: call the
+matching public function directly (`WIFI_ACTION_GET_STATUS` →
+`wifi_cfg_get_status()`, `WIFI_ACTION_CONNECT` → `wifi_cfg_connect()`,
+and so on).
+
+Two behavioural changes matter more than the renaming:
+
+- **Callbacks are now synchronous.** `esp_bus_emit()` copied the payload
+  to the heap and queued it for the bus task; handlers ran there. A
+  handler now runs inline, on the task that emitted the event — usually
+  the library's WiFi task. Keep handlers short, and do not call back
+  into a `wifi_cfg_*` function that re-enters the state machine. If you
+  need the old decoupling, post to your own queue from the handler.
+- **Events can no longer be silently dropped.** The bus queued events
+  with a zero timeout, so a full queue discarded them and the library
+  ignored the error. Direct dispatch has no queue to overflow.
+
+The subscription table is fixed-size
+(`CONFIG_WIFI_CFG_MAX_EVENT_SUBS`, default 8). Subscribing past the
+limit returns `ESP_ERR_NO_MEM` instead of allocating, so check the
+return value or raise the limit.
+
+If your application used `esp_bus` for its own modules, it still works —
+it is just no longer pulled in as a transitive dependency, so declare it
+in your own `idf_component.yml`.
+
 
 Every `wifi_cfg_config_t` initialiser must now start from
 `WIFI_CFG_DEFAULTS` (or `WIFI_CFG_DEFAULT_CONFIG()`, or pass `NULL`).
@@ -305,7 +373,7 @@ typedef struct {
     const wifi_cfg_prov_custom_endpoint_t *custom_endpoints;
     size_t         custom_endpoint_count;
 
-    // Event callbacks (also fired on esp_bus)
+    // Event callbacks (also delivered to event subscribers)
     wifi_cfg_prov_on_creds_recv_t    on_credentials_received;
     wifi_cfg_prov_on_creds_fail_t    on_credentials_failed;
     wifi_cfg_prov_on_creds_success_t on_credentials_success;
@@ -512,18 +580,19 @@ therefore ignored while reboot-on-success is active.
 ### Provisioning event surface
 
 Two parallel notification paths, both fire for every event — use
-whichever suits the app. The bus events route through `esp_bus`; the
-struct callbacks fire inline and require no extra dependency. The
-library is moving toward making `esp_bus` optional, so new code that
-needs to stay portable should prefer the struct callbacks.
+whichever suits the app. The struct callbacks are scoped to
+provisioning; the subscription API sees every library event.
+
+(Names below are shown as of 0.2.0. In 0.1.0 these were `esp_bus`
+strings named `WIFI_CFG_EVT_*`, subscribed with `esp_bus_sub`.)
 
 ```c
-// Bus event names (subscribe with esp_bus_sub)
-WIFI_CFG_EVT_PROVISIONING_STARTED   // no data
-WIFI_CFG_EVT_PROVISIONING_STOPPED   // no data
-WIFI_CFG_EVT_PROV_CRED_RECV         // data: wifi_cfg_prov_creds_t
-WIFI_CFG_EVT_PROV_CRED_FAIL         // data: int (wifi_prov_sta_fail_reason_t)
-WIFI_CFG_EVT_PROV_CRED_SUCCESS      // no data
+// Event ids (subscribe with wifi_cfg_event_subscribe)
+WIFI_CFG_EVENT_PROVISIONING_STARTED   // no data
+WIFI_CFG_EVENT_PROVISIONING_STOPPED   // no data
+WIFI_CFG_EVENT_PROV_CRED_RECV         // data: wifi_cfg_prov_creds_t
+WIFI_CFG_EVENT_PROV_CRED_FAIL         // data: int (wifi_prov_sta_fail_reason_t)
+WIFI_CFG_EVENT_PROV_CRED_SUCCESS      // no data
 
 // Struct callbacks (wired through .prov_ble in wifi_cfg_init)
 typedef void (*wifi_cfg_prov_on_creds_recv_t)(const wifi_cfg_prov_creds_t *creds, void *ctx);
@@ -750,7 +819,7 @@ ordering required by `wifi_prov_mgr` automatically.
 
 5. **Subscribe to the new provisioning events** if your app reacts to
    credential delivery/failure/success — see "Provisioning event
-   surface" above. Both `esp_bus` events and struct callbacks fire for
+   surface" above. Both library events and struct callbacks fire for
    every event.
 
 6. **Replace any custom BLE client tooling** with one of the standard
@@ -988,12 +1057,12 @@ The built-in mDNS integration has been removed. It was a convenience wrapper tha
 
 - Remove the `.mdns` field from your `wifi_cfg_config_t` initializer.
 - Remove `WIFI_CFG_MDNS_HOSTNAME` from any `sdkconfig.defaults` files.
-- If you need mDNS, initialize it directly in your application after receiving the `WIFI_CFG_EVT_GOT_IP` event:
+- If you need mDNS, initialize it directly in your application after receiving the `WIFI_CFG_EVENT_GOT_IP` event:
 
 ```c
 #include "mdns.h"
 
-static void on_got_ip(const char *event, const void *data, size_t len, void *ctx)
+static void on_got_ip(wifi_cfg_event_t event, const void *data, size_t len, void *ctx)
 {
     mdns_init();
     mdns_hostname_set("my-device");
@@ -1006,6 +1075,11 @@ You will also need to add `espressif/mdns` to your own project's `idf_component.
 
 
 ## esp_bus Dependency
+
+> **Superseded in 0.2.0**: `esp_wifi_config` no longer depends on
+> `esp_bus` at all. See "The `esp_bus` dependency is gone" at the top of
+> this document. The note below applies only if your own application
+> still uses `esp_bus` directly.
 
 The `esp_bus` component is also now maintained under the new owner.
 

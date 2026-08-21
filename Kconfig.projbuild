@@ -12,6 +12,18 @@ menu "WiFi Config"
         help
             Maximum number of custom variables that can be saved.
 
+    config WIFI_CFG_MAX_EVENT_SUBS
+        int "Maximum event subscribers"
+        default 8
+        range 2 32
+        help
+            Size of the event subscription table used by
+            wifi_cfg_event_subscribe(). The table is statically allocated at
+            roughly 12 bytes per slot and never grows, so subscribing past
+            this limit returns ESP_ERR_NO_MEM instead of allocating.
+
+            The library itself takes two slots when Improv is enabled.
+
     config WIFI_CFG_DEFAULT_RETRY
         int "Default retry per network"
         default 3

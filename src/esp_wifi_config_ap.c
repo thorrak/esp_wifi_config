@@ -4,7 +4,6 @@
  */
 
 #include "esp_wifi_config_priv.h"
-#include "esp_bus.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "lwip/sockets.h"
@@ -101,7 +100,7 @@ esp_err_t wifi_cfg_start_ap(const wifi_cfg_ap_config_t *config)
     // Emit AP start event after config is fully applied, so listeners
     // see the correct SSID/IP. This avoids spurious events from
     // intermediate driver restarts (set_mode then set_config).
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_AP_START, NULL, 0);
+    wifi_cfg_event_post(WIFI_CFG_EVENT_AP_START, NULL, 0);
 
     return ESP_OK;
 }
@@ -118,7 +117,7 @@ esp_err_t wifi_cfg_stop_ap(void)
     g_wifi_cfg->ap_active = false;
     esp_wifi_set_mode(WIFI_MODE_STA);
 
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_AP_STOP, NULL, 0);
+    wifi_cfg_event_post(WIFI_CFG_EVENT_AP_STOP, NULL, 0);
 
     return ESP_OK;
 }
@@ -214,7 +213,7 @@ esp_err_t wifi_cfg_set_var(const char *key, const char *value)
             wifi_var_t var;
             strncpy(var.key, key, sizeof(var.key) - 1);
             strncpy(var.value, value, sizeof(var.value) - 1);
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_VAR_CHANGED, &var, sizeof(var));
+            wifi_cfg_event_post(WIFI_CFG_EVENT_VAR_CHANGED, &var, sizeof(var));
             return ESP_OK;
         }
     }
@@ -236,7 +235,7 @@ esp_err_t wifi_cfg_set_var(const char *key, const char *value)
     wifi_var_t var = {0};
     strncpy(var.key, key, sizeof(var.key) - 1);
     strncpy(var.value, value, sizeof(var.value) - 1);
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_VAR_CHANGED, &var, sizeof(var));
+    wifi_cfg_event_post(WIFI_CFG_EVENT_VAR_CHANGED, &var, sizeof(var));
     
     return ESP_OK;
 }
@@ -278,7 +277,7 @@ esp_err_t wifi_cfg_del_var(const char *key)
             wifi_cfg_nvs_save_vars(g_wifi_cfg->vars, g_wifi_cfg->var_count);
             wifi_cfg_unlock();
             
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_VAR_CHANGED, &var, sizeof(var));
+            wifi_cfg_event_post(WIFI_CFG_EVENT_VAR_CHANGED, &var, sizeof(var));
             return ESP_OK;
         }
     }

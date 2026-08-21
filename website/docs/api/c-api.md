@@ -286,8 +286,8 @@ back to the library defaults documented in the table.
 | `on_credentials_success` | Callback invoked when STA connects with the supplied credentials. |
 | `event_ctx` | User pointer passed to every callback above. |
 
-All three credential callbacks also fire as `esp_bus` events
-(`WIFI_CFG_EVT_PROV_CRED_RECV`, `_FAIL`, `_SUCCESS`) — pick whichever
+All three credential callbacks also fire as library events
+(`WIFI_CFG_EVENT_PROV_CRED_RECV`, `_FAIL`, `_SUCCESS`) — pick whichever
 path fits the app.
 
 ### Bluetooth memory policy
