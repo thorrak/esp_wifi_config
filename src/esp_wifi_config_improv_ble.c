@@ -650,7 +650,9 @@ static void improv_ble_cmd_task(void *param)
     improv_ble_cmd_msg_t msg;
     while (xQueueReceive(s_cmd_queue, &msg, portMAX_DELAY) == pdTRUE) {
         if (improv_ble_frame_valid(msg.data, msg.length)) {
-            wifi_cfg_improv_handle_rpc(msg.data, msg.length, ble_response_cb, NULL);
+            /* BLE spec: one RPC Response holding every network. */
+            wifi_cfg_improv_handle_rpc(msg.data, msg.length, ble_response_cb,
+                                       NULL, IMPROV_RPC_STYLE_SINGLE);
         } else {
             /* Reported the same way the core reports its own frame errors, so
              * a client sees one error code for "that frame was not usable"

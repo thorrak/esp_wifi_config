@@ -19,13 +19,21 @@
 #include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include "driver/uart.h"
+#include "soc/uart_pins.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "wifi_cfg_improv_ser";
 
-#define IMPROV_SERIAL_BUF_SIZE  256
+/* Frame overhead: "IMPROV" + version + type + length + checksum. */
+#define IMPROV_SERIAL_FRAME_OVERHEAD (IMPROV_SERIAL_HEADER_LEN + 4)
+/* The frame's length field is one byte, so this is the hard ceiling on what a
+ * frame can carry -- and it is below what the protocol core can build: an RPC
+ * packet is [cmd][len][<=255 payload], so its payload must stay under 253 to
+ * be expressible here at all. */
+#define IMPROV_SERIAL_MAX_DATA  255
+#define IMPROV_SERIAL_BUF_SIZE  (IMPROV_SERIAL_FRAME_OVERHEAD + IMPROV_SERIAL_MAX_DATA)
 #define IMPROV_SERIAL_RX_BUF    512
 #define IMPROV_SERIAL_TASK_STACK 4096
 
@@ -58,8 +66,28 @@ static void serial_send_packet(uint8_t type, const uint8_t *data, size_t len)
     // Type
     buf[offset++] = type;
 
-    // Length
-    if (len > 200) len = 200;  // Safety cap
+    /*
+     * Length.
+     *
+     * This used to clamp: `if (len > 200) len = 200;`. That wrote the clamped
+     * length into the frame and copied only that many bytes -- but the RPC
+     * packet nested inside still declared its original length, so the client
+     * received a frame whose inner header claimed more payload than had been
+     * sent. A Wi-Fi scan reaches this immediately: measured 2026-08-17, a
+     * bench with eleven neighbouring APs produced a 218-byte RPC packet that
+     * arrived as 200 bytes declaring 216, with a neighbour's SSID severed
+     * mid-string.
+     *
+     * Dropping is strictly better than truncating. A missing response is a
+     * timeout the caller can see; a malformed one is a parse error that looks
+     * like a client bug. The buffer is now sized to the format's own ceiling,
+     * so this is reachable only by a packet no frame could have expressed.
+     */
+    if (len > IMPROV_SERIAL_MAX_DATA) {
+        ESP_LOGE(TAG, "refusing to send a %u-byte packet: the frame length "
+                      "field is one byte", (unsigned)len);
+        return;
+    }
     buf[offset++] = (uint8_t)len;
 
     // Data
@@ -202,8 +230,12 @@ static void serial_rx_task(void *param)
                     // Valid packet received
                     switch (pkt_type) {
                         case IMPROV_SERIAL_TYPE_RPC_COMMAND:
+                            /* Serial spec: one RPC Response per network,
+                             * then one with 0 strings. A single combined
+                             * response does not fit this transport's frame. */
                             wifi_cfg_improv_handle_rpc(rx_buf, pkt_len,
-                                                       serial_response_cb, NULL);
+                                                       serial_response_cb, NULL,
+                                                       IMPROV_RPC_STYLE_CHUNKED);
                             break;
 
                         case IMPROV_SERIAL_TYPE_CURRENT_STATE:
@@ -254,12 +286,55 @@ esp_err_t wifi_cfg_improv_serial_init(void)
             .source_clk = UART_SCLK_DEFAULT,
         };
 
-        esp_err_t ret = uart_driver_install(uart_num, IMPROV_SERIAL_RX_BUF, 0, 0, NULL, 0);
+        // Documented order is configure, route, then install.
+        esp_err_t ret = uart_param_config(uart_num, &uart_config);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "UART param config failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
+
+        /*
+         * Route the peripheral to pins.
+         *
+         * Without this the UART is clocked, configured and driven, and its TX
+         * signal reaches no pad unless something else happened to have muxed
+         * it already. With the console on UART0 something else does —
+         * `cpu_start` logs "GPIO 3 and 1 are used as console UART I/O pins" —
+         * which is why this omission stayed invisible.
+         *
+         * It is invisible in the worst possible place. Improv Serial frames
+         * binary packets, so the console MUST be disabled on its UART
+         * (CONFIG_ESP_CONSOLE_NONE, as this component's own Kconfig help
+         * says) or log text corrupts the stream. That is precisely the case
+         * with nothing left to configure the pins — so the transport was mute
+         * in the only configuration it is correct to run it in, while logging
+         * that it had initialised and started.
+         *
+         * Only UART0's IOMUX defaults are applied. On several targets the
+         * defaults for UART1/UART2 land on the SPI flash bus (ESP32: U1TXD is
+         * GPIO10, U1RXD GPIO9), so driving them blind would be worse than
+         * doing nothing.
+         */
+        if (uart_num == 0) {
+            ret = uart_set_pin(uart_num, U0TXD_GPIO_NUM, U0RXD_GPIO_NUM,
+                               UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "UART pin routing failed: %s", esp_err_to_name(ret));
+                return ret;
+            }
+        } else {
+            ESP_LOGW(TAG, "UART%d pins are not configured by this component. "
+                          "If nothing else has routed them, Improv Serial will "
+                          "run and transmit nothing; call uart_set_pin() for "
+                          "UART%d before wifi_cfg_init().",
+                     uart_num, uart_num);
+        }
+
+        ret = uart_driver_install(uart_num, IMPROV_SERIAL_RX_BUF, 0, 0, NULL, 0);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "UART driver install failed: %s", esp_err_to_name(ret));
             return ret;
         }
-        uart_param_config(uart_num, &uart_config);
     }
 
     s_uart_num = uart_num;
