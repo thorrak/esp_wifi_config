@@ -98,6 +98,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- **Improv Serial's `driver` dependency is now declared unconditionally.**
+  `CMakeLists.txt` appended `driver` to `PRIV_REQUIRES` inside an
+  `if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)` block, which never reaches
+  ESP-IDF's early dependency-resolution pass — so `driver/uart.h` was never on
+  the include path. It compiled anyway because `esp_bus` declared
+  `REQUIRES driver` publicly and this component depended on `esp_bus`, so the
+  include path arrived transitively. Removing `esp_bus` removed the accident
+  and every `improv_serial` build broke. The bug is older than the removal;
+  it was simply unobservable. Found by the HIL matrix build (all three boards
+  × both IDF series) during pre-merge validation. Costs nothing where Improv
+  Serial is off — `examples/basic` measures 0xcf550 bytes either way — since
+  the linker drops the unreferenced archive.
+
+
 - **Improv BLE never checked the RPC command checksum.** The Improv
   packet is `[command, length, ...data, checksum]` in both directions,
   and the checksum is the only integrity check the protocol has above

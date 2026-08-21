@@ -7,9 +7,12 @@ event loop instead.
 **Method.** ESP-IDF v5.5.3, target esp32s3, all seven bundled examples built
 clean before and after. Sizes come from `idf.py size` / `size-components` over
 the linked image; struct sizes and stack frames come from the xtensa toolchain
-(`objdump`, `nm`) against the real target ABI. Nothing was flashed, so every
-claim below is static or computed — the "Unverified" section says what that
-leaves open.
+(`objdump`, `nm`) against the real target ABI.
+
+A full hardware-in-the-loop run was attempted on the bench Pi and **could not
+execute**: no DUT is currently enumerating on the rig's USB bus. Everything up
+to the hardware boundary passes — see "Validation status". Nothing was flashed,
+so every claim below is static or computed.
 
 ---
 
@@ -195,7 +198,27 @@ no setup at all. It is, however, the standard ESP-IDF pattern that every
 `esp_event` user already follows, so it trades a library-specific convenience
 for an ecosystem-wide convention.
 
-### 2. Capabilities genuinely lost
+### 2. Handlers no longer receive a payload length
+
+`esp_bus` passed subscribers `(event, data, len, ctx)`. An esp_event handler
+gets `(arg, base, id, data)` — no size. The event id fixes the payload type by
+contract, which is how `WIFI_EVENT` and `IP_EVENT` already work, but it is
+strictly less than the bus offered.
+
+This showed up immediately when porting the HIL test harness, whose translation
+layer guarded every cast:
+
+```c
+if (data && len >= sizeof(wifi_var_t)) { ... }   /* now just: if (data) */
+```
+
+Audited against every emit site, the guards were never firing: all twenty-two
+posts send a complete object of the documented type, or `NULL, 0`. So nothing
+is masked today. What is lost is the ability of a *consumer* to defend itself
+against a future library bug that posts a short payload — that class of error
+now reads as an out-of-bounds access instead of a caught mismatch.
+
+### 3. Capabilities genuinely lost
 
 The library used a fraction of `esp_bus`, but an *application* wiring several
 components together may use more. Removing the dependency here does not remove
@@ -228,7 +251,7 @@ That is where the choice belongs: applications that want a bus can have one, and
 applications that do not should not pay 5.9 KB of flash and 5.4 KB of heap for
 one they never call.
 
-### 3. Breaking API change
+### 4. Breaking API change
 
 Every downstream subscriber must be rewritten: handlers take the esp_event
 signature instead of `(const char *event, const void *, size_t, void *)`,
@@ -236,6 +259,48 @@ signature instead of `(const char *event, const void *, size_t, void *)`,
 `WIFI_EVT()` / `WIFI_REQ()` / `WIFI_ACTION_*` are gone. The rename is mechanical
 — the names correspond one-to-one — and MIGRATION.md carries the diffs, but the
 work is real.
+
+---
+
+## A latent bug the removal exposed
+
+Removing `esp_bus` broke every `improv_serial` build — six of forty-eight
+matrix jobs, all three boards, both IDF series:
+
+```
+src/esp_wifi_config_improv_serial.c:21:10:
+fatal error: driver/uart.h: No such file or directory
+```
+
+The library declared that dependency conditionally:
+
+```cmake
+if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
+    list(APPEND SRCS "src/esp_wifi_config_improv_serial.c")
+    list(APPEND PRIV_REQUIRES driver)     # never reached the dep scan
+endif()
+```
+
+The `SRCS` append works; the `PRIV_REQUIRES` append does not, because ESP-IDF
+resolves requirements in an early expansion pass that a `list(APPEND)` in the
+component body cannot feed. `driver`'s include directory never arrived.
+
+It compiled anyway for as long as `esp_bus` was in the graph, because `esp_bus`
+declared `REQUIRES freertos driver esp_timer` — publicly. Improv Serial had
+been building on an include path it inherited rather than asked for, since it
+was written.
+
+`driver` is now declared unconditionally, matching the pattern the same file
+already applies to `bt`, `protocomm` and `wifi_provisioning` — and documents,
+four lines above the block that got it wrong. It costs nothing where Improv
+Serial is off: `examples/basic` measures 0xcf550 bytes either way, because the
+linker drops the unreferenced archive.
+
+Two things are worth taking from this. The bug is *older* than the removal and
+had nothing to do with the bus — removing the bus only stopped something else
+from covering for it. And nothing in the library's own seven examples would
+have caught it, because `examples/with_improv` builds Improv **BLE**; it took a
+variant matrix that builds Improv Serial alone.
 
 ---
 
@@ -267,27 +332,70 @@ work is real.
 
 ## Recommendation
 
-Merge. The bus was a forked third-party component providing decoupling the
-library never used, at 5.9 KB flash, 5.4 KB heap and a maintenance burden. The
-replacement is the platform's own event system, which was already linked, already
-running, and already used by this library for four other event bases.
+The change is right, and I would merge it — **after** one hardware run. The bus
+was a forked third-party component providing decoupling the library never used,
+at 5.9 KB flash, 5.4 KB heap and a maintenance burden. The replacement is the
+platform's own event system, which was already linked, already running, and
+already used by this library for four other event bases.
+
+The reason to wait is not doubt about the design. It is that the only defect
+found so far was found by *building* the matrix, and the thing this change most
+plausibly breaks — event delivery timing and ordering, now on a different task
+at a different priority — is exactly what a build cannot see. The bench is down
+(see "Validation status"), so that run has not happened.
 
 ---
 
-## Unverified
+## Validation status
 
-Nothing was flashed to hardware, so the following are static or computed rather
-than observed:
+| Gate | Result |
+|---|---|
+| Library builds, 7 examples × IDF 5.5.3 | **pass**, no warnings |
+| Library builds, IDF 5.4.3 | **pass** |
+| HIL firmware matrix — 9 variants × 3 boards × 2 IDF series | **48/48 built**, 0 failed |
+| Workstation host suite | **107 passed** |
+| Firmware host suite (C1 emitter/parser) | **58 checks, 0 failures** |
+| `shared/validate_contracts.py` | **62 checks, 0 failures** |
+| `hil doctor` | 14 checks, 0 failed |
+| **Hardware-in-the-loop, 170 tests** | **BLOCKED — 170 skipped, 0 executed** |
+
+The HIL suite collected all 170 tests and skipped every one:
+
+```
+no usable lolin_d32_pro for variant 'ble_nimble': esp32_devkit missing
+console: /dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0,
+telemetry: /dev/serial/by-id/usb-Silicon_Labs_CP2102_...
+```
+
+`/dev/serial/by-id/` does not exist on the rig; there are no `ttyUSB*` or
+`ttyACM*` nodes at all. `lsusb` shows only the root hubs, one VIA Labs
+`2109:3431` hub and the AR9271 AP radio — no CH340, no CP2102, no Espressif
+USB-JTAG. `dmesg` records `ch341-uart ttyUSB2 ... now disconnected` followed by
+repeated re-enumeration churn on `1-1.2`, about two days before this run. Hub
+port 2 reports `power connect []` — electrically present, no device descriptor
+— and stays that way through a `uhubctl` power cycle.
+
+The bench also no longer matches `docs/04-bench.md`, which describes two
+cascaded `2109:2822` hubs with seven ports; one four-port `2109:3431` is
+present.
+
+**So this change is not hardware-validated.** It builds everywhere, and the
+matrix build caught a real defect (below), but no line of it has been executed
+on silicon. Recovering the bench needs someone physically present.
+
+## Still unverified
 
 - The **heap figure** is derived from `esp_bus`'s Kconfig defaults and struct
-  layouts compiled for xtensa. It is arithmetic on real sizes, not a
+  layouts compiled for xtensa. Arithmetic on real sizes, not a
   `heap_caps_get_free_size()` delta.
-- **Runtime behaviour** — that events still fire correctly, in order, with the
-  right payloads — is verified only by compilation and by reading the call
-  sites. All seven examples build clean; none has been run.
+- **Runtime behaviour** — that events fire correctly, in order, with the right
+  payloads — is verified only by compilation and by reading the call sites.
 - **Event loop queue depth** under load is untested. The default
-  `CONFIG_ESP_SYSTEM_EVENT_QUEUE_SIZE` is 32; if the warning above ever appears
-  in practice, that is the knob.
+  `CONFIG_ESP_SYSTEM_EVENT_QUEUE_SIZE` is 32; if the dropped-event warning ever
+  appears in practice, that is the knob.
+- There is **no stored full-suite baseline** on `main` to compare against, so
+  even a completed run would have needed a control pass to separate regressions
+  from the several findings still open against the library.
 
 One pre-existing warning is unrelated to this work and present on `main`:
 `handler_simple_page defined but not used` in `esp_wifi_config_http.c:885`,

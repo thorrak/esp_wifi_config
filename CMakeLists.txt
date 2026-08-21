@@ -17,6 +17,15 @@ set(PRIV_REQUIRES
     json
     mbedtls
     esp_app_format
+    # driver carries driver/uart.h for esp_wifi_config_improv_serial.c. It is
+    # unconditional for the same reason bt/protocomm are below: a
+    # `list(APPEND PRIV_REQUIRES ...)` guarded on CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
+    # does not reach ESP-IDF's dependency scan, so the include path never
+    # arrived. Until 0.2.0 that went unnoticed because esp_bus declared
+    # `REQUIRES driver` publicly and this component depended on esp_bus, so
+    # driver's includes came in transitively. Removing esp_bus removed the
+    # accident, and every improv_serial build stopped compiling.
+    driver
     # bt + protocomm + wifi_provisioning are listed unconditionally so
     # ESP-IDF's first-pass dependency scan (which runs before sdkconfig is
     # fully resolved) sees them. The implementation files
@@ -49,10 +58,10 @@ if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
     endif()
 endif()
 
-# Improv Serial needs driver component
+# Improv Serial. `driver` is declared unconditionally above -- appending it
+# here does not reach the dependency scan.
 if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)
     list(APPEND SRCS "src/esp_wifi_config_improv_serial.c")
-    list(APPEND PRIV_REQUIRES driver)
 endif()
 
 # BLE host bootstrap — only the source files are conditional on
