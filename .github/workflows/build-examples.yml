@@ -12,11 +12,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Every directory under examples/. This list is enumerated rather
+        # than globbed, so a new example is invisible to CI until it is added
+        # here -- which is how with_improv went unbuilt from the day it was
+        # written.
         example:
           - basic
           - with_ble
           - with_ble_deinit
           - with_cli
+          - with_improv
+          - with_shared_httpd
           - with_webui
           - with_webui_customize
         idf_target:

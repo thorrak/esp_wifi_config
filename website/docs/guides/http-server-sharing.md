@@ -69,6 +69,22 @@ which is why it is called out here rather than left to the reader.
 
 :::
 
+Two more things become yours in this flow, both silent when wrong:
+
+- **`max_uri_handlers` must leave room for the library's routes.**
+  `HTTPD_DEFAULT_CONFIG()` allows 8; the library registers about 22 between the
+  REST API, the Web UI and the captive-portal probes. It does not check each
+  registration, so an undersized server gives you an API that answers some
+  paths and 404s the rest, with nothing in the log.
+- **`uri_match_fn` must be `httpd_uri_match_wildcard`** for the Web UI's
+  catch-all route to match. The default matcher compares URIs exactly, so the
+  captive portal answers only its handful of literal paths and the phone's
+  "sign in to network" sheet opens blank.
+
+The library sets both on the server it creates itself; on yours, it cannot.
+[`examples/with_shared_httpd`](https://github.com/thorrak/esp_wifi_config/tree/main/examples/with_shared_httpd)
+is this whole flow as a buildable project.
+
 When you pass an existing server:
 - The library registers its API routes on your server
 - On `wifi_cfg_deinit()`, the library unregisters its routes but does **not** stop the server
