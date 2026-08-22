@@ -98,6 +98,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- **Improv BLE's scan response is packed to the connection, not to a
+  buffer.** `GET_WIFI_NETWORKS` filled a 255-byte buffer and stopped when
+  the next network would not fit. What a response has to fit is the link:
+  a BLE notification carries three bytes fewer than the negotiated ATT
+  MTU, and inside that sit two header bytes and the checksum the BLE spec
+  requires — so with NimBLE's default MTU of 256 the payload budget is
+  250, not 255. Landing in those five bytes did one of two things and
+  neither said anything: at exactly 255 an internal length guard dropped
+  the response whole, and between 251 and 254 NimBLE truncated the
+  notification to the MTU and reported success, leaving the client a
+  result whose length byte over-promises. Measured on a bench with
+  thirteen neighbouring APs, an Improv BLE client waited out its whole
+  30-second timeout while the device sat there having scanned, packed and
+  checksummed an answer it then discarded. The transport now computes its
+  own capacity — from `ble_att_mtu()` on NimBLE, and on Bluedroid from an
+  MTU it was not previously tracking at all — and the list is cut to fit
+  it. Networks past the budget are still dropped and always will be: a
+  result's length field is one byte, so no single response can carry more
+  than 255 payload bytes whatever the MTU is. `wifi_cfg_scan()` returns
+  strongest-first and deduplicates by SSID, so the cut falls on the
+  faintest neighbours. Improv Serial is unaffected — it answers one
+  response per network, which cannot overflow. Three silent failure paths
+  now log.
+
 - **Improv Serial's `driver` dependency is now declared unconditionally.**
   `CMakeLists.txt` appended `driver` to `PRIV_REQUIRES` inside an
   `if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)` block, which never reaches
