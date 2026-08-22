@@ -51,7 +51,7 @@ Subscribe to the `WIFI_CFG_EVENT_VAR_CHANGED` event to react when any interface 
 ```c
 static void on_var_changed(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
-    wifi_var_changed_t *info = (wifi_var_changed_t *)data;
+    const wifi_var_t *info = (const wifi_var_t *)data;
     ESP_LOGI(TAG, "Variable changed: %s = %s", info->key, info->value);
 }
 

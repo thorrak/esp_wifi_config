@@ -52,8 +52,8 @@ static void on_connected(void *arg, esp_event_base_t base, int32_t id, void *dat
 
 static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
-    wifi_got_ip_t *info = (wifi_got_ip_t *)data;
-    ESP_LOGI(TAG, "Got IP: %s", info->ip);
+    const esp_netif_ip_info_t *ip = (const esp_netif_ip_info_t *)data;
+    ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&ip->ip));
 }
 
 void app_main(void)

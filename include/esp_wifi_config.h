@@ -485,7 +485,19 @@ typedef esp_err_t (*wifi_cfg_http_hook_t)(httpd_req_t *req, void *ctx);
  * create one.
  */
 typedef struct {
-    httpd_handle_t httpd;       ///< Existing httpd handle, NULL = create new
+    /**
+     * Existing httpd handle, or NULL to let the library create one.
+     *
+     * @warning Passing one means your server already opened a socket, which
+     *          is the only flow where the application touches the network
+     *          before wifi_cfg_init() runs. Call esp_netif_init() yourself
+     *          first: init calls it too and tolerates having been beaten to
+     *          it, but by then lwIP has already had to exist. Without it the
+     *          device aborts inside lwIP -- "assert failed:
+     *          tcpip_send_msg_wait_sem ... (Invalid mbox)" -- which names
+     *          neither netif nor this library.
+     */
+    httpd_handle_t httpd;
     const char *api_base_path;  ///< API base path, default "/api/wifi"
     bool enable_auth;           ///< Enable Basic Auth
     const char *auth_username;  ///< Auth username, default "admin"

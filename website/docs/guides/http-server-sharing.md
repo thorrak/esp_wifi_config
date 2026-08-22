@@ -30,6 +30,11 @@ if (server) {
 If your application already runs an HTTP server, pass it in the config so the library registers its handlers on your server instead of creating its own:
 
 ```c
+// Bring up the TCP/IP stack yourself here. Everywhere else the library does
+// it for you inside wifi_cfg_init() — but starting a server opens a socket,
+// and that happens before wifi_cfg_init() is reached.
+ESP_ERROR_CHECK(esp_netif_init());
+
 httpd_handle_t my_server = start_my_webserver();
 
 wifi_cfg_init(&(wifi_cfg_config_t){
@@ -43,6 +48,26 @@ wifi_cfg_init(&(wifi_cfg_config_t){
     // ...
 });
 ```
+
+:::warning Call `esp_netif_init()` first
+
+This is the one documented flow where your application runs network code
+*before* `wifi_cfg_init()`, so it is the one place the library cannot
+initialise lwIP in time. `wifi_cfg_init()` calls `esp_netif_init()` itself and
+tolerates having been beaten to it, so calling it early is safe and calling it
+twice is harmless.
+
+Skip it and the device aborts inside lwIP the moment your server opens its
+socket:
+
+```
+assert failed: tcpip_send_msg_wait_sem ... (Invalid mbox)
+```
+
+Nothing in that names netif, or this library, or the line that caused it —
+which is why it is called out here rather than left to the reader.
+
+:::
 
 When you pass an existing server:
 - The library registers its API routes on your server
