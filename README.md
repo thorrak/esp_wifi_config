@@ -193,6 +193,7 @@ server come up when no networks are saved or every saved network fails.
 
 Full documentation is available at **[configwifi.com](https://configwifi.com)**:
 
+- [esp_bus Migration](ESP_BUS_MIGRATION.md) — quick reference for apps upgrading off the event bus
 - [Getting Started](https://configwifi.com/docs/getting-started) — Installation and first project
 - [Provisioning Modes](https://configwifi.com/docs/provisioning/modes) — Control when AP/BLE/Improv activate
 - [API Reference](https://configwifi.com/docs/api/c-api) — C API, REST API, BLE protocol, CLI
