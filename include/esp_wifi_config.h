@@ -2,24 +2,24 @@
  * @file esp_wifi_config.h
  * @brief WiFi Config - Multi-network support with auto retry and REST API
  * 
- * @section intro Giới thiệu
+ * @section intro Introduction
  * 
- * ESP WiFi Config cung cấp:
- * - Multi-network: Lưu nhiều mạng WiFi với priority, tự động retry
- * - Event callbacks: Subscribe để nhận thông báo trạng thái
- * - HTTP REST API: Cấu hình từ xa qua web
- * - SoftAP: Captive portal khi không kết nối được
- * - NVS Storage: Lưu networks, variables, AP config
- * - Custom Variables: Key-value storage cho ứng dụng
+ * ESP WiFi Config provides:
+ * - Multi-network: store several networks with priorities and retry automatically
+ * - Events: subscribe on the default event loop for state changes
+ * - HTTP REST API: configure the device remotely over the network
+ * - SoftAP: captive portal when no known network can be joined
+ * - NVS storage: networks, variables and AP config survive a reboot
+ * - Custom variables: key-value storage for the application
  * 
- * @section usage Cách sử dụng
+ * @section usage Usage
  * 
  * @subsection basic Basic Setup
  * @code{.c}
  * #include "esp_wifi_config.h"
  *
  * void app_main(void) {
- *     // Init với default networks
+ *     // Init with default networks
  *     // Always start from WIFI_CFG_DEFAULTS: init does not patch fields you
  *     // leave at zero, so an uninitialised struct is rejected rather than
  *     // silently fixed up.
@@ -44,7 +44,7 @@
  * }
  * @endcode
  * 
- * @subsection status Lấy trạng thái
+ * @subsection status Reading status
  * @code{.c}
  * wifi_status_t status;
  * wifi_cfg_get_status(&status);
@@ -83,17 +83,17 @@
  * 
  * @subsection softap SoftAP Mode
  * @code{.c}
- * // Start AP với config mặc định
+ * // Start the AP with the saved config
  * wifi_cfg_start_ap(NULL);
  * 
- * // Hoặc custom config
+ * // Or override it for this run
  * wifi_cfg_start_ap(&(wifi_cfg_ap_config_t){
  *     .ssid = "MyDevice",
  *     .password = "12345678",
  *     .ip = "192.168.10.1",
  * });
  * 
- * // Lấy trạng thái AP
+ * // Read AP status
  * wifi_ap_status_t ap_status;
  * wifi_cfg_get_ap_status(&ap_status);
  * printf("AP: %s, Clients: %d\n", ap_status.ssid, ap_status.sta_count);
@@ -121,35 +121,35 @@
  * @subsection http HTTP REST API
  *
  * HTTP server starts automatically when `enable_ap` is true or
- * `http_post_prov_mode != WIFI_HTTP_DISABLED`. Các endpoints sau khả dụng:
+ * `http_post_prov_mode != WIFI_HTTP_DISABLED`. The endpoints are:
  * 
- * | Method | Endpoint | Mô tả |
+ * | Method | Endpoint | Description |
  * |--------|----------|-------|
- * | GET | /api/wifi/status | Trạng thái WiFi đầy đủ |
- * | GET | /api/wifi/scan | Quét mạng xung quanh |
- * | GET | /api/wifi/networks | Danh sách mạng đã lưu |
- * | POST | /api/wifi/networks | Thêm mạng mới |
- * | DELETE | /api/wifi/networks/:ssid | Xóa mạng |
- * | POST | /api/wifi/connect | Kết nối (auto hoặc chỉ định SSID) |
- * | POST | /api/wifi/disconnect | Ngắt kết nối |
- * | GET | /api/wifi/ap/status | Trạng thái SoftAP |
- * | GET | /api/wifi/ap/config | Lấy config AP |
- * | PUT | /api/wifi/ap/config | Cập nhật config AP |
- * | POST | /api/wifi/ap/start | Bật SoftAP |
- * | POST | /api/wifi/ap/stop | Tắt SoftAP |
- * | GET | /api/wifi/vars | Danh sách variables |
+ * | GET | /api/wifi/status | Full WiFi status |
+ * | GET | /api/wifi/scan | Scan for nearby networks |
+ * | GET | /api/wifi/networks | List saved networks |
+ * | POST | /api/wifi/networks | Add a network |
+ * | DELETE | /api/wifi/networks/:ssid | Remove a network |
+ * | POST | /api/wifi/connect | Connect (automatic, or to a named SSID) |
+ * | POST | /api/wifi/disconnect | Disconnect |
+ * | GET | /api/wifi/ap/status | SoftAP status |
+ * | GET | /api/wifi/ap/config | Read the SoftAP config |
+ * | PUT | /api/wifi/ap/config | Update the SoftAP config |
+ * | POST | /api/wifi/ap/start | Start the SoftAP |
+ * | POST | /api/wifi/ap/stop | Stop the SoftAP |
+ * | GET | /api/wifi/vars | List custom variables |
  * | PUT | /api/wifi/vars/:key | Set variable |
- * | DELETE | /api/wifi/vars/:key | Xóa variable |
+ * | DELETE | /api/wifi/vars/:key | Delete a variable |
  * 
  * @subsection shared Shared HTTP Server
  * @code{.c}
- * // WiFi Config tạo httpd (auto when enable_ap=true)
+ * // WiFi Config creates the httpd (automatic when enable_ap = true)
  * wifi_cfg_init(&(wifi_cfg_config_t){
  *     .provisioning_mode = WIFI_PROV_ON_FAILURE,
  *     .enable_ap = true,
  * });
  * 
- * // Components khác dùng chung
+ * // Other components share the same server
  * httpd_handle_t server = wifi_cfg_get_httpd();
  * httpd_uri_t my_api = {
  *     .uri = "/api/mymodule/status",
@@ -282,33 +282,33 @@ typedef enum {
  * @brief WiFi connection state
  */
 typedef enum {
-    WIFI_STATE_DISCONNECTED = 0,    ///< Không kết nối
-    WIFI_STATE_CONNECTING,          ///< Đang kết nối
-    WIFI_STATE_CONNECTED,           ///< Đã kết nối
+    WIFI_STATE_DISCONNECTED = 0,    ///< Not connected
+    WIFI_STATE_CONNECTING,          ///< Association in progress
+    WIFI_STATE_CONNECTED,           ///< Connected
 } wifi_state_t;
 
 /**
  * @brief Saved network configuration
  * 
- * Cấu hình 1 mạng WiFi. Priority cao hơn sẽ được thử kết nối trước.
+ * One saved network. Higher priority is tried first.
  */
 typedef struct {
     char ssid[33];          ///< SSID (max 31 chars)
     char password[64];      ///< Password (max 63 chars)
-    uint8_t priority;       ///< 0-255, cao = ưu tiên hơn
+    uint8_t priority;       ///< 0-255; higher is tried first
 } wifi_network_t;
 
 /**
  * @brief WiFi station status
  * 
- * Trạng thái đầy đủ của WiFi station bao gồm IP, RSSI, channel, etc.
+ * Everything known about the station: IP, RSSI, channel and the rest.
  */
 typedef struct {
-    wifi_state_t state;     ///< Trạng thái kết nối
-    char ssid[33];          ///< SSID đang kết nối
-    uint8_t bssid[6];       ///< BSSID của AP
-    int8_t rssi;            ///< Cường độ tín hiệu (dBm), -100 to 0
-    uint8_t quality;        ///< Chất lượng tín hiệu 0-100%
+    wifi_state_t state;     ///< Connection state
+    char ssid[33];          ///< SSID currently associated with
+    uint8_t bssid[6];       ///< BSSID of that AP
+    int8_t rssi;            ///< Signal strength (dBm), -100 to 0
+    uint8_t quality;        ///< Signal quality, 0-100%
     uint8_t channel;        ///< WiFi channel
     
     // IP info
@@ -320,27 +320,27 @@ typedef struct {
     char hostname[32];      ///< Hostname
     
     // Stats
-    uint32_t uptime_ms;     ///< Thời gian kết nối (ms)
+    uint32_t uptime_ms;     ///< Time connected (ms)
     
-    bool ap_active;         ///< SoftAP đang chạy?
+    bool ap_active;         ///< Is the SoftAP running?
 } wifi_status_t;
 
 /**
  * @brief WiFi scan result
  * 
- * Kết quả quét 1 mạng WiFi xung quanh.
+ * One network seen by a scan.
  */
 typedef struct {
     char ssid[33];          ///< SSID
-    int8_t rssi;            ///< Cường độ tín hiệu (dBm)
+    int8_t rssi;            ///< Signal strength (dBm)
     wifi_auth_mode_t auth;  ///< Auth mode: WIFI_AUTH_OPEN, WIFI_AUTH_WPA2_PSK, etc.
 } wifi_scan_result_t;
 
 /**
  * @brief SoftAP configuration
  * 
- * Cấu hình SoftAP mode bao gồm SSID, password, IP và DHCP range.
- * @note Đổi tên thành wifi_cfg_ap_config_t để tránh conflict với ESP-IDF
+ * SoftAP settings: SSID, password, IP and DHCP range.
+ * @note Named wifi_cfg_ap_config_t to avoid colliding with ESP-IDF's own type.
  */
 typedef struct {
     char ssid[33];          ///< AP SSID
@@ -365,26 +365,26 @@ typedef struct {
 /**
  * @brief SoftAP status
  * 
- * Trạng thái SoftAP bao gồm danh sách clients đang kết nối.
+ * SoftAP state, including the stations currently associated.
  */
 typedef struct {
-    bool active;            ///< AP đang chạy?
+    bool active;            ///< Is the AP running?
     char ssid[33];          ///< AP SSID
     char ip[16];            ///< AP IP
     uint8_t channel;        ///< Channel
-    uint8_t sta_count;      ///< Số clients kết nối
+    uint8_t sta_count;      ///< Number of associated stations
     
     struct {
         char mac[18];       ///< Client MAC
-        char ip[16];        ///< Client IP (nếu có)
-    } clients[4];           ///< Danh sách clients (tối đa 4)
+        char ip[16];        ///< Client IP, if it has one yet
+    } clients[4];           ///< Associated stations, at most 4
 } wifi_ap_status_t;
 
 /**
  * @brief Custom variable
  * 
- * Key-value storage cho ứng dụng. Được lưu vào NVS và có thể
- * thay đổi qua HTTP API.
+ * Key-value storage for the application. Persisted to NVS and editable
+ * over the HTTP API.
  */
 typedef struct {
     char key[32];           ///< Key (max 31 chars)
@@ -394,21 +394,21 @@ typedef struct {
 /**
  * @brief Connected event data
  * 
- * Data được gửi kèm event WIFI_EVENT_CONNECTED.
+ * Payload of ::WIFI_CFG_EVENT_CONNECTED.
  */
 typedef struct {
-    char ssid[33];          ///< SSID đã kết nối
-    int8_t rssi;            ///< RSSI khi kết nối
+    char ssid[33];          ///< SSID that was joined
+    int8_t rssi;            ///< RSSI at the time of association
     uint8_t channel;        ///< Channel
 } wifi_connected_t;
 
 /**
  * @brief Disconnected event data
  * 
- * Data được gửi kèm event WIFI_EVENT_DISCONNECTED.
+ * Payload of ::WIFI_CFG_EVENT_DISCONNECTED.
  */
 typedef struct {
-    char ssid[33];          ///< SSID đã ngắt
+    char ssid[33];          ///< SSID that was left
     uint8_t reason;         ///< Reason code (wifi_err_reason_t)
 } wifi_disconnected_t;
 
@@ -481,7 +481,8 @@ typedef esp_err_t (*wifi_cfg_http_hook_t)(httpd_req_t *req, void *ctx);
 /**
  * @brief HTTP interface configuration
  *
- * Cấu hình HTTP REST API. Có thể dùng httpd có sẵn hoặc tạo mới.
+ * REST API settings. Either reuse an existing httpd or let the library
+ * create one.
  */
 typedef struct {
     httpd_handle_t httpd;       ///< Existing httpd handle, NULL = create new
@@ -840,11 +841,12 @@ typedef esp_err_t (*wifi_cfg_var_validator_t)(const char *key, const char *value
 /**
  * @brief Main WiFi Config configuration
  * 
- * Cấu hình khởi tạo WiFi Config. Tất cả fields đều optional.
+ * Init-time settings. Start from WIFI_CFG_DEFAULTS and override what you
+ * need.
  * 
- * @note default_networks và default_vars là fallback khi NVS trống.
- *       Sau khi user thêm network/var qua API, data sẽ được lưu NVS
- *       và ưu tiên hơn defaults.
+ * @note default_networks and default_vars apply only while NVS is empty.
+ *       Once a network or variable has been added through the API it lives
+ *       in NVS, and NVS wins from then on.
  */
 typedef struct {
     // Default networks (fallback if NVS empty)
@@ -1016,11 +1018,11 @@ typedef struct {
 /**
  * @brief Initialize WiFi Config
  * 
- * Khởi tạo WiFi Config với config. Sẽ tự động:
- * - Load networks/vars từ NVS (hoặc dùng defaults)
- * - Khởi tạo WiFi station
- * - Bắt đầu auto-connect
- * - Khởi tạo HTTP server (nếu enable)
+ * Brings the library up. This will:
+ * - load networks and variables from NVS, falling back to the defaults
+ * - initialise the WiFi station
+ * - begin auto-connecting
+ * - start the HTTP server, if it is enabled
  * 
  * @param config Configuration, or NULL for every default unmodified.
  *
@@ -1072,7 +1074,7 @@ wifi_state_t wifi_cfg_get_state(void);
 /**
  * @brief Wait for WiFi connection
  * 
- * Block cho đến khi WiFi connected hoặc timeout.
+ * Blocks until the station connects, or until the timeout expires.
  * 
  * @param timeout_ms Timeout in milliseconds, 0 = wait forever
  * @return ESP_OK if connected, ESP_ERR_TIMEOUT if timeout
@@ -1090,7 +1092,7 @@ esp_err_t wifi_cfg_wait_connected(uint32_t timeout_ms);
 /**
  * @brief Get full WiFi status
  * 
- * Lấy trạng thái đầy đủ bao gồm IP, RSSI, channel, hostname, etc.
+ * The full picture: IP, RSSI, channel, hostname and the rest.
  * 
  * @param[out] status Output status structure
  * @return ESP_OK on success
@@ -1100,7 +1102,7 @@ esp_err_t wifi_cfg_get_status(wifi_status_t *status);
 /**
  * @brief Get HTTP server handle
  * 
- * Lấy httpd handle để register thêm endpoints từ components khác.
+ * The handle other components register their own endpoints against.
  * 
  * @return httpd_handle_t or NULL if HTTP not enabled
  * 
@@ -1133,7 +1135,7 @@ esp_err_t wifi_cfg_stop_http(void);
 /**
  * @brief Add a network
  * 
- * Thêm network mới vào danh sách. Emit event WIFI_EVENT_NETWORK_ADDED.
+ * Adds a network to the store. Posts ::WIFI_CFG_EVENT_NETWORK_ADDED.
  * 
  * @param network Network config
  * @return ESP_OK on success, ESP_ERR_INVALID_STATE if already exists, ESP_ERR_NO_MEM if full
@@ -1143,9 +1145,9 @@ esp_err_t wifi_cfg_add_network(const wifi_network_t *network);
 /**
  * @brief Update a network
  * 
- * Cập nhật network theo SSID. Emit event WIFI_EVENT_NETWORK_UPDATED.
+ * Updates the network with this SSID. Posts ::WIFI_CFG_EVENT_NETWORK_UPDATED.
  * 
- * @param network Network config (SSID dùng để tìm)
+ * @param network Network config; the SSID selects which one to update
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
  */
 esp_err_t wifi_cfg_update_network(const wifi_network_t *network);
@@ -1153,7 +1155,7 @@ esp_err_t wifi_cfg_update_network(const wifi_network_t *network);
 /**
  * @brief Remove a network by SSID
  * 
- * Xóa network. Emit event WIFI_EVENT_NETWORK_REMOVED.
+ * Removes a network. Posts ::WIFI_CFG_EVENT_NETWORK_REMOVED.
  * 
  * @param ssid SSID to remove
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
@@ -1186,8 +1188,8 @@ esp_err_t wifi_cfg_list_networks(wifi_network_t *networks, size_t max_count, siz
 /**
  * @brief Set a variable
  * 
- * Set/update variable. Emit event WIFI_EVENT_VAR_CHANGED.
- * Biến được lưu vào NVS.
+ * Sets or updates a variable, and persists it to NVS.
+ * Posts ::WIFI_CFG_EVENT_VAR_CHANGED.
  * 
  * @param key Variable key (max 31 chars)
  * @param value Variable value (max 127 chars)
@@ -1208,7 +1210,7 @@ esp_err_t wifi_cfg_get_var(const char *key, char *value, size_t max_len);
 /**
  * @brief Delete a variable
  * 
- * Xóa variable. Emit event WIFI_EVENT_VAR_CHANGED với value rỗng.
+ * Deletes a variable. Posts ::WIFI_CFG_EVENT_VAR_CHANGED with an empty value.
  * 
  * @param key Variable key
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not exists
@@ -1222,16 +1224,16 @@ esp_err_t wifi_cfg_del_var(const char *key);
 /**
  * @brief Start SoftAP
  * 
- * Bật SoftAP mode. Có thể chạy song song với station mode.
+ * Starts the SoftAP. It can run alongside station mode.
  * 
- * @param config Config override, NULL để dùng saved config
+ * @param config Config to use for this run, or NULL for the saved one
  * @return ESP_OK on success
  * 
  * @code{.c}
- * // Dùng config mặc định
+ * // Use the saved config
  * wifi_cfg_start_ap(NULL);
  * 
- * // Hoặc custom config
+ * // Or override it for this run
  * wifi_cfg_start_ap(&(wifi_cfg_ap_config_t){
  *     .ssid = "MyAP",
  *     .password = "12345678",
@@ -1251,7 +1253,7 @@ esp_err_t wifi_cfg_stop_ap(void);
 /**
  * @brief Get SoftAP status
  * 
- * @param[out] status Output status bao gồm danh sách clients
+ * @param[out] status Output status, including the associated stations
  * @return ESP_OK on success
  */
 esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status);
@@ -1259,7 +1261,7 @@ esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status);
 /**
  * @brief Set SoftAP config
  * 
- * Cập nhật config và lưu vào NVS. Apply ngay nếu AP đang chạy.
+ * Updates the config and saves it to NVS. Applied at once if the AP is up.
  * 
  * @param config New AP config
  * @return ESP_OK on success
@@ -1281,17 +1283,17 @@ esp_err_t wifi_cfg_get_ap_config(wifi_cfg_ap_config_t *config);
 /**
  * @brief Connect to a specific network or auto-connect
  * 
- * @param ssid SSID to connect, NULL để auto-connect theo priority
- * @return ESP_OK on success (bắt đầu kết nối, chưa connected)
+ * @param ssid SSID to join, or NULL to auto-connect by priority
+ * @return ESP_OK once the attempt has started -- not once it has succeeded
  * 
  * @code{.c}
- * // Auto-connect theo priority
+ * // Auto-connect, highest priority first
  * wifi_cfg_connect(NULL);
  * 
- * // Kết nối mạng cụ thể
+ * // Or join one by name
  * wifi_cfg_connect("MyWiFi");
  * 
- * // Chờ kết nối
+ * // Wait for it to come up
  * wifi_cfg_wait_connected(10000);
  * @endcode
  */
@@ -1300,7 +1302,7 @@ esp_err_t wifi_cfg_connect(const char *ssid);
 /**
  * @brief Disconnect from current network
  * 
- * Ngắt kết nối và tắt auto-reconnect.
+ * Disconnects and turns auto-reconnect off.
  * 
  * @return ESP_OK on success
  */
@@ -1309,7 +1311,7 @@ esp_err_t wifi_cfg_disconnect(void);
 /**
  * @brief Scan for available networks
  *
- * Quét các mạng WiFi xung quanh. Blocking operation.
+ * Scans for nearby networks. Blocks until the scan completes.
  *
  * @param[out] results Output array
  * @param max_count Array size
@@ -1325,8 +1327,8 @@ esp_err_t wifi_cfg_scan(wifi_scan_result_t *results, size_t max_count, size_t *c
 /**
  * @brief Factory reset
  *
- * Xóa toàn bộ dữ liệu NVS: networks, variables, AP config, auth credentials.
- * Sau khi gọi, cần restart hoặc gọi wifi_cfg_deinit() rồi init lại.
+ * Erases everything in NVS: networks, variables, AP config and auth
+ * credentials. Restart afterwards, or call wifi_cfg_deinit() and init again.
  *
  * @return ESP_OK on success
  */
