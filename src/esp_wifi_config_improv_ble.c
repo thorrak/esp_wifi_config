@@ -38,6 +38,24 @@ static const char *TAG = "wifi_cfg_improv_ble";
 #define IMPROV_BLE_CMD_QUEUE_DEPTH  2
 #define IMPROV_BLE_CMD_TASK_STACK   4096
 
+/*
+ * What one notification on this link can hold.
+ *
+ * A notification is an ATT PDU: one opcode byte, two handle bytes, then the
+ * value -- so the value is three bytes under the negotiated MTU. Inside that
+ * value sits an Improv RPC result: a command byte, a length byte, the payload,
+ * and the checksum ble_response_cb() appends. Six bytes of overhead in total,
+ * and what is left is all the payload a response may carry.
+ *
+ * Neither number is a constant. The MTU is whatever this particular client
+ * agreed to (NimBLE's default ceiling is 256, BlueZ asks for far more, an
+ * unnegotiated link stays at 23), which is why the packer is told the answer
+ * at RPC time rather than compiled against a guess.
+ */
+#define IMPROV_BLE_ATT_MTU_MIN      23  /**< ATT default; every link has this. */
+#define IMPROV_BLE_NOTIFY_OVERHEAD   3  /**< ATT opcode + attribute handle. */
+#define IMPROV_BLE_RESULT_OVERHEAD   3  /**< command + length + spec checksum. */
+
 typedef struct {
     uint8_t *data;
     uint16_t length;
@@ -258,12 +276,32 @@ static void nimble_notify_rpc_result(const uint8_t *data, size_t len)
     uint16_t mtu = ble_att_mtu(s_conn_handle);
     ESP_LOGD(TAG, "Sending RPC result: %zu bytes (MTU=%d, max_notify=%d)",
              len, mtu, mtu - 3);
+
+    /*
+     * NimBLE does not reject an over-long notification -- ble_att_tx_with_conn()
+     * calls ble_att_truncate_to_mtu() and sends whatever fits, returning 0. The
+     * client then gets a result whose length byte describes more bytes than
+     * arrived, which reads as a device that speaks the protocol badly rather
+     * than as a link that is too narrow. Say so here instead; the packer is
+     * supposed to have made this unreachable.
+     */
+    if (mtu > 3 && len > (size_t)(mtu - 3)) {
+        ESP_LOGE(TAG, "RPC result is %u bytes but this link carries %u per "
+                      "notification; NimBLE will truncate it",
+                 (unsigned)len, (unsigned)(mtu - 3));
+    }
+
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
-    if (om) {
-        int rc = ble_gatts_notify_custom(s_conn_handle, s_rpc_result_val_handle, om);
-        if (rc != 0) {
-            ESP_LOGE(TAG, "RPC result notify failed, rc=%d", rc);
-        }
+    if (!om) {
+        /* Silence here was indistinguishable from the device ignoring the
+         * command. */
+        ESP_LOGE(TAG, "RPC result notify dropped: no mbuf for %u bytes",
+                 (unsigned)len);
+        return;
+    }
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_rpc_result_val_handle, om);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "RPC result notify failed, rc=%d", rc);
     }
 }
 
@@ -437,6 +475,9 @@ static struct {
     .connected = false,
 };
 
+/** Negotiated ATT MTU for the current connection. */
+static uint16_t s_bd_mtu = IMPROV_BLE_ATT_MTU_MIN;
+
 void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                               esp_ble_gatts_cb_param_t *param)
 {
@@ -464,6 +505,15 @@ void improv_bd_gatts_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
         case ESP_GATTS_CONNECT_EVT:
             s_bd_profile.conn_id = param->connect.conn_id;
             s_bd_profile.connected = true;
+            /* Until the client asks for more, this is the ATT default. The
+             * scan packer needs the real number, so start from the honest
+             * one rather than an optimistic one. */
+            s_bd_mtu = IMPROV_BLE_ATT_MTU_MIN;
+            break;
+
+        case ESP_GATTS_MTU_EVT:
+            s_bd_mtu = param->mtu.mtu;
+            ESP_LOGD(TAG, "ATT MTU negotiated: %u", (unsigned)s_bd_mtu);
             break;
 
         case ESP_GATTS_DISCONNECT_EVT:
@@ -645,14 +695,47 @@ static bool improv_ble_frame_valid(const uint8_t *data, size_t len)
     return true;
 }
 
+/**
+ * @brief Payload budget for one RPC result, from the live connection.
+ *
+ * Never zero: the API reads zero as "no transport limit", and the whole point
+ * here is that there is one.
+ */
+static size_t improv_ble_max_result_payload(void)
+{
+    uint16_t mtu = 0;
+
+#if defined(CONFIG_BT_NIMBLE_ENABLED)
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        mtu = ble_att_mtu(s_conn_handle);
+    }
+#elif defined(CONFIG_BT_BLUEDROID_ENABLED)
+    if (s_bd_profile.connected) {
+        mtu = s_bd_mtu;
+    }
+#endif
+
+    /* ble_att_mtu() returns 0 for a handle it does not know, and a stack that
+     * has not exchanged MTUs yet reports the default. Both mean "assume the
+     * least this link could be". */
+    if (mtu < IMPROV_BLE_ATT_MTU_MIN) mtu = IMPROV_BLE_ATT_MTU_MIN;
+
+    size_t budget = (size_t)mtu - IMPROV_BLE_NOTIFY_OVERHEAD
+                                - IMPROV_BLE_RESULT_OVERHEAD;
+    if (budget > IMPROV_RPC_MAX_PAYLOAD) budget = IMPROV_RPC_MAX_PAYLOAD;
+    return budget;
+}
+
 static void improv_ble_cmd_task(void *param)
 {
     improv_ble_cmd_msg_t msg;
     while (xQueueReceive(s_cmd_queue, &msg, portMAX_DELAY) == pdTRUE) {
         if (improv_ble_frame_valid(msg.data, msg.length)) {
-            /* BLE spec: one RPC Response holding every network. */
+            /* BLE spec: one RPC Response holding every network -- as many of
+             * them as this connection's MTU leaves room for. */
             wifi_cfg_improv_handle_rpc(msg.data, msg.length, ble_response_cb,
-                                       NULL, IMPROV_RPC_STYLE_SINGLE);
+                                       NULL, IMPROV_RPC_STYLE_SINGLE,
+                                       improv_ble_max_result_payload());
         } else {
             /* Reported the same way the core reports its own frame errors, so
              * a client sees one error code for "that frame was not usable"

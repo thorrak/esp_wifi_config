@@ -122,17 +122,6 @@ typedef void (*improv_response_cb_t)(uint8_t type, const uint8_t *data, size_t l
 // =============================================================================
 
 /**
- * @brief Process an incoming Improv RPC command.
- *
- * Parses the RPC packet, executes the command using wifi_manager public API,
- * and invokes response_cb with the result.
- *
- * @param data        Raw RPC data (command_id + length + TLV payload)
- * @param len         Data length
- * @param response_cb Callback to send response
- * @param cb_ctx      Opaque context passed to response_cb
- */
-/**
  * @brief How a transport wants multi-part RPC results delivered.
  *
  * The two Improv specifications disagree about GET_WIFI_NETWORKS, and neither
@@ -158,9 +147,40 @@ typedef enum {
     IMPROV_RPC_STYLE_CHUNKED,  /**< Serial: one per network, then an empty one. */
 } improv_rpc_style_t;
 
+/**
+ * @brief Largest RPC result payload the format itself can express.
+ *
+ * A result is [command][length][payload...]; the length is one byte, so no
+ * payload beyond this can be described no matter what the transport can
+ * carry. Transports cap *below* this, never above.
+ */
+#define IMPROV_RPC_MAX_PAYLOAD  255
+
+/**
+ * @brief Process an incoming Improv RPC command.
+ *
+ * @param data          Raw RPC packet: command, length, payload.
+ * @param len           Length of @p data.
+ * @param response_cb   Called with each result this command produces.
+ * @param cb_ctx        Opaque context handed back to @p response_cb.
+ * @param style         How this transport wants multi-part results delivered.
+ * @param max_payload   Largest result *payload* this transport can deliver in
+ *                      one response -- the TLV bytes only, excluding the two
+ *                      header bytes and anything the transport adds around
+ *                      them (BLE's trailing checksum, serial's frame). 0 means
+ *                      "the format's own ceiling and nothing tighter".
+ *
+ *                      This exists because a transport's real capacity is not
+ *                      a compile-time constant: BLE's is three bytes under the
+ *                      ATT MTU that was negotiated with this particular
+ *                      client, and is only knowable once a client has
+ *                      connected. Packing to a buffer size instead of to that
+ *                      number is how a scan response comes to be built,
+ *                      checksummed, and then silently dropped.
+ */
 void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
                                 improv_response_cb_t response_cb, void *cb_ctx,
-                                improv_rpc_style_t style);
+                                improv_rpc_style_t style, size_t max_payload);
 
 /**
  * @brief Get the current Improv state.

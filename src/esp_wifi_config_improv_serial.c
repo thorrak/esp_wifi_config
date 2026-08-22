@@ -232,10 +232,16 @@ static void serial_rx_task(void *param)
                         case IMPROV_SERIAL_TYPE_RPC_COMMAND:
                             /* Serial spec: one RPC Response per network,
                              * then one with 0 strings. A single combined
-                             * response does not fit this transport's frame. */
+                             * response does not fit this transport's frame.
+                             * The frame's length byte bounds the whole RPC
+                             * packet, so the payload budget is the two header
+                             * bytes under it. Chunked responses never come
+                             * near it; passing it anyway keeps the ceiling
+                             * stated rather than assumed. */
                             wifi_cfg_improv_handle_rpc(rx_buf, pkt_len,
                                                        serial_response_cb, NULL,
-                                                       IMPROV_RPC_STYLE_CHUNKED);
+                                                       IMPROV_RPC_STYLE_CHUNKED,
+                                                       IMPROV_SERIAL_MAX_DATA - 2);
                             break;
 
                         case IMPROV_SERIAL_TYPE_CURRENT_STATE:
