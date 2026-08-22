@@ -323,8 +323,10 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
      * so: at exactly 255 the length guard in send_rpc_result() dropped it
      * whole, and between 251 and 254 NimBLE clipped it to the MTU and reported
      * success, leaving the client a result whose length byte over-promises.
-     * On the bench it presented as the first: scan_done with 13 networks, and
-     * a client that waited out its timeout.
+     * What the bench saw was the shape of the first -- scan_done with 13
+     * networks, then no notification at all -- but the library's log goes to
+     * a console the rig does not read during a test, so which of the two
+     * fired is inference. Both are gone either way.
      */
     size_t cap = sizeof(payload);
     if (max_payload > 0 && max_payload < cap) cap = max_payload;
