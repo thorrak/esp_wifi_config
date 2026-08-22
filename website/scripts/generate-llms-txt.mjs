@@ -20,8 +20,9 @@ const PAGE_ORDER = [
   'ai-integration-guide.md',
   'guides/multi-network.md',
   'guides/custom-variables.md',
-  'guides/esp-bus-events.md',
+  'guides/events.md',
   'guides/http-server-sharing.md',
+  'guides/custom-webui.md',
   'provisioning/modes.md',
   'provisioning/softap-captive-portal.md',
   'provisioning/ble-gatt.md',
@@ -69,15 +70,53 @@ function pathToUrl(filePath) {
   return `${SITE_URL}/docs/${slug}`;
 }
 
+/**
+ * PAGE_ORDER must name every doc, and every doc must exist.
+ *
+ * This list is hand-maintained and the docs tree is not, so they drift. When
+ * `guides/esp-bus-events.md` was renamed to `guides/events.md` the generator
+ * printed one line of warning, skipped the page, and exited zero -- so the
+ * entire event API vanished from llms.txt and llms-full.txt, which exist for
+ * no other purpose than to be the thing an AI coding tool reads. It stayed
+ * gone, along with `guides/custom-webui.md`, which was never listed at all.
+ * CI did not catch it: the build check asserts that llms.txt *exists*, not
+ * that it is complete.
+ *
+ * So drift is now fatal in both directions. A page that is listed but absent
+ * is a rename nobody propagated; a page present but unlisted is a new doc
+ * nobody added. Neither is something to discover from a user asking why the
+ * documentation told them to call a function that no longer exists.
+ */
+async function assertPageOrderMatchesDocs() {
+  const onDisk = new Set();
+  const walk = async (dir) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith('.md')) onDisk.add(relative(DOCS_DIR, full));
+    }
+  };
+  await walk(DOCS_DIR);
+
+  const listed = new Set(PAGE_ORDER);
+  const missing = PAGE_ORDER.filter((p) => !onDisk.has(p));
+  const unlisted = [...onDisk].filter((p) => !listed.has(p)).sort();
+
+  if (missing.length || unlisted.length) {
+    const lines = ['PAGE_ORDER and docs/ disagree, so llms.txt would be incomplete:'];
+    for (const p of missing) lines.push(`  listed but not on disk: ${p}  (renamed or deleted?)`);
+    for (const p of unlisted) lines.push(`  on disk but not listed: ${p}  (add it to PAGE_ORDER)`);
+    throw new Error(lines.join('\n'));
+  }
+}
+
 async function main() {
+  await assertPageOrderMatchesDocs();
+
   // Read all doc files in order
   const pages = [];
   for (const relPath of PAGE_ORDER) {
     const fullPath = join(DOCS_DIR, relPath);
-    if (!existsSync(fullPath)) {
-      console.warn(`Warning: ${relPath} not found, skipping`);
-      continue;
-    }
     const content = await readFile(fullPath, 'utf-8');
     const fm = extractFrontmatter(content);
     const body = stripFrontmatter(content);
