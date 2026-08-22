@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-22 - Events on esp_event, defaults as a value
+
 ### Breaking Changes
 
 - **The `esp_bus` dependency is removed; events move to `esp_event`.**
