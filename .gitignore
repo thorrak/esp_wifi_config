@@ -155,3 +155,8 @@ venv
 website/node_modules/
 website/build/
 website/.docusaurus/
+
+# The hardware-in-the-loop harness is its own git repository that happens to
+# live inside this checkout. Nothing under it is tracked here, and ignoring it
+# is what stops `git add -A` from committing a nested repo by accident.
+test_harness/
