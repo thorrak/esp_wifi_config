@@ -9,10 +9,9 @@ clean before and after. Sizes come from `idf.py size` / `size-components` over
 the linked image; struct sizes and stack frames come from the xtensa toolchain
 (`objdump`, `nm`) against the real target ABI.
 
-A full hardware-in-the-loop run was attempted on the bench Pi and **could not
-execute**: no DUT is currently enumerating on the rig's USB bus. Everything up
-to the hardware boundary passes — see "Validation status". Nothing was flashed,
-so every claim below is static or computed.
+A full hardware-in-the-loop run executed on the bench Pi against both DUTs:
+**145 passed, 2 failed, 1 error**, with both failures reproduced on `main`.
+See "Validation status". Size and heap claims remain static or computed.
 
 ---
 
@@ -332,70 +331,81 @@ variant matrix that builds Improv Serial alone.
 
 ## Recommendation
 
-The change is right, and I would merge it — **after** one hardware run. The bus
-was a forked third-party component providing decoupling the library never used,
-at 5.9 KB flash, 5.4 KB heap and a maintenance burden. The replacement is the
-platform's own event system, which was already linked, already running, and
-already used by this library for four other event bases.
+Merge. The bus was a forked third-party component providing decoupling the
+library never used, at 5.9 KB flash, 5.4 KB heap and a maintenance burden. The
+replacement is the platform's own event system, which was already linked,
+already running, and already used by this library for four other event bases.
 
-The reason to wait is not doubt about the design. It is that the only defect
-found so far was found by *building* the matrix, and the thing this change most
-plausibly breaks — event delivery timing and ordering, now on a different task
-at a different priority — is exactly what a build cannot see. The bench is down
-(see "Validation status"), so that run has not happened.
+The hardware run that was outstanding has now happened: 145 tests pass on two
+real boards, and the only two failures reproduce on `main`. Event delivery
+timing and ordering — the thing this change most plausibly breaks, and the one
+thing a build cannot check — is exercised throughout that suite and holds.
 
 ---
 
 ## Validation status
 
+Full HIL suite, both DUTs, ESP-IDF 5.5.4, run `464c64fe` (1:01:27):
+
 | Gate | Result |
 |---|---|
 | Library builds, 7 examples × IDF 5.5.3 | **pass**, no warnings |
 | Library builds, IDF 5.4.3 | **pass** |
-| HIL firmware matrix — 9 variants × 3 boards × 2 IDF series | **48/48 built**, 0 failed |
+| HIL firmware matrix — 9 variants × 3 boards × 2 IDF series | **48/48 built** |
 | Workstation host suite | **107 passed** |
 | Firmware host suite (C1 emitter/parser) | **58 checks, 0 failures** |
 | `shared/validate_contracts.py` | **62 checks, 0 failures** |
-| `hil doctor` | 14 checks, 0 failed |
-| **Hardware-in-the-loop, 170 tests** | **BLOCKED — 170 skipped, 0 executed** |
+| **Hardware-in-the-loop, 170 tests** | **145 passed, 2 failed, 20 skipped, 2 xfailed, 1 error** |
 
-The HIL suite collected all 170 tests and skipped every one:
+The 145 cover boot, reconnect and backoff, AP fault injection, SoftAP and the
+captive portal, the REST API, BLE provisioning and Improv — on both an
+ESP32-D0WDQ6 and an ESP32-S3, against a real WPA2 AP with real deauthentication
+and DHCP starvation.
 
-```
-no usable lolin_d32_pro for variant 'ble_nimble': esp32_devkit missing
-console: /dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0,
-telemetry: /dev/serial/by-id/usb-Silicon_Labs_CP2102_...
-```
+### The two failures are pre-existing
 
-`/dev/serial/by-id/` does not exist on the rig; there are no `ttyUSB*` or
-`ttyACM*` nodes at all. `lsusb` shows only the root hubs, one VIA Labs
-`2109:3431` hub and the AR9271 AP radio — no CH340, no CP2102, no Espressif
-USB-JTAG. `dmesg` records `ch341-uart ttyUSB2 ... now disconnected` followed by
-repeated re-enumeration churn on `1-1.2`, about two days before this run. Hub
-port 2 reports `power connect []` — electrically present, no device descriptor
-— and stays that way through a `uhubctl` power cycle.
+Both are `test_improv_ble_full_flow`. The device answers `state`, `error`,
+`capabilities` and `device_info`, then never responds to
+`GET_WIFI_NETWORKS`. Device telemetry shows the scan completing
+(`scan_done, count:13`) and heartbeats continuing, so the RPC ran and the
+*response* is what went missing.
 
-The bench also no longer matches `docs/04-bench.md`, which describes two
-cascaded `2109:2822` hubs with seven ports; one four-port `2109:3431` is
-present.
+Cause is the BLE `IMPROV_RPC_STYLE_SINGLE` shape: three TLV strings per network
+fill the 255-byte payload at roughly twelve neighbours, and the resulting
+~258-byte notification does not arrive where the 31-byte `device_info` one
+does. It is the BLE analogue of the serial truncation defect fixed in
+`03713ff` / `20326ce`, which deliberately left BLE on `SINGLE`.
 
-**So this change is not hardware-validated.** It builds everywhere, and the
-matrix build caught a real defect (below), but no line of it has been executed
-on silicon. Recovering the bench needs someone physically present.
+Verified against `main` (library `56294eb`, HIL app reverted to its esp_bus
+version, run `f1a8c9eb`): same assertion, same characteristic, same timeout,
+same lone `device_info` beforehand. **The defect is on `main` and is not caused
+by this branch.** Written up in the harness at
+`rig/findings/library-improv-ble-scan-response-never-arrives-with-many-neighbours.md`.
+
+The branch run failed 2 of 2 boards and the `main` baseline 1 of 2. That is
+*not* evidence the branch made it worse: the threshold depends on how many
+neighbours happen to be up (12, 13 and 14 across the runs), the rig documents
+its RF as uncontrolled, and these are single runs.
+
+### The one error is infrastructure
+
+`AgentTimeout: no @RSP for id 7 (factory_reset) within 3s`, at fixture setup on
+the ESP32 — one occurrence among many tests using the same fixture, on the
+board whose USB cable had just been replaced. Reads as a slow NVS erase against
+a 3-second `agent_cmd_s`, not a library defect.
 
 ## Still unverified
 
 - The **heap figure** is derived from `esp_bus`'s Kconfig defaults and struct
   layouts compiled for xtensa. Arithmetic on real sizes, not a
   `heap_caps_get_free_size()` delta.
-- **Runtime behaviour** — that events fire correctly, in order, with the right
-  payloads — is verified only by compilation and by reading the call sites.
-- **Event loop queue depth** under load is untested. The default
-  `CONFIG_ESP_SYSTEM_EVENT_QUEUE_SIZE` is 32; if the dropped-event warning ever
-  appears in practice, that is the knob.
-- There is **no stored full-suite baseline** on `main` to compare against, so
-  even a completed run would have needed a control pass to separate regressions
-  from the several findings still open against the library.
+- **Event loop queue depth** under sustained load. The suite did not provoke a
+  dropped-event warning; `CONFIG_ESP_SYSTEM_EVENT_QUEUE_SIZE` (default 32) is
+  the knob if one ever appears.
+- **A full-suite baseline on `main`.** Only the two failing Improv BLE cases
+  were controlled against `main`; the other 168 were not, so a pre-existing
+  failure elsewhere would have been read as a pass on both sides rather than
+  attributed.
 
 One pre-existing warning is unrelated to this work and present on `main`:
 `handler_simple_page defined but not used` in `esp_wifi_config_http.c:885`,
