@@ -35,6 +35,42 @@ esp_err_t wifi_cfg_get_status(wifi_status_t *status);
 esp_err_t wifi_cfg_wait_connected(uint32_t timeout_ms);
 ```
 
+## Events
+
+The push half of the section above: `wifi_cfg_get_status()` answers when you
+ask, events tell you when something changes. The library publishes them on
+ESP-IDF's **default event loop** under its own base, alongside `WIFI_EVENT`
+and `IP_EVENT`.
+
+```c
+// The event base. Declared in esp_wifi_config.h; register against it as you
+// would for any IDF event source.
+ESP_EVENT_DECLARE_BASE(WIFI_CFG_EVENT);
+
+// Every event id the library posts, as wifi_cfg_event_t.
+// WIFI_CFG_EVENT_MAX is the count, not an event.
+esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                           on_got_ip, NULL);
+
+// ESP_EVENT_ANY_ID for a catch-all.
+esp_event_handler_register(WIFI_CFG_EVENT, ESP_EVENT_ANY_ID, on_any, NULL);
+
+// Human-readable name for an event id, for logging.
+// Static string, "unknown" if out of range. Never NULL.
+const char *wifi_cfg_event_name(wifi_cfg_event_t event);
+```
+
+`wifi_cfg_init()` creates the default loop itself. Call
+`esp_event_loop_create_default()` and register first only if you need to catch
+events emitted *during* init; creating it twice is harmless.
+
+Handlers run on the system event loop task, shared with IDF's own networking
+callbacks — keep them short and do heavy work on your own task.
+
+**[Events guide](../guides/events.md)** has the full id-to-payload table, the
+handler signature, and worked examples. It is not repeated here: one table that
+drifts is worse than one table that is looked up.
+
 ## Connection
 
 ```c
@@ -60,6 +96,9 @@ esp_err_t wifi_cfg_update_network(const wifi_network_t *network);
 // Remove a network from NVS
 esp_err_t wifi_cfg_remove_network(const char *ssid);
 
+// Look one up by SSID. ESP_ERR_NOT_FOUND if it is not stored.
+esp_err_t wifi_cfg_get_network(const char *ssid, wifi_network_t *network);
+
 // List all saved networks
 esp_err_t wifi_cfg_list_networks(wifi_network_t *networks, size_t max, size_t *count);
 ```
@@ -75,7 +114,16 @@ esp_err_t wifi_cfg_stop_ap(void);
 
 // Get AP status (active, SSID, IP, connected clients)
 esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status);
+
+// Read the stored SoftAP config
+esp_err_t wifi_cfg_get_ap_config(wifi_cfg_ap_config_t *config);
+
+// Update it and persist to NVS. Applied immediately if the AP is running.
+esp_err_t wifi_cfg_set_ap_config(const wifi_cfg_ap_config_t *config);
 ```
+
+`wifi_cfg_start_ap()` takes a config for one run; `wifi_cfg_set_ap_config()`
+stores one. Use the setter when the change should outlive a reboot.
 
 ## Custom Variables
 
