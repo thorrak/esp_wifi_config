@@ -29,7 +29,6 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 
 static const char *TAG = "wifi_ble_example";
 
@@ -71,19 +70,19 @@ static const uint8_t sec2_verifier[] = {
     0x3b, 0x93, 0xa1, 0x4c, 0x3a, 0x54, 0xfb, 0xaf, 0xe2, 0x8a, 0xbd, 0x69, 0x83, 0x27, 0x7c, 0x54
 };
 
-static void on_wifi_connected(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_connected(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_connected_t *info = (const wifi_connected_t *)data;
     ESP_LOGI(TAG, "WiFi connected to %s (RSSI: %d dBm)", info->ssid, info->rssi);
 }
 
-static void on_wifi_disconnected(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_disconnected(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_disconnected_t *info = (const wifi_disconnected_t *)data;
     ESP_LOGW(TAG, "WiFi disconnected from %s (reason: %d)", info->ssid, info->reason);
 }
 
-static void on_wifi_got_ip(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_got_ip(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     wifi_status_t status;
     if (wifi_cfg_get_status(&status) == ESP_OK) {
@@ -103,17 +102,18 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Starting WiFi Config with BLE example");
 
-    // Initialize esp_bus
-    ret = esp_bus_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize esp_bus: %s", esp_err_to_name(ret));
-        return;
-    }
+    // The default event loop must exist before registering handlers.
+    // wifi_cfg_init() creates it too, but registering first is what catches
+    // the events emitted during startup.
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     // Subscribe to WiFi events
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED,
+                               on_wifi_connected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_DISCONNECTED,
+                               on_wifi_disconnected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                               on_wifi_got_ip, NULL);
 
     // Initialize WiFi Config with BLE
     wifi_cfg_config_t config = {

@@ -17,7 +17,6 @@
 #include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include "esp_chip_info.h"
-#include "esp_bus.h"
 #include <string.h>
 
 static const char *TAG = "wifi_cfg_improv";
@@ -35,10 +34,6 @@ static struct {
     void *ctx;
 } s_state_cbs[MAX_STATE_CBS];
 static int s_state_cb_count = 0;
-
-// esp_bus subscription IDs (for unsubscribe on deinit)
-static int s_sub_connected = -1;
-static int s_sub_disconnected = -1;
 
 // =============================================================================
 // Helpers: build Improv TLV strings
@@ -198,7 +193,7 @@ static void handle_send_wifi_settings(const uint8_t *data, size_t len,
     }
     wifi_cfg_connect(ssid);
 
-    // Response will be sent from on_wifi_connected / on_wifi_disconnected callbacks
+    // Response is sent from wifi_cfg_improv_on_got_ip / _on_disconnected
 }
 
 static void handle_identify(improv_response_cb_t cb, void *ctx)
@@ -395,10 +390,10 @@ void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
 }
 
 // =============================================================================
-// esp_bus Event Listener
+// WiFi State Notifications (called by the WiFi state machine)
 // =============================================================================
 
-static void on_wifi_connected(const char *event, const void *data, size_t len, void *ctx)
+void wifi_cfg_improv_on_got_ip(void)
 {
     if (s_state == IMPROV_STATE_PROVISIONING) {
         wifi_cfg_improv_set_state(IMPROV_STATE_PROVISIONED);
@@ -423,7 +418,7 @@ static void on_wifi_connected(const char *event, const void *data, size_t len, v
     }
 }
 
-static void on_wifi_disconnected(const char *event, const void *data, size_t len, void *ctx)
+void wifi_cfg_improv_on_disconnected(void)
 {
     if (s_state == IMPROV_STATE_PROVISIONING) {
         wifi_cfg_improv_set_error(IMPROV_ERROR_UNABLE_TO_CONNECT);
@@ -446,10 +441,6 @@ esp_err_t wifi_cfg_improv_init(void)
     s_state = IMPROV_STATE_AUTHORIZED;
     s_error = IMPROV_ERROR_NONE;
     s_state_cb_count = 0;
-
-    // Subscribe to wifi events for state transitions
-    s_sub_connected = esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_connected, NULL);
-    s_sub_disconnected = esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
     {
@@ -475,15 +466,6 @@ esp_err_t wifi_cfg_improv_init(void)
 esp_err_t wifi_cfg_improv_deinit(void)
 {
     ESP_LOGI(TAG, "Deinitializing Improv WiFi");
-
-    if (s_sub_connected >= 0) {
-        esp_bus_unsub(s_sub_connected);
-        s_sub_connected = -1;
-    }
-    if (s_sub_disconnected >= 0) {
-        esp_bus_unsub(s_sub_disconnected);
-        s_sub_disconnected = -1;
-    }
 
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL
     wifi_cfg_improv_serial_deinit();

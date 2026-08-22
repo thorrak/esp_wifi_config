@@ -9,6 +9,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Breaking Changes
 
+- **The `esp_bus` dependency is removed; events move to `esp_event`.**
+  The library now publishes its events on ESP-IDF's default event loop
+  under a new base, `WIFI_CFG_EVENT` — the same loop it already consumed
+  `WIFI_EVENT` and `IP_EVENT` from, and which it creates itself in
+  `wifi_cfg_init()`. Register with `esp_event_handler_register()`, using
+  `ESP_EVENT_ANY_ID` for a catch-all; handlers take the standard
+  esp_event signature. Each `WIFI_CFG_EVT_<NAME>` string macro becomes a
+  `WIFI_CFG_EVENT_<NAME>` enumerator of the new `wifi_cfg_event_t`.
+  `WIFI_EVT()`, `WIFI_REQ()`, `WIFI_MODULE` and every `WIFI_ACTION_*`
+  macro were removed — the bus's action surface was a string-dispatch
+  shim over the public C API, so call the matching `wifi_cfg_*` function
+  directly. See MIGRATION.md.
+
+  To catch events emitted during startup, call
+  `esp_event_loop_create_default()` and register before
+  `wifi_cfg_init()`; creating the loop twice is harmless.
+
+  Delivery stays asynchronous, so handlers do not run on the WiFi state
+  machine's task or on the httpd task. One failure mode is fixed:
+  `esp_bus_emit()` enqueued with a zero timeout and all seventeen call
+  sites ignored the error, so a full queue dropped events silently. The
+  library still posts with a zero timeout — blocking the state machine
+  would be worse — but now checks the result and logs a warning naming
+  the event.
+
+  Measured on esp32s3 / IDF 5.5.3: **~5.9 KB of flash** saved across
+  every example configuration (`basic` 855,120 → 849,232 bytes) and
+  about **5.4 KB of heap**, since `esp_bus` ran a 4 KB-stack task and a
+  16 × 64-byte queue while `esp_event`'s loop already exists and is
+  already paid for. Static RAM is unchanged. The library also drops from
+  one third-party dependency to none.
+
 - **Every `wifi_cfg_config_t` initialiser must now start from
   `WIFI_CFG_DEFAULTS`.** The new `WIFI_CFG_DEFAULTS` (a
   designated-initialiser list) and `WIFI_CFG_DEFAULT_CONFIG()` (the same
@@ -65,6 +97,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   and no investigation of exploitability beyond that was done.
 
 ### Fixed
+
+- **Improv Serial's `driver` dependency is now declared unconditionally.**
+  `CMakeLists.txt` appended `driver` to `PRIV_REQUIRES` inside an
+  `if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)` block, which never reaches
+  ESP-IDF's early dependency-resolution pass — so `driver/uart.h` was never on
+  the include path. It compiled anyway because `esp_bus` declared
+  `REQUIRES driver` publicly and this component depended on `esp_bus`, so the
+  include path arrived transitively. Removing `esp_bus` removed the accident
+  and every `improv_serial` build broke. The bug is older than the removal;
+  it was simply unobservable. Found by the HIL matrix build (all three boards
+  × both IDF series) during pre-merge validation. Costs nothing where Improv
+  Serial is off — `examples/basic` measures 0xcf550 bytes either way — since
+  the linker drops the unreferenced archive.
+
 
 - **Improv BLE never checked the RPC command checksum.** The Improv
   packet is `[command, length, ...data, checksum]` in both directions,

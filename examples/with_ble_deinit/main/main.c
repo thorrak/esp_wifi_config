@@ -35,7 +35,6 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -234,19 +233,19 @@ static void ble_on_reset(int reason)
 // WiFi Config event callbacks
 // ============================================================================
 
-static void on_wifi_connected(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_connected(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_connected_t *info = (const wifi_connected_t *)data;
     ESP_LOGI(TAG, "WiFi connected to %s (RSSI: %d dBm)", info->ssid, info->rssi);
 }
 
-static void on_wifi_disconnected(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_disconnected(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     const wifi_disconnected_t *info = (const wifi_disconnected_t *)data;
     ESP_LOGW(TAG, "WiFi disconnected from %s (reason: %d)", info->ssid, info->reason);
 }
 
-static void on_wifi_got_ip(const char *event, const void *data, size_t len, void *ctx)
+static void on_wifi_got_ip(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     wifi_status_t status;
     if (wifi_cfg_get_status(&status) == ESP_OK) {
@@ -288,18 +287,20 @@ void app_main(void)
     nimble_port_freertos_init(nimble_host_task);
     ESP_LOGI(TAG, "NimBLE stack running");
 
-    // ── Step 2: Initialize esp_bus + WiFi Config ──
+    // ── Step 2: Initialize WiFi Config ──
     ESP_LOGI(TAG, "Step 2: Initializing WiFi Config (service-only BLE mode)");
 
-    ret = esp_bus_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize esp_bus: %s", esp_err_to_name(ret));
-        return;
-    }
+    // The default event loop must exist before registering handlers.
+    // wifi_cfg_init() creates it too, but registering first is what catches
+    // the events emitted during startup.
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_CONNECTED), on_wifi_connected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_DISCONNECTED), on_wifi_disconnected, NULL);
-    esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_GOT_IP), on_wifi_got_ip, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_CONNECTED,
+                               on_wifi_connected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_DISCONNECTED,
+                               on_wifi_disconnected, NULL);
+    esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_GOT_IP,
+                               on_wifi_got_ip, NULL);
 
     wifi_cfg_config_t config = {
         WIFI_CFG_DEFAULTS,   // required: init no longer patches unset fields

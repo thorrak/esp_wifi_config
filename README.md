@@ -30,7 +30,7 @@ It's a one-stop shop: enable the channels you want at build time, fill in a `wif
 - **Embedded Web UI** — responsive Preact frontend (~10 KB gzipped) served on the captive portal, or [bring your own](https://configwifi.com/docs/guides/custom-webui)
 - **REST API** with optional HTTP Basic Auth
 - **Custom variable store** — application key/value settings flow through every provisioning interface
-- **Event-driven** via [esp_bus](https://components.espressif.com/components/thorrak/esp_bus) (connected, disconnected, got IP, provisioning started/stopped)
+- **Event-driven** on ESP-IDF's default event loop under `WIFI_CFG_EVENT` (connected, disconnected, got IP, provisioning started/stopped)
 
 **Targets:** ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-H2
 
@@ -72,7 +72,7 @@ What `wifi_provisioning` does on its own is hand a single set of credentials to 
 | Serial CLI | — | ✅ |
 | REST API with optional Basic Auth | — | ✅ |
 | Custom application key/value store | — | ✅ (exposed via every interface, plus a custom protocomm endpoint over BLE) |
-| Event-driven integration via [esp_bus](https://components.espressif.com/components/thorrak/esp_bus) | — | ✅ |
+| Event-driven integration via `esp_event` | — | ✅ |
 
 In short: if all you need is to hand off WiFi credentials once over BLE, Espressif's component on its own is enough. If you want a device that remembers multiple networks, decides on its own when to reopen provisioning, exposes the same configuration over a captive portal and serial console, and emits events your application can react to — that's the rest of this library.
 
@@ -135,7 +135,7 @@ The backstop must comfortably exceed the client's status-poll interval
 get an IP, or the device can reboot in the gap between two polls and the client
 reports a false failure.
 
-If your application does significant work in the `WIFI_CFG_EVT_PROV_CRED_SUCCESS` handler, finish that work before the callback returns (it runs before the reboot) — or extend `reboot_max_wait_ms`. Anything that must persist across the reboot needs to land in NVS first.
+If your application does significant work in the `WIFI_CFG_EVENT_PROV_CRED_SUCCESS` handler, finish that work before the callback returns (it runs before the reboot) — or extend `reboot_max_wait_ms`. Anything that must persist across the reboot needs to land in NVS first.
 
 The library's pre-existing `stop_provisioning_on_connect` / `provisioning_teardown_delay_ms` lifecycle and `prov_ble.stop_after_success` knob still exist but are bypassed while reboot-on-success is active — the reboot supersedes any in-place teardown.
 
@@ -150,13 +150,11 @@ dependencies:
 
 ```c
 #include "esp_wifi_config.h"
-#include "esp_bus.h"
 #include "nvs_flash.h"
 
 void app_main(void)
 {
     nvs_flash_init();
-    esp_bus_init();
 
     // Always start from WIFI_CFG_DEFAULTS. wifi_cfg_init() does not patch
     // fields you leave at zero, so a config built without it is rejected
@@ -195,6 +193,7 @@ server come up when no networks are saved or every saved network fails.
 
 Full documentation is available at **[configwifi.com](https://configwifi.com)**:
 
+- [esp_bus Migration](ESP_BUS_MIGRATION.md) — quick reference for apps upgrading off the event bus
 - [Getting Started](https://configwifi.com/docs/getting-started) — Installation and first project
 - [Provisioning Modes](https://configwifi.com/docs/provisioning/modes) — Control when AP/BLE/Improv activate
 - [API Reference](https://configwifi.com/docs/api/c-api) — C API, REST API, BLE protocol, CLI
@@ -209,7 +208,6 @@ Point your AI coding assistant at [`configwifi.com/llms.txt`](https://configwifi
 - ESP-IDF >= 5.4
   ESP-IDF 6.x is supported via `idf_component.yml`'s automatic switch to
   `espressif/network_provisioning`.
-- [esp_bus](https://components.espressif.com/components/thorrak/esp_bus) (auto-resolved by component manager)
 
 ## Acknowledgments
 

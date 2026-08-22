@@ -46,16 +46,17 @@ wifi_cfg_del_var("device_id");
 
 ## Listening for Changes
 
-Subscribe to the `WIFI_CFG_EVT_VAR_CHANGED` event to react when any interface modifies a variable:
+Subscribe to the `WIFI_CFG_EVENT_VAR_CHANGED` event to react when any interface modifies a variable:
 
 ```c
-static void on_var_changed(const char *event, const void *data, size_t len, void *ctx)
+static void on_var_changed(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     wifi_var_changed_t *info = (wifi_var_changed_t *)data;
     ESP_LOGI(TAG, "Variable changed: %s = %s", info->key, info->value);
 }
 
-esp_bus_sub(WIFI_EVT(WIFI_CFG_EVT_VAR_CHANGED), on_var_changed, NULL);
+esp_event_handler_register(WIFI_CFG_EVENT, WIFI_CFG_EVENT_VAR_CHANGED,
+                           on_var_changed, NULL);
 ```
 
 ## Managing Variables via Other Interfaces

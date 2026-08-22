@@ -25,7 +25,7 @@ ESP WiFi Config is a WiFi configuration component for ESP-IDF that handles multi
 - **Basic Auth** — Optional authentication for HTTP endpoints
 - **Custom variables** — Key-value storage for application settings
 - **NVS persistence** — Networks, variables, and AP config stored in flash
-- **esp_bus integration** — Event-driven architecture with actions and events
+- **Event-driven** — Connection, provisioning and config-change events on the default event loop
 
 ## Supported Targets
 
@@ -68,12 +68,11 @@ ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-H2
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-All configuration interfaces feed into the same core API. The library uses [esp_bus](https://components.espressif.com/components/thorrak/esp_bus) for event-driven communication — your application subscribes to events (connected, disconnected, got IP, etc.) rather than polling.
+All configuration interfaces feed into the same core API. Your application handles events (connected, disconnected, got IP, etc.) on ESP-IDF's default event loop under the `WIFI_CFG_EVENT` base — the same way it already handles `WIFI_EVENT` and `IP_EVENT` — rather than polling.
 
 ## Dependencies
 
 - **ESP-IDF** >= 5.4 (was 5.0 in 0.0.x; the Network Provisioning integration in 0.1.0 needs 5.4+)
-- **[esp_bus](https://components.espressif.com/components/thorrak/esp_bus)** — Event bus component (auto-resolved by the component manager)
 - **cJSON** — JSON parsing (included in ESP-IDF)
 - **mbedTLS** — Base64 for Basic Auth (included in ESP-IDF)
 

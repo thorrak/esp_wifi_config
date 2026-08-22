@@ -4,7 +4,6 @@
  */
 
 #include "esp_wifi_config_priv.h"
-#include "esp_bus.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -86,7 +85,7 @@ void wifi_cfg_start_connect_sequence(void)
 
         g_wifi_cfg->state = WIFI_STATE_CONNECTING;
         g_wifi_cfg->current_network_idx = i;
-        esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_CONNECTING, net->ssid, strlen(net->ssid) + 1);
+        wifi_cfg_event_post(WIFI_CFG_EVENT_CONNECTING, net->ssid, strlen(net->ssid) + 1);
 
         wifi_config_t wifi_cfg = {0};
         strncpy((char *)wifi_cfg.sta.ssid, net->ssid, sizeof(wifi_cfg.sta.ssid) - 1);
@@ -177,7 +176,7 @@ esp_err_t wifi_cfg_add_network(const wifi_network_t *network)
     wifi_cfg_nvs_save_networks(g_wifi_cfg->networks, g_wifi_cfg->network_count);
     wifi_cfg_unlock();
     
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_NETWORK_ADDED, network, sizeof(wifi_network_t));
+    wifi_cfg_event_post(WIFI_CFG_EVENT_NETWORK_ADDED, network, sizeof(wifi_network_t));
     ESP_LOGI(TAG, "Network added: %s", network->ssid);
     return ESP_OK;
 }
@@ -193,7 +192,7 @@ esp_err_t wifi_cfg_update_network(const wifi_network_t *network)
             memcpy(&g_wifi_cfg->networks[i], network, sizeof(wifi_network_t));
             wifi_cfg_nvs_save_networks(g_wifi_cfg->networks, g_wifi_cfg->network_count);
             wifi_cfg_unlock();
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_NETWORK_UPDATED, network, sizeof(wifi_network_t));
+            wifi_cfg_event_post(WIFI_CFG_EVENT_NETWORK_UPDATED, network, sizeof(wifi_network_t));
             ESP_LOGI(TAG, "Network updated: %s", network->ssid);
             return ESP_OK;
         }
@@ -217,7 +216,7 @@ esp_err_t wifi_cfg_remove_network(const char *ssid)
             g_wifi_cfg->network_count--;
             wifi_cfg_nvs_save_networks(g_wifi_cfg->networks, g_wifi_cfg->network_count);
             wifi_cfg_unlock();
-            esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_NETWORK_REMOVED, ssid, strlen(ssid) + 1);
+            wifi_cfg_event_post(WIFI_CFG_EVENT_NETWORK_REMOVED, ssid, strlen(ssid) + 1);
             ESP_LOGI(TAG, "Network removed: %s", ssid);
             return ESP_OK;
         }
@@ -307,7 +306,7 @@ esp_err_t wifi_cfg_connect(const char *ssid)
     ESP_LOGI(TAG, "Connecting to %s", ssid);
     
     g_wifi_cfg->state = WIFI_STATE_CONNECTING;
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_CONNECTING, ssid, strlen(ssid) + 1);
+    wifi_cfg_event_post(WIFI_CFG_EVENT_CONNECTING, ssid, strlen(ssid) + 1);
     
     wifi_config_t wifi_cfg = {0};
     strncpy((char *)wifi_cfg.sta.ssid, net->ssid, sizeof(wifi_cfg.sta.ssid) - 1);
@@ -401,7 +400,7 @@ esp_err_t wifi_cfg_scan(wifi_scan_result_t *results, size_t max_count, size_t *c
     free(ap_list);
     
     uint16_t cnt = (uint16_t)copy_count;
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_SCAN_DONE, &cnt, sizeof(cnt));
+    wifi_cfg_event_post(WIFI_CFG_EVENT_SCAN_DONE, &cnt, sizeof(cnt));
     
     ESP_LOGI(TAG, "Scan done, found %zu networks", copy_count);
     return ESP_OK;

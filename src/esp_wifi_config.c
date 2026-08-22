@@ -7,7 +7,6 @@
 #ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
 #include "esp_wifi_config_improv.h"
 #endif
-#include "esp_bus.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_system.h"
@@ -37,12 +36,12 @@ static void wifi_cfg_task(void *arg);
 void wifi_cfg_send_event(wifi_cfg_internal_evt_t type)
 {
     if (!g_wifi_cfg || !g_wifi_cfg->queue) return;
-    wifi_cfg_event_t evt = {0};
+    wifi_cfg_internal_msg_t evt = {0};
     evt.type = type;
     xQueueSend(g_wifi_cfg->queue, &evt, 0);
 }
 
-void wifi_cfg_send_event_data(const wifi_cfg_event_t *event)
+void wifi_cfg_send_event_data(const wifi_cfg_internal_msg_t *event)
 {
     if (!g_wifi_cfg || !g_wifi_cfg->queue || !event) return;
     xQueueSend(g_wifi_cfg->queue, event, 0);
@@ -152,7 +151,7 @@ void wifi_cfg_start_provisioning(void)
     }
 
     g_wifi_cfg->provisioning_active = true;
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROVISIONING_STARTED, NULL, 0);
+    wifi_cfg_event_post(WIFI_CFG_EVENT_PROVISIONING_STARTED, NULL, 0);
 }
 
 void wifi_cfg_stop_provisioning(void)
@@ -207,7 +206,7 @@ void wifi_cfg_stop_provisioning(void)
     }
 
     g_wifi_cfg->provisioning_active = false;
-    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROVISIONING_STOPPED, NULL, 0);
+    wifi_cfg_event_post(WIFI_CFG_EVENT_PROVISIONING_STOPPED, NULL, 0);
 }
 
 // =============================================================================
@@ -230,7 +229,7 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     // Init sync primitives
     g_wifi_cfg->mutex = xSemaphoreCreateMutex();
     g_wifi_cfg->event_group = xEventGroupCreate();
-    g_wifi_cfg->queue = xQueueCreate(WIFI_CFG_QUEUE_SIZE, sizeof(wifi_cfg_event_t));
+    g_wifi_cfg->queue = xQueueCreate(WIFI_CFG_QUEUE_SIZE, sizeof(wifi_cfg_internal_msg_t));
     
     if (!g_wifi_cfg->mutex || !g_wifi_cfg->event_group || !g_wifi_cfg->queue) {
         ret = ESP_ERR_NO_MEM;
@@ -433,59 +432,6 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
         goto cleanup;
     }
 
-    // Check if esp_bus is initialized (user should call esp_bus_init() before wifi_cfg_init())
-    if (!esp_bus_is_init()) {
-        ESP_LOGE(TAG, "esp_bus not initialized. Call esp_bus_init() first.");
-        ret = ESP_ERR_INVALID_STATE;
-        goto cleanup;
-    }
-
-    // Register esp_bus module
-    static const esp_bus_action_t actions[] = {
-        {WIFI_ACTION_CONNECT, "string", "none", "Connect to network"},
-        {WIFI_ACTION_DISCONNECT, "none", "none", "Disconnect"},
-        {WIFI_ACTION_SCAN, "none", "wifi_scan_result_t[]", "Scan networks"},
-        {WIFI_ACTION_GET_STATUS, "none", "wifi_status_t", "Get status"},
-        {WIFI_ACTION_ADD_NETWORK, "wifi_network_t", "none", "Add network"},
-        {WIFI_ACTION_UPDATE_NETWORK, "wifi_network_t", "none", "Update network"},
-        {WIFI_ACTION_REMOVE_NETWORK, "string", "none", "Remove network"},
-        {WIFI_ACTION_LIST_NETWORKS, "none", "wifi_network_t[]", "List networks"},
-        {WIFI_ACTION_START_AP, "wifi_cfg_ap_config_t", "none", "Start AP"},
-        {WIFI_ACTION_STOP_AP, "none", "none", "Stop AP"},
-        {WIFI_ACTION_GET_AP_STATUS, "none", "wifi_ap_status_t", "Get AP status"},
-        {WIFI_ACTION_SET_VAR, "wifi_var_t", "none", "Set variable"},
-        {WIFI_ACTION_GET_VAR, "string", "wifi_var_t", "Get variable"},
-        {WIFI_ACTION_DEL_VAR, "string", "none", "Delete variable"},
-    };
-    
-    static const esp_bus_event_t events[] = {
-        {WIFI_CFG_EVT_CONNECTED, "wifi_connected_t", "WiFi connected"},
-        {WIFI_CFG_EVT_DISCONNECTED, "wifi_disconnected_t", "WiFi disconnected"},
-        {WIFI_CFG_EVT_GOT_IP, "ip_info", "Got IP address"},
-        {WIFI_CFG_EVT_SCAN_DONE, "uint16", "Scan completed"},
-        {WIFI_CFG_EVT_NETWORK_ADDED, "wifi_network_t", "Network added"},
-        {WIFI_CFG_EVT_NETWORK_REMOVED, "string", "Network removed"},
-        {WIFI_CFG_EVT_VAR_CHANGED, "wifi_var_t", "Variable changed"},
-        {WIFI_CFG_EVT_PROVISIONING_STARTED, "none", "Provisioning started"},
-        {WIFI_CFG_EVT_PROVISIONING_STOPPED, "none", "Provisioning stopped"},
-    };
-    
-    esp_bus_module_t bus_cfg = {
-        .name = WIFI_MODULE,
-        .on_req = wifi_cfg_bus_handler,
-        .ctx = g_wifi_cfg,
-        .actions = actions,
-        .action_cnt = sizeof(actions) / sizeof(actions[0]),
-        .events = events,
-        .event_cnt = sizeof(events) / sizeof(events[0]),
-    };
-    
-    ret = esp_bus_reg(&bus_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_bus register failed: %s", esp_err_to_name(ret));
-        goto cleanup;
-    }
-
     // Init HTTP interface (server setup only, handlers are registered later by
     // wifi_cfg_start_provisioning() or the happy-path connect logic)
     bool need_http = (config && config->enable_ap) ||
@@ -602,7 +548,6 @@ esp_err_t wifi_cfg_deinit(bool deinit_wifi)
     g_wifi_cfg->provisioning_active = false;
     g_wifi_cfg->reconnect_attempt_count = 0;
     wifi_cfg_http_deinit();
-    esp_bus_unreg(WIFI_MODULE);
     
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
     esp_event_handler_unregister(IP_EVENT, ESP_EVENT_ANY_ID, &ip_event_handler);
@@ -643,7 +588,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 {
     if (!g_wifi_cfg) return;
     
-    wifi_cfg_event_t evt = {0};
+    wifi_cfg_internal_msg_t evt = {0};
     
     switch (event_id) {
         case WIFI_EVENT_STA_START:
@@ -723,7 +668,7 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base,
 {
     if (!g_wifi_cfg) return;
     
-    wifi_cfg_event_t evt = {0};
+    wifi_cfg_internal_msg_t evt = {0};
     
     switch (event_id) {
         case IP_EVENT_STA_GOT_IP: {
@@ -751,7 +696,7 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base,
 
 static void wifi_cfg_task(void *arg)
 {
-    wifi_cfg_event_t evt;
+    wifi_cfg_internal_msg_t evt;
     
     ESP_LOGI(TAG, "Task started");
     
@@ -882,10 +827,13 @@ static void wifi_cfg_task(void *arg)
                     xEventGroupClearBits(g_wifi_cfg->event_group, WIFI_CONNECTED_BIT);
                     xEventGroupSetBits(g_wifi_cfg->event_group, WIFI_FAIL_BIT);
 
-                    // Emit esp_bus event
+                    // Notify subscribers
                     wifi_disconnected_t disc = {.reason = evt.data.disconnect.reason};
                     strncpy(disc.ssid, evt.data.disconnect.ssid, sizeof(disc.ssid) - 1);
-                    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_DISCONNECTED, &disc, sizeof(disc));
+                    wifi_cfg_event_post(WIFI_CFG_EVENT_DISCONNECTED, &disc, sizeof(disc));
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+                    wifi_cfg_improv_on_disconnected();
+#endif
 
                     // Auto reconnect with reconnect exhaustion
                     if (g_wifi_cfg->config.auto_reconnect &&
@@ -952,7 +900,7 @@ static void wifi_cfg_task(void *arg)
                     xEventGroupSetBits(g_wifi_cfg->event_group, WIFI_CONNECTED_BIT);
                     xEventGroupClearBits(g_wifi_cfg->event_group, WIFI_FAIL_BIT);
 
-                    // Emit esp_bus events
+                    // Notify subscribers
                     wifi_connected_t conn = {0};
                     wifi_ap_record_t ap_info;
                     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
@@ -960,8 +908,11 @@ static void wifi_cfg_task(void *arg)
                         conn.rssi = ap_info.rssi;
                         conn.channel = ap_info.primary;
                     }
-                    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_CONNECTED, &conn, sizeof(conn));
-                    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_GOT_IP, &evt.data.got_ip.ip_info, sizeof(esp_netif_ip_info_t));
+                    wifi_cfg_event_post(WIFI_CFG_EVENT_CONNECTED, &conn, sizeof(conn));
+                    wifi_cfg_event_post(WIFI_CFG_EVENT_GOT_IP, &evt.data.got_ip.ip_info, sizeof(esp_netif_ip_info_t));
+#ifdef CONFIG_WIFI_CFG_ENABLE_IMPROV
+                    wifi_cfg_improv_on_got_ip();
+#endif
 
                     // Reset reconnect counter on successful connection
                     g_wifi_cfg->reconnect_attempt_count = 0;
@@ -995,29 +946,29 @@ static void wifi_cfg_task(void *arg)
                             case WIFI_HTTP_DISABLED:
                                 break;
                         }
-                        esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_PROVISIONING_STOPPED, NULL, 0);
+                        wifi_cfg_event_post(WIFI_CFG_EVENT_PROVISIONING_STOPPED, NULL, 0);
                     }
                     break;
                 }
                     
                 case WM_INT_EVT_LOST_IP:
-                    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_LOST_IP, NULL, 0);
+                    wifi_cfg_event_post(WIFI_CFG_EVENT_LOST_IP, NULL, 0);
                     break;
                     
                 case WM_INT_EVT_AP_STARTED:
                     g_wifi_cfg->ap_active = true;
-                    // esp_bus event is emitted from wifi_cfg_start_ap() after
+                    // The event is emitted from wifi_cfg_start_ap() after
                     // config is fully applied, not here (avoids double events from
                     // intermediate driver restarts)
                     break;
                     
                 case WM_INT_EVT_AP_STOPPED:
                     g_wifi_cfg->ap_active = false;
-                    // esp_bus event is emitted from wifi_cfg_stop_ap()
+                    // The event is emitted from wifi_cfg_stop_ap()
                     break;
                     
                 case WM_INT_EVT_AP_STA_CONN:
-                    esp_bus_emit(WIFI_MODULE, WIFI_CFG_EVT_AP_STA_CONNECTED, evt.data.mac, 6);
+                    wifi_cfg_event_post(WIFI_CFG_EVENT_AP_STA_CONNECTED, evt.data.mac, 6);
                     break;
                     
                 case WM_INT_EVT_CONNECT_REQUEST:
