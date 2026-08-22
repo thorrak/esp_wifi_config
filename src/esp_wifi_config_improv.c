@@ -123,8 +123,30 @@ void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx)
 static void send_rpc_result(uint8_t cmd_id, const uint8_t *payload, size_t payload_len,
                             improv_response_cb_t cb, void *ctx)
 {
-    uint8_t buf[256];
-    if (2 + payload_len > sizeof(buf)) return;
+    /*
+     * Sized to the format's own ceiling, not one byte under it.
+     *
+     * This buffer used to be 256 -- two bytes of header plus room for 254 of
+     * payload -- while the length byte can describe 255 and the scan packer
+     * filled to exactly that. A neighbourhood that happened to pack flush with
+     * the packer's bound therefore produced a response this guard threw away
+     * without a word. Measured 2026-08-22 on a bench with thirteen APs: the
+     * device scanned, packed and checksummed an answer, and an Improv BLE
+     * client waited out its 30 s timeout. It is not a rare landing, and worse,
+     * it is not a random one -- the total is a function of which SSIDs are on
+     * the air, so it stays wrong for as long as the neighbourhood does.
+     *
+     * The guard stays, because a caller can still pass nonsense, but it is now
+     * only reachable by a payload the length byte could not have described,
+     * and it says so.
+     */
+    uint8_t buf[2 + IMPROV_RPC_MAX_PAYLOAD];
+    if (2 + payload_len > sizeof(buf)) {
+        ESP_LOGE(TAG, "RPC 0x%02x result dropped: %u-byte payload exceeds the "
+                      "%u the length byte can describe",
+                 cmd_id, (unsigned)payload_len, (unsigned)IMPROV_RPC_MAX_PAYLOAD);
+        return;
+    }
 
     buf[0] = cmd_id;
     buf[1] = (uint8_t)payload_len;
@@ -269,7 +291,7 @@ static const char *auth_mode_str(wifi_auth_mode_t auth)
 }
 
 static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
-                                     improv_rpc_style_t style)
+                                     improv_rpc_style_t style, size_t max_payload)
 {
     ESP_LOGI(TAG, "RPC: Get WiFi Networks (scan)");
 
@@ -294,8 +316,26 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
      * wants. See improv_rpc_style_t in the header for both quotes and for why
      * the difference matters more on serial than it looks.
      */
-    uint8_t payload[255];
+    uint8_t payload[IMPROV_RPC_MAX_PAYLOAD];
     size_t poff = 0;
+
+    /*
+     * Pack to what the transport can actually deliver, not to what the buffer
+     * happens to hold.
+     *
+     * On a link that has negotiated a large MTU those two are the same number
+     * -- this library asks for 517 and gets it from a desktop or phone client,
+     * which leaves room for far more than a result can express. But an ATT MTU
+     * is a property of the connection, not of the protocol: a client that
+     * settles on 247, as some phones do, can carry 241 payload bytes, and a
+     * response packed to 255 would be clipped to fit by the host stack and
+     * arrive claiming bytes that never came. So the transport says what it can
+     * carry and the list is cut to that.
+     */
+    size_t cap = sizeof(payload);
+    if (max_payload > 0 && max_payload < cap) cap = max_payload;
+
+    size_t sent = 0;
 
     for (size_t i = 0; i < count; i++) {
         char rssi_str[8];
@@ -311,20 +351,32 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
              * a few dozen bytes and no amount of neighbours can overflow the
              * frame that carries it. */
             poff = 0;
-            append_tlv_string(payload, sizeof(payload), &poff, results[i].ssid);
-            append_tlv_string(payload, sizeof(payload), &poff, rssi_str);
-            append_tlv_string(payload, sizeof(payload), &poff, auth_str);
+            append_tlv_string(payload, cap, &poff, results[i].ssid);
+            append_tlv_string(payload, cap, &poff, rssi_str);
+            append_tlv_string(payload, cap, &poff, auth_str);
             send_rpc_result(IMPROV_RPC_GET_WIFI_NETWORKS, payload, poff, cb, ctx);
+            sent++;
             continue;
         }
 
-        /* One response for all of them. Networks that do not fit are dropped,
-         * which is the BLE spec's shape and its cost. */
-        if (poff + needed > sizeof(payload)) break;
+        /* One response for all of them, so the list is bounded by the link.
+         * Networks that do not fit are dropped -- that is the BLE spec's shape
+         * and its cost. wifi_cfg_scan() hands them over strongest first and
+         * already deduplicated by SSID, so what gets dropped is the far end of
+         * the neighbourhood rather than anything a user is likely to be
+         * standing next to. */
+        if (poff + needed > cap) break;
 
-        append_tlv_string(payload, sizeof(payload), &poff, results[i].ssid);
-        append_tlv_string(payload, sizeof(payload), &poff, rssi_str);
-        append_tlv_string(payload, sizeof(payload), &poff, auth_str);
+        append_tlv_string(payload, cap, &poff, results[i].ssid);
+        append_tlv_string(payload, cap, &poff, rssi_str);
+        append_tlv_string(payload, cap, &poff, auth_str);
+        sent++;
+    }
+
+    if (style == IMPROV_RPC_STYLE_SINGLE && sent < count) {
+        ESP_LOGW(TAG, "scan response carries %u of %u networks: %u payload "
+                      "bytes is all this link can deliver in one response",
+                 (unsigned)sent, (unsigned)count, (unsigned)cap);
     }
 
     if (style == IMPROV_RPC_STYLE_CHUNKED) {
@@ -345,7 +397,7 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
 
 void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
                                 improv_response_cb_t response_cb, void *cb_ctx,
-                                improv_rpc_style_t style)
+                                improv_rpc_style_t style, size_t max_payload)
 {
     if (!data || len < 2) {
         wifi_cfg_improv_set_error(IMPROV_ERROR_INVALID_RPC);
@@ -379,7 +431,7 @@ void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
             break;
 
         case IMPROV_RPC_GET_WIFI_NETWORKS:
-            handle_get_wifi_networks(response_cb, cb_ctx, style);
+            handle_get_wifi_networks(response_cb, cb_ctx, style, max_payload);
             break;
 
         default:
@@ -539,8 +591,9 @@ void wifi_cfg_improv_set_error(improv_error_t error) { (void)error; }
 void wifi_cfg_improv_register_state_cb(improv_state_change_cb_t cb, void *ctx) { (void)cb; (void)ctx; }
 void wifi_cfg_improv_handle_rpc(const uint8_t *data, size_t len,
                                 improv_response_cb_t response_cb, void *cb_ctx,
-                                improv_rpc_style_t style) {
+                                improv_rpc_style_t style, size_t max_payload) {
     (void)data; (void)len; (void)response_cb; (void)cb_ctx; (void)style;
+    (void)max_payload;
 }
 
 #endif // CONFIG_WIFI_CFG_ENABLE_IMPROV_BLE || CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL

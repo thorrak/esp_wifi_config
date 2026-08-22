@@ -98,6 +98,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- **Improv BLE dropped its own scan response when the neighbourhood packed
+  flush with the buffer.** An RPC result is `[command][length][payload]` and
+  the length is one byte, so `GET_WIFI_NETWORKS` packed up to 255 payload
+  bytes — but `send_rpc_result()` assembled it in a 256-byte buffer, which is
+  two of header plus room for 254, and silently returned when it did not fit.
+  Measured on a bench with thirteen APs: the device scanned, packed and
+  checksummed an answer, and the Improv BLE client waited out its whole
+  30-second timeout with nothing to show. It is not a random landing either —
+  the total is a function of which SSIDs are on the air, so it stays wrong for
+  as long as the neighbourhood does, which is why it read as flakiness. The
+  buffer is now sized to the format's own ceiling and the guard logs when it
+  refuses.
+
+  Alongside it, the packer is now told what the transport can carry, as
+  `max_payload` on the internal RPC entry point. This library asks for an ATT
+  MTU of 517 and gets it from desktop and phone clients, so on a normal link
+  the format's 255-byte ceiling is reached long first — but a client that
+  settles on a smaller MTU carries less than a result can express, and a
+  response packed past it is clipped to fit by the host stack and arrives
+  claiming bytes that never came. NimBLE reads the negotiated value with
+  `ble_att_mtu()`; Bluedroid was not tracking it at all and now does.
+
+  Networks past the budget are still dropped and always will be — no MTU
+  changes a one-byte length field. `wifi_cfg_scan()` returns strongest-first
+  and deduplicates by SSID, so the cut falls on the faintest neighbours.
+  Improv Serial is unaffected: it answers one response per network, which
+  cannot overflow. Three silent failure paths in the BLE transport now log.
+
 - **Improv Serial's `driver` dependency is now declared unconditionally.**
   `CMakeLists.txt` appended `driver` to `PRIV_REQUIRES` inside an
   `if(CONFIG_WIFI_CFG_ENABLE_IMPROV_SERIAL)` block, which never reaches

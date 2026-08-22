@@ -81,6 +81,27 @@ wifi_cfg_init(&(wifi_cfg_config_t){
 | Get Device Info | 0x03 | Returns firmware name, version, chip, device name |
 | Get WiFi Networks | 0x04 | Triggers a WiFi scan and returns results |
 
+### How many networks a scan returns
+
+The two Improv specifications shape this command differently, and the library
+follows each transport's own.
+
+**Serial** sends one response per network and then an empty one to mark the
+end, so the list is not bounded by anything the protocol imposes.
+
+**BLE** sends a single response holding every network, which the format caps: a
+result's length field is one byte, so no response can carry more than 255 bytes
+of payload — roughly eleven networks at three strings each. The library asks
+for an ATT MTU of 517, so on a typical link that 255-byte ceiling is what you
+hit; a client that negotiates a smaller MTU gets a shorter list still, because
+the response is also kept inside what one notification can carry. Whichever
+bound bites first, the list is cut to fit.
+
+What survives the cut is chosen for you: scan results arrive strongest-first
+and are already deduplicated by SSID, so the networks that drop off are the
+faintest ones. A device in a crowded band will not show a user every SSID over
+BLE, and cannot — but it will show them the nearby ones.
+
 ## BLE Stack Requirements
 
 Improv BLE requires `CONFIG_BT_ENABLED=y` and a NimBLE or Bluedroid host
