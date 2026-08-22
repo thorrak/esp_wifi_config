@@ -48,9 +48,12 @@ static const char *TAG = "wifi_cfg_improv_ble";
  * and what is left is all the payload a response may carry.
  *
  * Neither number is a constant. The MTU is whatever this particular client
- * agreed to (NimBLE's default ceiling is 256, BlueZ asks for far more, an
- * unnegotiated link stays at 23), which is why the packer is told the answer
- * at RPC time rather than compiled against a guess.
+ * agreed to: the library asks for 517 and a desktop or phone client generally
+ * agrees, but a client that settles lower -- 247 is common -- leaves less room
+ * than a result can express, and an unnegotiated link stays at 23. Measured on
+ * the bench 2026-08-22: BlueZ negotiates the full 517, so the budget there is
+ * the format's own 255 and this bound never binds. It binds on the clients
+ * that cannot be measured from here, which is the reason it exists.
  */
 #define IMPROV_BLE_ATT_MTU_MIN      23  /**< ATT default; every link has this. */
 #define IMPROV_BLE_NOTIFY_OVERHEAD   3  /**< ATT opcode + attribute handle. */

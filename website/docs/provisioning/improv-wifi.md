@@ -91,10 +91,11 @@ end, so the list is not bounded by anything the protocol imposes.
 
 **BLE** sends a single response holding every network, which the format caps: a
 result's length field is one byte, so no response can carry more than 255 bytes
-of payload — roughly eleven networks at three strings each. The library also
-keeps the response inside the ATT MTU negotiated with the connected client,
-since a notification carries three bytes fewer than the MTU and stacks truncate
-rather than refuse. Whichever bound bites first, the list is cut to fit.
+of payload — roughly eleven networks at three strings each. The library asks
+for an ATT MTU of 517, so on a typical link that 255-byte ceiling is what you
+hit; a client that negotiates a smaller MTU gets a shorter list still, because
+the response is also kept inside what one notification can carry. Whichever
+bound bites first, the list is cut to fit.
 
 What survives the cut is chosen for you: scan results arrive strongest-first
 and are already deduplicated by SSID, so the networks that drop off are the

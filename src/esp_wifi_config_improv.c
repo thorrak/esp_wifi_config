@@ -124,12 +124,17 @@ static void send_rpc_result(uint8_t cmd_id, const uint8_t *payload, size_t paylo
                             improv_response_cb_t cb, void *ctx)
 {
     /*
-     * Sized to the format's own ceiling, not one byte under it. This buffer
-     * used to be 256, which is two bytes of header plus 254 of payload -- so a
-     * caller that filled a 255-byte payload, as the scan packer could, hit the
-     * guard below and the whole response was dropped on the floor without a
-     * word. Measured 2026-08-22: an Improv BLE client waited out its 30 s
-     * timeout while the device sat there having decided not to answer.
+     * Sized to the format's own ceiling, not one byte under it.
+     *
+     * This buffer used to be 256 -- two bytes of header plus room for 254 of
+     * payload -- while the length byte can describe 255 and the scan packer
+     * filled to exactly that. A neighbourhood that happened to pack flush with
+     * the packer's bound therefore produced a response this guard threw away
+     * without a word. Measured 2026-08-22 on a bench with thirteen APs: the
+     * device scanned, packed and checksummed an answer, and an Improv BLE
+     * client waited out its 30 s timeout. It is not a rare landing, and worse,
+     * it is not a random one -- the total is a function of which SSIDs are on
+     * the air, so it stays wrong for as long as the neighbourhood does.
      *
      * The guard stays, because a caller can still pass nonsense, but it is now
      * only reachable by a payload the length byte could not have described,
@@ -316,17 +321,16 @@ static void handle_get_wifi_networks(improv_response_cb_t cb, void *ctx,
 
     /*
      * Pack to what the transport can actually deliver, not to what the buffer
-     * happens to hold. On BLE those are different numbers: the buffer is 255
-     * and a notification carries three bytes fewer than the negotiated ATT
-     * MTU, which with NimBLE's default 256 leaves room for a 250-byte payload.
-     * Between those two numbers the response was unsendable and nothing said
-     * so: at exactly 255 the length guard in send_rpc_result() dropped it
-     * whole, and between 251 and 254 NimBLE clipped it to the MTU and reported
-     * success, leaving the client a result whose length byte over-promises.
-     * What the bench saw was the shape of the first -- scan_done with 13
-     * networks, then no notification at all -- but the library's log goes to
-     * a console the rig does not read during a test, so which of the two
-     * fired is inference. Both are gone either way.
+     * happens to hold.
+     *
+     * On a link that has negotiated a large MTU those two are the same number
+     * -- this library asks for 517 and gets it from a desktop or phone client,
+     * which leaves room for far more than a result can express. But an ATT MTU
+     * is a property of the connection, not of the protocol: a client that
+     * settles on 247, as some phones do, can carry 241 payload bytes, and a
+     * response packed to 255 would be clipped to fit by the host stack and
+     * arrive claiming bytes that never came. So the transport says what it can
+     * carry and the list is cut to that.
      */
     size_t cap = sizeof(payload);
     if (max_payload > 0 && max_payload < cap) cap = max_payload;
