@@ -955,6 +955,34 @@ static char uri_options_wildcard[64];
 // Register API-only handlers (persist after provisioning stops)
 // =============================================================================
 
+/**
+ * @brief Register one URI, and remember if the server would not take it.
+ *
+ * httpd_register_uri_handler() fails with ESP_ERR_HTTPD_HANDLERS_FULL once the
+ * server's max_uri_handlers is used up, and these twenty calls used to discard
+ * that. On a server the library created it cannot happen -- it sizes its own.
+ * On a server the *application* passed in it happens easily:
+ * HTTPD_DEFAULT_CONFIG() allows eight and these routes alone need twenty.
+ *
+ * The old behaviour was the bad kind of quiet. Registration stopped partway,
+ * the device answered /api/wifi/status and 404'd /api/wifi/scan, and nothing
+ * anywhere said why -- which reads as a library that half works rather than a
+ * server that ran out of room. Counted rather than logged per call, so the one
+ * cause produces one message instead of twelve.
+ */
+static int s_uri_reg_failures;
+
+static void register_uri(const httpd_uri_t *uri)
+{
+    esp_err_t err = httpd_register_uri_handler(g_wifi_cfg->httpd, uri);
+    if (err != ESP_OK) {
+        if (s_uri_reg_failures == 0) {
+            ESP_LOGE(TAG, "cannot register %s: %s", uri->uri, esp_err_to_name(err));
+        }
+        s_uri_reg_failures++;
+    }
+}
+
 esp_err_t wifi_cfg_http_register_api_handlers(void)
 {
     if (!g_wifi_cfg || !g_wifi_cfg->httpd) return ESP_ERR_INVALID_STATE;
@@ -965,77 +993,90 @@ esp_err_t wifi_cfg_http_register_api_handlers(void)
     // Status
     snprintf(uri_status, sizeof(uri_status), "%s/status", base);
     httpd_uri_t status_uri = { .uri = uri_status, .method = HTTP_GET, .handler = handler_get_status };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &status_uri);
+    register_uri(&status_uri);
 
     // Scan
     snprintf(uri_scan, sizeof(uri_scan), "%s/scan", base);
     httpd_uri_t scan_uri = { .uri = uri_scan, .method = HTTP_GET, .handler = handler_get_scan };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &scan_uri);
+    register_uri(&scan_uri);
 
     // Networks
     snprintf(uri_networks, sizeof(uri_networks), "%s/networks", base);
     httpd_uri_t networks_get_uri = { .uri = uri_networks, .method = HTTP_GET, .handler = handler_get_networks };
     httpd_uri_t networks_post_uri = { .uri = uri_networks, .method = HTTP_POST, .handler = handler_post_networks };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &networks_get_uri);
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &networks_post_uri);
+    register_uri(&networks_get_uri);
+    register_uri(&networks_post_uri);
 
     // Update/Delete network - wildcard
     snprintf(uri_networks_wildcard, sizeof(uri_networks_wildcard), "%s/networks/*", base);
     httpd_uri_t networks_put_uri = { .uri = uri_networks_wildcard, .method = HTTP_PUT, .handler = handler_put_network };
     httpd_uri_t networks_del_uri = { .uri = uri_networks_wildcard, .method = HTTP_DELETE, .handler = handler_delete_network };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &networks_put_uri);
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &networks_del_uri);
+    register_uri(&networks_put_uri);
+    register_uri(&networks_del_uri);
 
     // Connect/Disconnect
     snprintf(uri_connect, sizeof(uri_connect), "%s/connect", base);
     httpd_uri_t connect_uri = { .uri = uri_connect, .method = HTTP_POST, .handler = handler_post_connect };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &connect_uri);
+    register_uri(&connect_uri);
 
     snprintf(uri_disconnect, sizeof(uri_disconnect), "%s/disconnect", base);
     httpd_uri_t disconnect_uri = { .uri = uri_disconnect, .method = HTTP_POST, .handler = handler_post_disconnect };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &disconnect_uri);
+    register_uri(&disconnect_uri);
 
     // AP
     snprintf(uri_ap_status, sizeof(uri_ap_status), "%s/ap/status", base);
     httpd_uri_t ap_status_uri = { .uri = uri_ap_status, .method = HTTP_GET, .handler = handler_get_ap_status };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &ap_status_uri);
+    register_uri(&ap_status_uri);
 
     snprintf(uri_ap_config, sizeof(uri_ap_config), "%s/ap/config", base);
     httpd_uri_t ap_config_get_uri = { .uri = uri_ap_config, .method = HTTP_GET, .handler = handler_get_ap_config };
     httpd_uri_t ap_config_put_uri = { .uri = uri_ap_config, .method = HTTP_PUT, .handler = handler_put_ap_config };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &ap_config_get_uri);
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &ap_config_put_uri);
+    register_uri(&ap_config_get_uri);
+    register_uri(&ap_config_put_uri);
 
     snprintf(uri_ap_start, sizeof(uri_ap_start), "%s/ap/start", base);
     httpd_uri_t ap_start_uri = { .uri = uri_ap_start, .method = HTTP_POST, .handler = handler_post_ap_start };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &ap_start_uri);
+    register_uri(&ap_start_uri);
 
     snprintf(uri_ap_stop, sizeof(uri_ap_stop), "%s/ap/stop", base);
     httpd_uri_t ap_stop_uri = { .uri = uri_ap_stop, .method = HTTP_POST, .handler = handler_post_ap_stop };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &ap_stop_uri);
+    register_uri(&ap_stop_uri);
 
     // Vars
     snprintf(uri_vars, sizeof(uri_vars), "%s/vars", base);
     httpd_uri_t vars_uri = { .uri = uri_vars, .method = HTTP_GET, .handler = handler_get_vars };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &vars_uri);
+    register_uri(&vars_uri);
 
     snprintf(uri_vars_wildcard, sizeof(uri_vars_wildcard), "%s/vars/*", base);
     httpd_uri_t vars_put_uri = { .uri = uri_vars_wildcard, .method = HTTP_PUT, .handler = handler_put_var };
     httpd_uri_t vars_del_uri = { .uri = uri_vars_wildcard, .method = HTTP_DELETE, .handler = handler_delete_var };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &vars_put_uri);
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &vars_del_uri);
+    register_uri(&vars_put_uri);
+    register_uri(&vars_del_uri);
 
     // Factory reset
     snprintf(uri_factory_reset, sizeof(uri_factory_reset), "%s/factory_reset", base);
     httpd_uri_t factory_reset_uri = { .uri = uri_factory_reset, .method = HTTP_POST, .handler = handler_post_factory_reset };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &factory_reset_uri);
+    register_uri(&factory_reset_uri);
 
     // OPTIONS handler for CORS preflight (catch-all)
     snprintf(uri_options_wildcard, sizeof(uri_options_wildcard), "%s/*", base);
     httpd_uri_t options_uri = { .uri = uri_options_wildcard, .method = HTTP_OPTIONS, .handler = handler_options };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &options_uri);
+    register_uri(&options_uri);
 
     g_wifi_cfg->http_handlers_registered = true;
+
+    if (s_uri_reg_failures > 0) {
+        ESP_LOGE(TAG, "%d of the API's routes could not be registered. The "
+                      "server is out of URI slots: this library needs about "
+                      "22 and HTTPD_DEFAULT_CONFIG() allows 8. Raise "
+                      "max_uri_handlers on the httpd you passed in "
+                      "config.http.httpd -- the endpoints that did not fit "
+                      "will answer 404 until you do.",
+                 s_uri_reg_failures);
+        s_uri_reg_failures = 0;
+        return ESP_ERR_NO_MEM;
+    }
+
     ESP_LOGI(TAG, "API handlers registered");
     return ESP_OK;
 }
@@ -1087,7 +1128,7 @@ esp_err_t wifi_cfg_http_register_provisioning_handlers(void)
             .method = HTTP_GET,
             .handler = handler_captive_detect
         };
-        httpd_register_uri_handler(g_wifi_cfg->httpd, &captive_uri);
+        register_uri(&captive_uri);
     }
 
     // Web UI or simple fallback page
@@ -1095,7 +1136,7 @@ esp_err_t wifi_cfg_http_register_provisioning_handlers(void)
     wifi_cfg_webui_init(g_wifi_cfg->httpd);
 #else
     httpd_uri_t simple_uri = { .uri = "/", .method = HTTP_GET, .handler = handler_simple_page };
-    httpd_register_uri_handler(g_wifi_cfg->httpd, &simple_uri);
+    register_uri(&simple_uri);
 #endif
 
     g_wifi_cfg->provisioning_handlers_registered = true;

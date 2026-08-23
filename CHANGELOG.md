@@ -7,6 +7,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-08-22 - The SoftAP survives BLE provisioning
+
+### Fixed
+
+- **The SoftAP no longer disappears when BLE provisioning starts.**
+  `wifi_cfg_start_provisioning()` raises the SoftAP and then starts ESP-IDF's
+  `wifi_prov_mgr`, whose `wifi_prov_mgr_start_provisioning()` calls
+  `esp_wifi_set_mode(WIFI_MODE_STA)` unconditionally — "necessary for scanning
+  to work" — and takes the AP with it about twelve milliseconds later. The
+  manager has no way to know an AP was meant to stay up; this library is the
+  only layer that knows both were started, so reconciling is its job. With
+  `enable_ap = true` and Network Provisioning both enabled, the captive portal
+  simply never appeared, and the library logged the teardown at INFO and
+  carried on with a portal DNS server bound to an interface that no longer
+  existed.
+
+  IDF forces station-only mode in three places, not one — at start, when
+  credentials arrive, and when provisioning stops — so a single re-assert
+  after startup would have fixed the reported symptom and left the AP
+  disappearing mid-provisioning instead. The library now reconciles on the
+  `AP_STOP` it already observes, bounded to three restarts per provisioning
+  session, and logs a warning each time saying what took the AP down.
+
+- **A shared HTTP server that runs out of URI slots now says so.** The twenty
+  `httpd_register_uri_handler()` calls behind the REST API discarded their
+  return value. On a server the library creates this cannot happen — it sizes
+  its own — but on one passed in through `config.http.httpd` it happens
+  readily: `HTTPD_DEFAULT_CONFIG()` allows eight handlers and these routes need
+  about twenty-two. Registration stopped partway with nothing logged, so the
+  device answered `/api/wifi/status` and 404'd `/api/wifi/scan`, which reads as
+  a library that half works. `wifi_cfg_http_register_api_handlers()` now
+  returns `ESP_ERR_NO_MEM` and logs how many routes were lost and why.
+
+### Added
+
+- **`examples/with_shared_httpd`** — the `config.http.httpd` flow as a
+  buildable project. It is the only configuration where the application
+  touches the network before `wifi_cfg_init()`, which makes three things its
+  responsibility: `esp_netif_init()`, a large enough `max_uri_handlers`, and
+  `httpd_uri_match_wildcard`. Every other example leaves `.http.httpd` unset,
+  so nothing in CI built this path until now.
+
+### Documentation
+
+- The header's `config.http.httpd` field, the HTTP-sharing guide and the
+  Kconfig help all now state the requirements above.
+- Three code samples cast event payloads to types that do not exist —
+  `wifi_got_ip_t` in the Quick Start and the AI integration guide,
+  `wifi_var_changed_t` in the custom variables guide. They now use
+  `esp_netif_ip_info_t` and `wifi_var_t`, which is what the header documents.
+- `esp_wifi_config.h` carried 66 lines of Vietnamese documentation, including
+  the field comments an IDE shows on hover. Translated, and the seven event
+  names among them corrected — they referred to `WIFI_EVENT_*`, which is
+  ESP-IDF's own base, rather than this library's `WIFI_CFG_EVENT_*`.
+
 ## [0.2.0] — 2026-08-22 - Events on esp_event, defaults as a value
 
 ### Breaking Changes

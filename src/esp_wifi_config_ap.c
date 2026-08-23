@@ -122,6 +122,42 @@ esp_err_t wifi_cfg_stop_ap(void)
     return ESP_OK;
 }
 
+esp_err_t wifi_cfg_ap_reassert(const char *why)
+{
+    if (!g_wifi_cfg) return ESP_ERR_INVALID_STATE;
+
+    /* Nothing to reconcile unless the application asked for an AP and a
+     * provisioning session is the thing that would have taken it away. */
+    if (!g_wifi_cfg->config.enable_ap || !g_wifi_cfg->provisioning_active) {
+        return ESP_OK;
+    }
+
+    /* Ask the driver rather than trusting our own flag: this runs from the
+     * AP_STOP path, where an intermediate driver restart inside
+     * wifi_cfg_start_ap() can produce a stop event for an AP that is on its
+     * way up. If the interface is there, there is nothing to do. */
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    if (esp_wifi_get_mode(&mode) != ESP_OK) return ESP_OK;
+    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) return ESP_OK;
+
+    if (g_wifi_cfg->ap_reassert_count >= WIFI_CFG_AP_REASSERT_MAX) {
+        ESP_LOGE(TAG, "SoftAP taken down by %s again and the ceiling of %d "
+                      "restarts is reached; leaving it down. The captive "
+                      "portal is not reachable for the rest of this session.",
+                 why, WIFI_CFG_AP_REASSERT_MAX);
+        return ESP_FAIL;
+    }
+
+    g_wifi_cfg->ap_reassert_count++;
+    ESP_LOGW(TAG, "SoftAP was taken down by %s; restarting it (%d/%d). "
+                  "enable_ap and BLE provisioning both being on is supported, "
+                  "but the provisioning manager forces station-only mode and "
+                  "does not know the AP was meant to stay.",
+             why, g_wifi_cfg->ap_reassert_count, WIFI_CFG_AP_REASSERT_MAX);
+
+    return wifi_cfg_start_ap(NULL);
+}
+
 // Internal functions called from task
 void wifi_cfg_start_ap_mode(void)
 {

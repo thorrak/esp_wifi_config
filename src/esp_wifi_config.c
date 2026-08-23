@@ -116,6 +116,9 @@ void wifi_cfg_start_provisioning(void)
 
     ESP_LOGI(TAG, "Starting provisioning interfaces");
 
+    // Fresh budget for putting the AP back; see wifi_cfg_ap_reassert().
+    g_wifi_cfg->ap_reassert_count = 0;
+
     // Start AP if enabled and not already active
     if (g_wifi_cfg->config.enable_ap && !g_wifi_cfg->ap_active) {
         wifi_cfg_start_ap(NULL);
@@ -129,6 +132,12 @@ void wifi_cfg_start_provisioning(void)
     if (!g_wifi_cfg->ble_active) {
         if (wifi_cfg_prov_start() == ESP_OK) {
             g_wifi_cfg->ble_active = true;
+            /* wifi_prov_mgr_start_provisioning() has just forced
+             * WIFI_MODE_STA, which took the SoftAP started above with it --
+             * measured 12 ms apart. Put it back before anything else runs;
+             * the AP_STOP path below covers the manager's two later mode
+             * changes. */
+            wifi_cfg_ap_reassert("the provisioning manager starting");
         }
     }
 #elif defined(WIFI_CFG_NEED_BLE)
@@ -962,10 +971,19 @@ static void wifi_cfg_task(void *arg)
                     // intermediate driver restarts)
                     break;
                     
-                case WM_INT_EVT_AP_STOPPED:
+                case WM_INT_EVT_AP_STOPPED: {
+                    /* wifi_cfg_stop_ap() clears ap_active before the driver
+                     * gets round to emitting the event, so finding it still
+                     * set means this teardown is not ours. That is the whole
+                     * discriminator -- no extra "intentional" flag to keep in
+                     * step with the code that stops the AP. */
+                    bool ours = !g_wifi_cfg->ap_active;
                     g_wifi_cfg->ap_active = false;
-                    // The event is emitted from wifi_cfg_stop_ap()
+                    if (!ours) {
+                        wifi_cfg_ap_reassert("something other than this library");
+                    }
                     break;
+                }
                     
                 case WM_INT_EVT_AP_STA_CONN:
                     wifi_cfg_event_post(WIFI_CFG_EVENT_AP_STA_CONNECTED, evt.data.mac, 6);

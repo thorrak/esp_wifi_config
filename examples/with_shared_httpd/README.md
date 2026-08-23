@@ -32,8 +32,10 @@ commented in `main/main.c`, marked `(1)` `(2)` `(3)`:
    `HTTPD_DEFAULT_CONFIG()` allows 8; the library registers about 22. The
    overflow is silent, so the symptom is an API that answers some paths and
    404s the rest.
-3. **`uri_match_fn` must be `httpd_uri_match_wildcard`** for the Web UI's
-   `"/*"` catch-all to match, or the captive portal opens on a blank page.
+3. **`uri_match_fn` must be `httpd_uri_match_wildcard`.** The REST API's
+   per-network and per-variable routes are wildcards, as are its CORS
+   preflight handler and the Web UI's root. With the default exact matcher,
+   `PUT`/`DELETE` on a network 404 and the captive portal opens blank.
 
 None of that is exotic, but none of it is guessable either, and until this
 example existed no build in CI exercised the configuration — every other

@@ -109,6 +109,17 @@ extern "C" {
 #define WIFI_CFG_TASK_STACK_SIZE    CONFIG_WIFI_CFG_TASK_STACK_SIZE
 #define WIFI_CFG_TASK_PRIORITY      CONFIG_WIFI_CFG_TASK_PRIORITY
 #define WIFI_CFG_HTTP_MAX_HANDLERS  CONFIG_WIFI_CFG_HTTP_MAX_URI_HANDLERS
+
+/**
+ * @brief How many times one provisioning session will put the SoftAP back.
+ *
+ * ESP-IDF's provisioning manager forces WIFI_MODE_STA in three places, and
+ * each one takes the SoftAP down with it. Reconciling is right; reconciling
+ * without a ceiling is how a radio that will not come up becomes a loop that
+ * never stops trying. Three is enough for the three known sites and small
+ * enough to give up loudly.
+ */
+#define WIFI_CFG_AP_REASSERT_MAX    3
 #define WIFI_CFG_QUEUE_SIZE         10
 
 // Event bits (for sync waits)
@@ -176,6 +187,8 @@ typedef struct {
     bool improv_ble_active;         // Improv BLE transport currently running
     bool improv_serial_active;      // Improv Serial transport currently running
     bool provisioning_active;       // Provisioning interfaces (AP/BLE) currently running
+    uint8_t ap_reassert_count;      // Times the SoftAP has been put back up this
+                                    // provisioning session (see WIFI_CFG_AP_REASSERT_MAX)
     bool connecting;                // Currently in connect sequence
     int64_t connect_time;           // Connection start time
 
@@ -286,6 +299,26 @@ void wifi_cfg_start_connect_sequence(void);
 // AP mode control (called from task)
 void wifi_cfg_start_ap_mode(void);
 void wifi_cfg_stop_ap_mode(void);
+
+/**
+ * @brief Put the SoftAP back if something else took it down.
+ *
+ * ESP-IDF's wifi_prov_mgr calls esp_wifi_set_mode(WIFI_MODE_STA) in three
+ * places -- when provisioning starts (manager.c:1587), when credentials
+ * arrive (:1303, via the BLE scheme's wifi_mode), and when provisioning
+ * stops (:606, "irrespective of whether provisioning was completed"). Each
+ * drops the SoftAP the library started, and the manager has no way to know
+ * one was meant to stay up. This library is the only layer that knows both
+ * are running, so reconciling is its job.
+ *
+ * A no-op unless enable_ap is set, provisioning is running, and the AP
+ * interface is actually gone -- so it is safe to call speculatively, and
+ * safe to call from the AP_STOP path without chasing the library's own
+ * teardown. Bounded by WIFI_CFG_AP_REASSERT_MAX per session.
+ *
+ * @param why Short phrase naming what took it down, for the log line.
+ */
+esp_err_t wifi_cfg_ap_reassert(const char *why);
 
 // =============================================================================
 // Provisioning Orchestration

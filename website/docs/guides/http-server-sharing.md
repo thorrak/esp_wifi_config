@@ -73,9 +73,10 @@ Two more things become yours in this flow, both silent when wrong:
 
 - **`max_uri_handlers` must leave room for the library's routes.**
   `HTTPD_DEFAULT_CONFIG()` allows 8; the library registers about 22 between the
-  REST API, the Web UI and the captive-portal probes. It does not check each
-  registration, so an undersized server gives you an API that answers some
-  paths and 404s the rest, with nothing in the log.
+  REST API, the Web UI and the captive-portal probes. As of 0.2.1 an
+  undersized server is reported — `"N of the API's routes could not be
+  registered"` — rather than silently giving you an API that answers some
+  paths and 404s the rest.
 - **`uri_match_fn` must be `httpd_uri_match_wildcard`** for the Web UI's
   catch-all route to match. The default matcher compares URIs exactly, so the
   captive portal answers only its handful of literal paths and the phone's

@@ -53,11 +53,11 @@ static httpd_handle_t start_my_webserver(void)
      *     a library bug. Leave room for its routes and your own. */
     config.max_uri_handlers = 32;
 
-    /* (3) The Web UI registers a catch-all route -- a slash followed by a
-     *     bare asterisk -- and the default matcher compares URIs exactly, so
-     *     it never fires. The captive portal then answers nothing outside the
-     *     handful of exact paths, and the phone's "sign in to network" sheet
-     *     opens on a blank page. */
+    /* (3) Several routes are wildcards: the REST API's per-network and
+     *     per-variable paths, its CORS preflight catch-all, and the Web UI's
+     *     root catch-all. The default matcher compares URIs exactly, so none
+     *     of them ever fire -- PUT and DELETE on a network 404, and the
+     *     captive portal opens on a blank page. */
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     /* Not required, but what almost every embedded server wants: without it

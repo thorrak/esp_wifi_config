@@ -120,6 +120,13 @@ menu "WiFi Config"
                 provisioning is provided separately by the existing captive
                 portal flow.
 
+                Running both at once works, but only because this library puts
+                the SoftAP back: wifi_prov_mgr_start_provisioning() forces
+                WIFI_MODE_STA and takes any running SoftAP with it, and the
+                manager has no way to know one was meant to stay up. If you see
+                "SoftAP was taken down by ..." at warning level, that is the
+                reconciliation working, not a fault.
+
     endmenu
 
     menu "Improv WiFi"
