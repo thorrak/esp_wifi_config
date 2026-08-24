@@ -6,6 +6,7 @@
 #include "esp_wifi_config_priv.h"
 #include "esp_log.h"
 #include "cJSON.h"
+#include "esp_wifi_config_json.h"
 #include "mbedtls/base64.h"
 #include <string.h>
 
@@ -71,19 +72,43 @@ static bool check_auth(httpd_req_t *req)
             strcmp(password, g_wifi_cfg->auth_password) == 0);
 }
 
-static esp_err_t send_json_response(httpd_req_t *req, cJSON *json)
+/*
+ * Responses stream instead of being built as a tree and serialised.
+ *
+ * The old path called cJSON_PrintUnformatted(), which allocated a second
+ * buffer on top of the node tree -- about 6.4 KB of peak heap for a 20-result
+ * /scan -- and turned an allocation failure into a 500. This writes through a
+ * 256-byte scratch buffer on the handler's stack and flushes as it fills.
+ *
+ * One consequence worth knowing: the response is chunked, so the status line
+ * and headers go out before the body is built. A failure partway through can
+ * no longer become a 500; all it can do is end the response early, which the
+ * client sees as a truncated body. That is acceptable here only because the
+ * writer cannot fail for the reason the old code could -- it does not allocate.
+ */
+static esp_err_t json_chunk_sink(void *ctx, const char *data, size_t len)
 {
-    char *str = cJSON_PrintUnformatted(json);
-    if (!str) {
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
+    return httpd_resp_send_chunk((httpd_req_t *)ctx, data, len);
+}
 
+static void json_response_begin(httpd_req_t *req, wcfg_json_w *w,
+                                char *scratch, size_t cap)
+{
     add_cors_headers(req);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, str, strlen(str));
-    free(str);
-    return ESP_OK;
+    wcfg_json_init(w, scratch, cap, json_chunk_sink, req);
+}
+
+static esp_err_t json_response_end(httpd_req_t *req, wcfg_json_w *w)
+{
+    esp_err_t err = wcfg_json_finish(w);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "json response failed: %s", esp_err_to_name(err));
+    }
+    /* Terminating zero-length chunk, sent either way: without it the client
+     * waits for a continuation that is never coming. */
+    esp_err_t sent = httpd_resp_send_chunk(req, NULL, 0);
+    return (err == ESP_OK) ? sent : ESP_FAIL;
 }
 
 static esp_err_t send_ok(httpd_req_t *req)
@@ -320,26 +345,32 @@ static esp_err_t handler_get_status(httpd_req_t *req)
     wifi_status_t status;
     wifi_cfg_get_status(&status);
     
-    cJSON *json = cJSON_CreateObject();
-    cJSON_AddStringToObject(json, "state", 
+    char scratch[WCFG_JSON_SCRATCH_SIZE];
+    wcfg_json_w w;
+    json_response_begin(req, &w, scratch, sizeof(scratch));
+
+    wcfg_json_obj_open(&w, NULL);
+    wcfg_json_str(&w, "state",
         status.state == WIFI_STATE_CONNECTED ? "connected" :
         status.state == WIFI_STATE_CONNECTING ? "connecting" : "disconnected");
-    cJSON_AddStringToObject(json, "ssid", status.ssid);
-    cJSON_AddNumberToObject(json, "rssi", status.rssi);
-    cJSON_AddNumberToObject(json, "quality", status.quality);
-    cJSON_AddNumberToObject(json, "channel", status.channel);
-    cJSON_AddStringToObject(json, "ip", status.ip);
-    cJSON_AddStringToObject(json, "netmask", status.netmask);
-    cJSON_AddStringToObject(json, "gateway", status.gateway);
-    cJSON_AddStringToObject(json, "dns", status.dns);
-    cJSON_AddStringToObject(json, "mac", status.mac);
-    cJSON_AddStringToObject(json, "hostname", status.hostname);
-    cJSON_AddNumberToObject(json, "uptime_ms", status.uptime_ms);
-    cJSON_AddBoolToObject(json, "ap_active", status.ap_active);
-    
-    esp_err_t ret = send_json_response(req, json);
-    cJSON_Delete(json);
-    return ret;
+    wcfg_json_str(&w, "ssid", status.ssid);
+    wcfg_json_int(&w, "rssi", status.rssi);
+    wcfg_json_int(&w, "quality", status.quality);
+    wcfg_json_int(&w, "channel", status.channel);
+    wcfg_json_str(&w, "ip", status.ip);
+    wcfg_json_str(&w, "netmask", status.netmask);
+    wcfg_json_str(&w, "gateway", status.gateway);
+    wcfg_json_str(&w, "dns", status.dns);
+    wcfg_json_str(&w, "mac", status.mac);
+    wcfg_json_str(&w, "hostname", status.hostname);
+    /* uint32_t, so it outgrows int32 after ~24.8 days of uptime. int64 keeps
+     * it exact; cJSON used to reach its %g branch here and print the same
+     * digits by a longer route. */
+    wcfg_json_int(&w, "uptime_ms", (int64_t)status.uptime_ms);
+    wcfg_json_bool(&w, "ap_active", status.ap_active);
+    wcfg_json_obj_close(&w);
+
+    return json_response_end(req, &w);
 }
 
 // GET /scan
@@ -357,13 +388,17 @@ static esp_err_t handler_get_scan(httpd_req_t *req)
         return send_error(req, 500, "Scan failed");
     }
     
-    cJSON *json = cJSON_CreateObject();
-    cJSON *arr = cJSON_AddArrayToObject(json, "networks");
-    
+    char scratch[WCFG_JSON_SCRATCH_SIZE];
+    wcfg_json_w w;
+    json_response_begin(req, &w, scratch, sizeof(scratch));
+
+    wcfg_json_obj_open(&w, NULL);
+    wcfg_json_arr_open(&w, "networks");
+
     for (size_t i = 0; i < count; i++) {
-        cJSON *net = cJSON_CreateObject();
-        cJSON_AddStringToObject(net, "ssid", results[i].ssid);
-        cJSON_AddNumberToObject(net, "rssi", results[i].rssi);
+        wcfg_json_obj_open(&w, NULL);
+        wcfg_json_str(&w, "ssid", results[i].ssid);
+        wcfg_json_int(&w, "rssi", results[i].rssi);
         
         const char *auth_str = "UNKNOWN";
         switch (results[i].auth) {
@@ -375,13 +410,13 @@ static esp_err_t handler_get_scan(httpd_req_t *req)
             case WIFI_AUTH_WPA3_PSK: auth_str = "WPA3"; break;
             default: break;
         }
-        cJSON_AddStringToObject(net, "auth", auth_str);
-        cJSON_AddItemToArray(arr, net);
+        wcfg_json_str(&w, "auth", auth_str);
+        wcfg_json_obj_close(&w);
     }
-    
-    ret = send_json_response(req, json);
-    cJSON_Delete(json);
-    return ret;
+
+    wcfg_json_arr_close(&w);
+    wcfg_json_obj_close(&w);
+    return json_response_end(req, &w);
 }
 
 // GET /networks
@@ -395,19 +430,22 @@ static esp_err_t handler_get_networks(httpd_req_t *req)
     size_t count = 0;
     wifi_cfg_list_networks(networks, WIFI_CFG_MAX_NETWORKS, &count);
     
-    cJSON *json = cJSON_CreateObject();
-    cJSON *arr = cJSON_AddArrayToObject(json, "networks");
-    
+    char scratch[WCFG_JSON_SCRATCH_SIZE];
+    wcfg_json_w w;
+    json_response_begin(req, &w, scratch, sizeof(scratch));
+
+    wcfg_json_obj_open(&w, NULL);
+    wcfg_json_arr_open(&w, "networks");
     for (size_t i = 0; i < count; i++) {
-        cJSON *net = cJSON_CreateObject();
-        cJSON_AddStringToObject(net, "ssid", networks[i].ssid);
-        cJSON_AddNumberToObject(net, "priority", networks[i].priority);
-        cJSON_AddItemToArray(arr, net);
+        wcfg_json_obj_open(&w, NULL);
+        wcfg_json_str(&w, "ssid", networks[i].ssid);
+        wcfg_json_int(&w, "priority", networks[i].priority);
+        wcfg_json_obj_close(&w);
     }
-    
-    esp_err_t ret = send_json_response(req, json);
-    cJSON_Delete(json);
-    return ret;
+    wcfg_json_arr_close(&w);
+    wcfg_json_obj_close(&w);
+
+    return json_response_end(req, &w);
 }
 
 // POST /networks
@@ -576,24 +614,28 @@ static esp_err_t handler_get_ap_status(httpd_req_t *req)
     wifi_ap_status_t status;
     wifi_cfg_get_ap_status(&status);
     
-    cJSON *json = cJSON_CreateObject();
-    cJSON_AddBoolToObject(json, "active", status.active);
-    cJSON_AddStringToObject(json, "ssid", status.ssid);
-    cJSON_AddStringToObject(json, "ip", status.ip);
-    cJSON_AddNumberToObject(json, "channel", status.channel);
-    cJSON_AddNumberToObject(json, "sta_count", status.sta_count);
-    
-    cJSON *clients = cJSON_AddArrayToObject(json, "clients");
+    char scratch[WCFG_JSON_SCRATCH_SIZE];
+    wcfg_json_w w;
+    json_response_begin(req, &w, scratch, sizeof(scratch));
+
+    wcfg_json_obj_open(&w, NULL);
+    wcfg_json_bool(&w, "active", status.active);
+    wcfg_json_str(&w, "ssid", status.ssid);
+    wcfg_json_str(&w, "ip", status.ip);
+    wcfg_json_int(&w, "channel", status.channel);
+    wcfg_json_int(&w, "sta_count", status.sta_count);
+
+    wcfg_json_arr_open(&w, "clients");
     for (int i = 0; i < status.sta_count && i < 4; i++) {
-        cJSON *client = cJSON_CreateObject();
-        cJSON_AddStringToObject(client, "mac", status.clients[i].mac);
-        cJSON_AddStringToObject(client, "ip", status.clients[i].ip);
-        cJSON_AddItemToArray(clients, client);
+        wcfg_json_obj_open(&w, NULL);
+        wcfg_json_str(&w, "mac", status.clients[i].mac);
+        wcfg_json_str(&w, "ip", status.clients[i].ip);
+        wcfg_json_obj_close(&w);
     }
-    
-    esp_err_t ret = send_json_response(req, json);
-    cJSON_Delete(json);
-    return ret;
+    wcfg_json_arr_close(&w);
+    wcfg_json_obj_close(&w);
+
+    return json_response_end(req, &w);
 }
 
 // GET /ap/config
@@ -606,21 +648,24 @@ static esp_err_t handler_get_ap_config(httpd_req_t *req)
     wifi_cfg_ap_config_t config;
     wifi_cfg_get_ap_config(&config);
     
-    cJSON *json = cJSON_CreateObject();
-    cJSON_AddStringToObject(json, "ssid", config.ssid);
-    cJSON_AddStringToObject(json, "password", config.password);
-    cJSON_AddNumberToObject(json, "channel", config.channel);
-    cJSON_AddNumberToObject(json, "max_connections", config.max_connections);
-    cJSON_AddBoolToObject(json, "hidden", config.hidden);
-    cJSON_AddStringToObject(json, "ip", config.ip);
-    cJSON_AddStringToObject(json, "netmask", config.netmask);
-    cJSON_AddStringToObject(json, "gateway", config.gateway);
-    cJSON_AddStringToObject(json, "dhcp_start", config.dhcp_start);
-    cJSON_AddStringToObject(json, "dhcp_end", config.dhcp_end);
-    
-    esp_err_t ret = send_json_response(req, json);
-    cJSON_Delete(json);
-    return ret;
+    char scratch[WCFG_JSON_SCRATCH_SIZE];
+    wcfg_json_w w;
+    json_response_begin(req, &w, scratch, sizeof(scratch));
+
+    wcfg_json_obj_open(&w, NULL);
+    wcfg_json_str(&w, "ssid", config.ssid);
+    wcfg_json_str(&w, "password", config.password);
+    wcfg_json_int(&w, "channel", config.channel);
+    wcfg_json_int(&w, "max_connections", config.max_connections);
+    wcfg_json_bool(&w, "hidden", config.hidden);
+    wcfg_json_str(&w, "ip", config.ip);
+    wcfg_json_str(&w, "netmask", config.netmask);
+    wcfg_json_str(&w, "gateway", config.gateway);
+    wcfg_json_str(&w, "dhcp_start", config.dhcp_start);
+    wcfg_json_str(&w, "dhcp_end", config.dhcp_end);
+    wcfg_json_obj_close(&w);
+
+    return json_response_end(req, &w);
 }
 
 // PUT /ap/config
@@ -725,23 +770,47 @@ static esp_err_t handler_get_vars(httpd_req_t *req)
         return ESP_OK;   /* the 401/403 was sent; see send_error() */
     }
     
+    /* Snapshot under the lock, then stream without it.
+     *
+     * Streaming straight out of g_wifi_cfg->vars[] would mean holding the
+     * config lock across socket writes, so a stalled client could block the
+     * manager task. The old code did not do that -- it built the whole tree
+     * under the lock and sent afterwards -- and this must not regress it.
+     *
+     * The snapshot is heap rather than stack: wifi_var_t is 160 bytes and
+     * WIFI_CFG_MAX_VARS defaults to 10, which is 1.6 KB on a 4 KB httpd stack.
+     * One bounded allocation, freed immediately, still replaces the ~6 KB of
+     * cJSON nodes plus serialisation buffer this handler used to make. */
     wifi_cfg_lock();
-    
-    cJSON *json = cJSON_CreateObject();
-    cJSON *arr = cJSON_AddArrayToObject(json, "vars");
-    
-    for (size_t i = 0; i < g_wifi_cfg->var_count; i++) {
-        cJSON *var = cJSON_CreateObject();
-        cJSON_AddStringToObject(var, "key", g_wifi_cfg->vars[i].key);
-        cJSON_AddStringToObject(var, "value", g_wifi_cfg->vars[i].value);
-        cJSON_AddItemToArray(arr, var);
+    size_t count = g_wifi_cfg->var_count;
+    wifi_var_t *snapshot = NULL;
+    if (count > 0) {
+        snapshot = malloc(count * sizeof(wifi_var_t));
+        if (snapshot == NULL) {
+            wifi_cfg_unlock();
+            return send_error(req, 500, "Out of memory");
+        }
+        memcpy(snapshot, g_wifi_cfg->vars, count * sizeof(wifi_var_t));
     }
-    
     wifi_cfg_unlock();
-    
-    esp_err_t ret = send_json_response(req, json);
-    cJSON_Delete(json);
-    return ret;
+
+    char scratch[WCFG_JSON_SCRATCH_SIZE];
+    wcfg_json_w w;
+    json_response_begin(req, &w, scratch, sizeof(scratch));
+
+    wcfg_json_obj_open(&w, NULL);
+    wcfg_json_arr_open(&w, "vars");
+    for (size_t i = 0; i < count; i++) {
+        wcfg_json_obj_open(&w, NULL);
+        wcfg_json_str(&w, "key", snapshot[i].key);
+        wcfg_json_str(&w, "value", snapshot[i].value);
+        wcfg_json_obj_close(&w);
+    }
+    wcfg_json_arr_close(&w);
+    wcfg_json_obj_close(&w);
+
+    free(snapshot);
+    return json_response_end(req, &w);
 }
 
 // PUT /vars/:key

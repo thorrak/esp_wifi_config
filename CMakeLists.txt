@@ -5,6 +5,7 @@ set(SRCS
     "src/esp_wifi_config_event.c"
     "src/esp_wifi_config_nvs.c"
     "src/esp_wifi_config_http.c"
+    "src/esp_wifi_config_json.c"
     "src/esp_wifi_config_dns.c"
     "src/esp_wifi_config_improv.c"
     # Improv BLE host shim — stubs out when Improv BLE is disabled.
