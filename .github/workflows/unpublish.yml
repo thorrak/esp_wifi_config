@@ -1,0 +1,76 @@
+# Permanently remove a published version from the package registries.
+#
+# Manual only, and deliberately awkward to fire. Deleting is irreversible on
+# both registries and BURNS THE VERSION NUMBER -- the ESP Component Registry
+# will not accept a re-upload of a deleted version, ever. This exists for the
+# case where a version was published in error, not for tidying up.
+#
+# The tokens stay where they already are, as repository secrets. Nobody needs a
+# copy of them to run this.
+name: Unpublish a version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to permanently delete, e.g. 0.3.0"
+        required: true
+      confirm:
+        description: "Type the same version again to confirm"
+        required: true
+      registries:
+        description: "Which registries to delete from"
+        type: choice
+        options: [both, esp-component-registry, platformio]
+        default: both
+
+jobs:
+  unpublish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          C='${{ inputs.confirm }}'
+          if [ "$V" != "$C" ]; then
+            echo "::error::version and confirm differ ('$V' vs '$C')"; exit 1
+          fi
+          # Refuse to delete whatever the repository currently ships. Getting
+          # this wrong would unpublish the live release and, because deletion
+          # is permanent, make it unrepublishable.
+          CURRENT=$(sed -n 's/^version: "\(.*\)"/\1/p' idf_component.yml)
+          echo "current version in idf_component.yml: $CURRENT"
+          if [ "$V" = "$CURRENT" ]; then
+            echo "::error::refusing to delete $V -- it is the version this repo currently ships"
+            exit 1
+          fi
+          echo "deleting $V from: ${{ inputs.registries }}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Delete from the ESP Component Registry
+        if: inputs.registries == 'both' || inputs.registries == 'esp-component-registry'
+        env:
+          IDF_COMPONENT_API_TOKEN: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          pip install --quiet idf-component-manager
+          compote component delete \
+            --namespace thorrak \
+            --name esp_wifi_config \
+            --version '${{ inputs.version }}'
+
+      - name: Unpublish from PlatformIO
+        if: inputs.registries == 'both' || inputs.registries == 'platformio'
+        env:
+          PLATFORMIO_AUTH_TOKEN: ${{ secrets.PLATFORMIO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          pip install --quiet platformio
+          pio pkg unpublish --no-interactive \
+            "esp_wifi_config@${{ inputs.version }}"
