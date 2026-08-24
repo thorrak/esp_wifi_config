@@ -72,5 +72,6 @@ jobs:
         run: |
           set -euo pipefail
           pip install --quiet platformio
-          pio pkg unpublish --no-interactive \
-            "esp_wifi_config@${{ inputs.version }}"
+          # No --no-interactive here: pio pkg unpublish does not have it, and
+          # passing it fails the step before anything is unpublished.
+          pio pkg unpublish "esp_wifi_config@${{ inputs.version }}"
