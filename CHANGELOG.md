@@ -7,6 +7,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-08-24 - Responses stream instead of buffering
+
+### Changed
+
+- **HTTP responses are now sent with chunked transfer encoding.** This is the
+  one change here that is visible from outside the device, so it goes first:
+  responses no longer carry a `Content-Length`, they carry
+  `Transfer-Encoding: chunked`. Browsers, `fetch()`, `curl`, `requests` and
+  anything else speaking HTTP/1.1 handle this transparently. A hand-rolled
+  client that insists on `Content-Length` will not.
+
+- **The REST API builds its JSON as it sends it, rather than assembling a tree
+  and serialising it.** Every response used to construct a `cJSON` node graph
+  and then call `cJSON_PrintUnformatted()`, which allocated a second buffer to
+  hold the whole document. A twenty-result `GET /scan` cost roughly 6.4 KB of
+  peak heap to answer, and an allocation failure under fragmentation surfaced
+  as an HTTP 500. Responses are now written through a 256-byte scratch buffer
+  on the handler's stack and flushed as it fills, so the peak is the scratch
+  buffer and the handler cannot fail the way the old one could — it does not
+  allocate.
+
+  The flash saving is a side effect, and a larger one than the heap change.
+  Once nothing in the image calls `cJSON_Print*`, `--gc-sections` drops
+  `print_number()` and with it the `sscanf("%lg")` round-trip cJSON performs to
+  check that a printed `double` reads back — which is what was linking newlib's
+  floating-point `scanf`, `mprec` and `gdtoa`. Measured on an ESP32 with
+  ESP-IDF 5.4.3 at `-Os`:
+
+  | configuration | delta |
+  |---|--:|
+  | core (SoftAP, REST, captive DNS, portal) | **−11,656** |
+  | + Web UI | −11,628 |
+  | + CLI | −11,652 |
+  | + Improv Serial | −11,592 |
+  | + Improv BLE | −11,700 |
+  | + Web UI and Network Provisioning BLE | **+1,728** |
+
+  That last row is a real cost and not a rounding error. ESP-IDF's
+  `wifi_provisioning` component calls `cJSON_Print()` itself, so `print_number`
+  stays reachable in those builds however this library writes its own output,
+  and they pay for the writer without recovering anything. They still get the
+  heap improvement, which is why this is unconditional rather than a Kconfig
+  option: there is no configuration in which building a tree in order to throw
+  it away is the better implementation.
+
+  **Request parsing is unchanged.** cJSON still handles the two endpoints that
+  accept a body. Those are the paths untrusted bytes arrive on, and replacing a
+  well-fuzzed parser to recover a few more kilobytes is not a trade worth
+  making.
+
+- **`GET /vars` snapshots the variable table under the config lock and streams
+  without it.** Streaming directly out of the live table would hold the lock
+  across socket writes, which would let a stalled HTTP client block the
+  manager task. The previous code did not do that and this does not start.
+
+### Fixed
+
+- **The default captive portal reports what it is doing where you can see it.**
+  The status message was rendered above the network list, so on a device that
+  can see a dozen access points the "Connecting to…" line appeared off the top
+  of the screen — exactly when the user most needs it. It now sits directly
+  above the SSID and password fields. The **Connect** button also greys out for
+  the duration of the attempt, and a bounded poll of `/status` ends that state
+  on success, on a refused association, or after a timeout: a button that greys
+  out forever is worse than one that never greyed out at all.
+
+### Added
+
+- **`test/json_writer/`** — a host-side differential test that builds the same
+  documents through the new writer and through real cJSON and requires
+  byte-identical output, under ASan and UBSan, with a deliberately tiny scratch
+  buffer so that every token straddles a flush. It covers the response shapes
+  the library emits, all seven short escapes plus `\u00xx` and UTF-8
+  passthrough, integer edges including `uint32` maximum, empty arrays, a scalar
+  following an array, and the error paths. Run it with
+  `./test/json_writer/run.sh`.
+
 ## [0.2.1] — 2026-08-22 - The SoftAP survives BLE provisioning
 
 ### Fixed
