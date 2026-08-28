@@ -9,7 +9,12 @@
 #include "lwip/sockets.h"
 #include <string.h>
 
+#if WIFI_CFG_SOFTAP
+/* Only the access-point half logs; the variable API below and
+ * wifi_cfg_expand_template() do not, so with the portal compiled out this
+ * would be an unused-variable warning. */
 static const char *TAG = "wifi_cfg_ap";
+#endif
 
 /**
  * @brief Expand {id} placeholder with MAC address suffix
@@ -42,6 +47,13 @@ void wifi_cfg_expand_template(const char *tmpl, char *output, size_t max_len)
 // =============================================================================
 // SoftAP Management
 // =============================================================================
+//
+// Everything from here to the Variable Management section is the access point
+// itself. wifi_cfg_expand_template() above and the variable API below are not:
+// the BLE device name uses the first, and the CLI and prov-BLE backend use the
+// second, so this file stays in SRCS either way and only this half is cut.
+
+#if WIFI_CFG_SOFTAP
 
 esp_err_t wifi_cfg_start_ap(const wifi_cfg_ap_config_t *config)
 {
@@ -221,6 +233,55 @@ esp_err_t wifi_cfg_get_ap_config(wifi_cfg_ap_config_t *config)
     memcpy(config, &g_wifi_cfg->ap_config, sizeof(wifi_cfg_ap_config_t));
     return ESP_OK;
 }
+
+#else  /* !WIFI_CFG_SOFTAP */
+
+// The public SoftAP surface keeps its declarations in esp_wifi_config.h and
+// keeps linking, so an application that calls it still builds when the portal
+// is compiled out -- it gets ESP_ERR_NOT_SUPPORTED at runtime instead of an
+// undefined reference at link time. --gc-sections drops whichever of these the
+// application does not actually call, so the compatibility costs nothing.
+//
+// wifi_cfg_stop_http() lives here rather than in esp_wifi_config_http.c for the
+// same reason the AP stubs do: that file is not compiled in this configuration.
+
+esp_err_t wifi_cfg_start_ap(const wifi_cfg_ap_config_t *config)
+{
+    (void)config;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t wifi_cfg_stop_ap(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t wifi_cfg_get_ap_status(wifi_ap_status_t *status)
+{
+    if (!status) return ESP_ERR_INVALID_ARG;
+    memset(status, 0, sizeof(*status));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t wifi_cfg_set_ap_config(const wifi_cfg_ap_config_t *config)
+{
+    (void)config;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t wifi_cfg_get_ap_config(wifi_cfg_ap_config_t *config)
+{
+    if (!config) return ESP_ERR_INVALID_ARG;
+    memset(config, 0, sizeof(*config));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t wifi_cfg_stop_http(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+#endif /* WIFI_CFG_SOFTAP */
 
 // =============================================================================
 // Variable Management

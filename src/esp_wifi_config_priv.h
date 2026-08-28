@@ -26,6 +26,30 @@ extern "C" {
 // Configuration Defaults - Typically set via menuconfig
 // =============================================================================
 
+/* SoftAP portal: WIFI_CFG_SOFTAP is 1 when it is compiled in.
+ *
+ * This has to be normalised rather than tested directly, because it is the
+ * library's only feature switch that defaults to *on*, and that inverts what an
+ * absent symbol means. Kconfig emits nothing at all for a bool set to n, so
+ * `#ifdef CONFIG_WIFI_CFG_ENABLE_SOFTAP` -- the idiom every other switch here
+ * uses -- cannot tell "the user turned it off" from "Kconfig never ran". For a
+ * default-n option those are the same answer. For this one they are opposite,
+ * and guessing wrong in a build path that does not process Kconfig.projbuild
+ * would silently drop the provisioning portal from an image that has always had
+ * it. Absent therefore has to mean on.
+ *
+ * CONFIG_WIFI_CFG_MAX_NETWORKS is the witness for "Kconfig ran": it is an int
+ * with a default, so it is always emitted when the menu was processed and never
+ * otherwise. This block must stay ahead of the #ifndef fallback below, which
+ * defines that symbol itself and would destroy the evidence.
+ */
+#if defined(CONFIG_WIFI_CFG_ENABLE_SOFTAP)
+#define WIFI_CFG_SOFTAP 1
+#elif !defined(CONFIG_WIFI_CFG_MAX_NETWORKS)
+#define WIFI_CFG_SOFTAP 1   /* no Kconfig at all -- pre-option behaviour */
+#else
+#define WIFI_CFG_SOFTAP 0   /* Kconfig ran and the user said n */
+#endif
 
 #ifndef CONFIG_WIFI_CFG_MAX_NETWORKS
 #define CONFIG_WIFI_CFG_MAX_NETWORKS 5
@@ -280,10 +304,24 @@ esp_err_t wifi_cfg_nvs_factory_reset(void);
 // =============================================================================
 // HTTP Functions (esp_wifi_config_http.c)
 // =============================================================================
+//
+// With CONFIG_WIFI_CFG_ENABLE_SOFTAP off, esp_wifi_config_http.c and
+// esp_wifi_config_dns.c are not compiled at all. Rather than thread #ifdefs
+// through the orchestration in esp_wifi_config.c -- which is where the
+// provisioning state machine lives and is the last place that wants more
+// conditional compilation -- the entry points become inline no-ops here. The
+// caller keeps its shape, the compiler folds the calls away, and a call site
+// that gets added later needs no maintenance.
 
+#if WIFI_CFG_SOFTAP
 esp_err_t wifi_cfg_http_init(void);
 esp_err_t wifi_cfg_http_unregister_handlers(void);
 esp_err_t wifi_cfg_http_deinit(void);
+#else
+static inline esp_err_t wifi_cfg_http_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+static inline esp_err_t wifi_cfg_http_unregister_handlers(void) { return ESP_OK; }
+static inline esp_err_t wifi_cfg_http_deinit(void) { return ESP_OK; }
+#endif
 
 // =============================================================================
 // Internal Functions
@@ -297,8 +335,13 @@ void wifi_cfg_send_event_data(const wifi_cfg_internal_msg_t *event);
 void wifi_cfg_start_connect_sequence(void);
 
 // AP mode control (called from task)
+#if WIFI_CFG_SOFTAP
 void wifi_cfg_start_ap_mode(void);
 void wifi_cfg_stop_ap_mode(void);
+#else
+static inline void wifi_cfg_start_ap_mode(void) { }
+static inline void wifi_cfg_stop_ap_mode(void) { }
+#endif
 
 /**
  * @brief Put the SoftAP back if something else took it down.
@@ -318,7 +361,11 @@ void wifi_cfg_stop_ap_mode(void);
  *
  * @param why Short phrase naming what took it down, for the log line.
  */
+#if WIFI_CFG_SOFTAP
 esp_err_t wifi_cfg_ap_reassert(const char *why);
+#else
+static inline esp_err_t wifi_cfg_ap_reassert(const char *why) { (void)why; return ESP_OK; }
+#endif
 
 // =============================================================================
 // Provisioning Orchestration
@@ -335,6 +382,7 @@ void wifi_cfg_stop_provisioning(void);
 // HTTP Handler Registration
 // =============================================================================
 
+#if WIFI_CFG_SOFTAP
 // Register/unregister API handlers (scan, networks, connect, etc.)
 esp_err_t wifi_cfg_http_register_api_handlers(void);
 
@@ -345,6 +393,12 @@ esp_err_t wifi_cfg_http_unregister_provisioning_handlers(void);
 
 // Transition HTTP to post-provisioning mode
 void wifi_cfg_http_transition_post_prov(wifi_http_post_prov_mode_t mode);
+#else
+static inline esp_err_t wifi_cfg_http_register_api_handlers(void) { return ESP_ERR_NOT_SUPPORTED; }
+static inline esp_err_t wifi_cfg_http_register_provisioning_handlers(void) { return ESP_ERR_NOT_SUPPORTED; }
+static inline esp_err_t wifi_cfg_http_unregister_provisioning_handlers(void) { return ESP_OK; }
+static inline void wifi_cfg_http_transition_post_prov(wifi_http_post_prov_mode_t mode) { (void)mode; }
+#endif
 
 // =============================================================================
 // Event Dispatch (esp_wifi_config_event.c)
@@ -361,8 +415,13 @@ void wifi_cfg_event_post(wifi_cfg_event_t event, const void *data, size_t len);
 // DNS Server (esp_wifi_config_dns.c) - Captive Portal
 // =============================================================================
 
+#if WIFI_CFG_SOFTAP
 esp_err_t wifi_cfg_dns_start(void);
 esp_err_t wifi_cfg_dns_stop(void);
+#else
+static inline esp_err_t wifi_cfg_dns_start(void) { return ESP_ERR_NOT_SUPPORTED; }
+static inline esp_err_t wifi_cfg_dns_stop(void) { return ESP_OK; }
+#endif
 
 // =============================================================================
 // AP Functions (esp_wifi_config_ap.c)

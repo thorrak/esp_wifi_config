@@ -7,6 +7,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **`CONFIG_WIFI_CFG_ENABLE_SOFTAP`, defaulting to `y`.** Turning it off
+  compiles out the SoftAP provisioning portal — the access point, the HTTP
+  server and its REST API, the eight captive-portal handlers, the portal page
+  and the captive DNS responder. It is for devices provisioned exclusively over
+  Improv Serial, Improv BLE or Network Provisioning BLE, which until now still
+  linked the whole portal and could only suppress it at runtime.
+
+  The default is `y` and is **byte-identical** to 0.2.2 in every configuration
+  the benchmark suite builds, so upgrading changes nothing unless the option is
+  deliberately set. Measured on an ESP32 with ESP-IDF 5.4.3 at `-Os`, against a
+  plain WiFi application:
+
+  | configuration | portal on | portal off | flash saved | heap freed |
+  |---|--:|--:|--:|--:|
+  | core | +80,512 | +11,672 | **−68,840** | −20,344 |
+  | Improv Serial | +85,948 | +22,844 | **−63,104** | −20,348 |
+  | Improv BLE | +268,648 | +205,104 | **−63,544** | −20,380 |
+  | Network Provisioning BLE | +351,052 | +296,528 | **−54,524** | −20,680 |
+
+  The saving is larger than the portal's own code because dropping the last
+  caller of the HTTP server takes `esp_http_server`, `http_parser` and the lwip
+  socket paths with it — and, in every build except Network Provisioning BLE,
+  cJSON and newlib's floating-point string conversion as well, since the REST
+  API was the library's only remaining cJSON caller. Prov-BLE builds keep both,
+  because `wifi_provisioning` uses cJSON itself.
+
+  With the option off, `wifi_cfg_start_ap()`, `wifi_cfg_stop_ap()`,
+  `wifi_cfg_get_ap_status()`, `wifi_cfg_set_ap_config()`,
+  `wifi_cfg_get_ap_config()` and `wifi_cfg_stop_http()` still link and return
+  `ESP_ERR_NOT_SUPPORTED`, so application code keeps compiling; `cfg.enable_ap`
+  is ignored and logs a warning at init. `CONFIG_WIFI_CFG_ENABLE_WEBUI` now
+  depends on this option, as the Web UI is served by the portal's HTTP server.
+
 ## [0.2.2] — 2026-08-24 - Responses stream instead of buffering
 
 ### Changed

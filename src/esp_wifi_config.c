@@ -197,6 +197,11 @@ void wifi_cfg_stop_provisioning(void)
     // - Mode is WIFI_HTTP_DISABLED
     // - Mode is WHEN_UNPROVISIONED or MANUAL
     // - No reconnect constraint (enable_ap && on_reconnect_exhausted == PROVISION && max_reconnect_attempts > 0)
+    // Guarded rather than left to the inline no-ops in the private header:
+    // httpd_stop() is the esp_http_server API itself, not one of the library's
+    // own entry points, and referencing it here would link the server back in
+    // for a build that just spent 20 KB dropping it.
+#if WIFI_CFG_SOFTAP
     if (g_wifi_cfg->config.http_post_prov_mode == WIFI_HTTP_DISABLED &&
         g_wifi_cfg->httpd_owned && g_wifi_cfg->httpd) {
         bool reconnect_constraint = (g_wifi_cfg->config.enable_ap &&
@@ -213,6 +218,7 @@ void wifi_cfg_stop_provisioning(void)
             ESP_LOGI(TAG, "HTTPD server auto-teardown complete");
         }
     }
+#endif /* WIFI_CFG_SOFTAP */
 
     g_wifi_cfg->provisioning_active = false;
     wifi_cfg_event_post(WIFI_CFG_EVENT_PROVISIONING_STOPPED, NULL, 0);
@@ -408,6 +414,15 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
         g_wifi_cfg->sta_netif_owned = false;
     }
     
+    // Only when the portal can actually come up: without it, this creates an
+    // interface nothing can ever bring up.
+    //
+    // Worth 284 bytes of flash, and — measured, against the expectation —
+    // nothing at all in heap. `X21-core-noportal` reports the same free
+    // internal heap at settled45 either way. The netif is created but never
+    // attached and its DHCP server never started, so the allocation that would
+    // have shown up is one the AP path never reaches in this configuration.
+#if WIFI_CFG_SOFTAP
     g_wifi_cfg->ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     if (!g_wifi_cfg->ap_netif) {
         g_wifi_cfg->ap_netif = esp_netif_create_default_wifi_ap();
@@ -415,6 +430,7 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
     } else {
         g_wifi_cfg->ap_netif_owned = false;
     }
+#endif
     
     // Init WiFi (may have already been initialized by another component)
     wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -443,6 +459,7 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
 
     // Init HTTP interface (server setup only, handlers are registered later by
     // wifi_cfg_start_provisioning() or the happy-path connect logic)
+#if WIFI_CFG_SOFTAP
     bool need_http = (config && config->enable_ap) ||
                      (config && config->http_post_prov_mode != WIFI_HTTP_DISABLED) ||
                      (config && config->http.httpd);  // User provided httpd
@@ -453,6 +470,19 @@ esp_err_t wifi_cfg_init(const wifi_cfg_config_t *config)
             ESP_LOGW(TAG, "HTTP init failed: %s", esp_err_to_name(ret));
         }
     }
+#else
+    // The portal is compiled out. A handle the application passed in is still
+    // recorded, so wifi_cfg_get_httpd() keeps returning what it was given and
+    // the application's own routes are unaffected -- the library simply
+    // registers nothing on it.
+    if (config && config->http.httpd) {
+        g_wifi_cfg->httpd = config->http.httpd;
+    }
+    if (config && config->enable_ap) {
+        ESP_LOGW(TAG, "cfg.enable_ap is set but CONFIG_WIFI_CFG_ENABLE_SOFTAP=n; "
+                      "the provisioning portal is not built into this image");
+    }
+#endif
 
     // Init CLI if enabled
 #ifdef CONFIG_WIFI_CFG_ENABLE_CLI

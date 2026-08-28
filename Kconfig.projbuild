@@ -66,13 +66,43 @@ menu "WiFi Config"
             wifi_del, wifi_connect, wifi_disconnect, wifi_ap_start,
             wifi_ap_stop, wifi_reset, wifi_var_get, wifi_var_set
 
+    config WIFI_CFG_ENABLE_SOFTAP
+        bool "Enable SoftAP provisioning portal"
+        default y
+        help
+            Build the SoftAP provisioning portal: the access point, the
+            HTTP server and its REST API, the eight captive-portal
+            handlers and the captive DNS responder.
+
+            Default y, which is the historical behaviour -- these files
+            were unconditional before this option existed, and the only
+            way to suppress them was at runtime (cfg.enable_ap = false),
+            which stops them running but still links them.
+
+            Set to n only if the device is provisioned exclusively over
+            Improv Serial, Improv BLE or Network Provisioning BLE. The
+            saving is substantial (roughly 20-28 KB of flash depending
+            on which transport remains) because it also drops cJSON and
+            newlib's floating-point string conversion when no other
+            component uses them.
+
+            With this off, wifi_cfg_start_ap(), wifi_cfg_stop_ap(),
+            wifi_cfg_get_ap_status(), wifi_cfg_set_ap_config(),
+            wifi_cfg_get_ap_config() and wifi_cfg_stop_http() still
+            exist and return ESP_ERR_NOT_SUPPORTED, so application code
+            keeps compiling. cfg.enable_ap is ignored.
+
     config WIFI_CFG_ENABLE_WEBUI
         bool "Enable Web UI"
         default n
+        depends on WIFI_CFG_ENABLE_SOFTAP
         help
             Enable embedded Web UI for WiFi Config.
             Serves responsive web interface at root path (/).
             Files are compressed with gzip (~10KB total).
+
+            Requires the SoftAP portal: the Web UI is served by the same
+            HTTP server.
 
     config WIFI_CFG_WEBUI_CUSTOM_PATH
         string "Custom Web UI path (filesystem)"

@@ -1,12 +1,36 @@
+# The SoftAP provisioning portal: HTTP server + REST API + the eight
+# captive-portal handlers, and the captive DNS responder.
+#
+# Held in variables and interpolated at their original positions in SRCS below,
+# rather than list(APPEND)ed after it, because SRCS order is object order is
+# link order — and on Xtensa the linker relaxes call instructions according to
+# how far apart it ends up placing things. Appending moved these two files to
+# the end of the archive and shifted a handful of calls into and out of range,
+# which came out as a 64-byte change in an image that should not have moved at
+# all. Same objects, different placement. Keeping the order keeps
+# WIFI_CFG_ENABLE_SOFTAP=y byte-identical to the releases before it existed,
+# which is the property that makes the default safe to ship.
+if(CONFIG_WIFI_CFG_ENABLE_SOFTAP)
+    set(WIFI_CFG_SRC_HTTP "src/esp_wifi_config_http.c")
+    set(WIFI_CFG_SRC_DNS  "src/esp_wifi_config_dns.c")
+else()
+    set(WIFI_CFG_SRC_HTTP "")
+    set(WIFI_CFG_SRC_DNS  "")
+endif()
+
 set(SRCS
     "src/esp_wifi_config.c"
     "src/esp_wifi_config_network.c"
+    # Stays unconditional even with the SoftAP portal off: it also holds the
+    # public vars API (wifi_cfg_{set,get,del}_var, used by the CLI and the
+    # prov-BLE backend) and wifi_cfg_expand_template(), which the BLE device
+    # name uses. Only the access-point half is #if'd out inside the file.
     "src/esp_wifi_config_ap.c"
     "src/esp_wifi_config_event.c"
     "src/esp_wifi_config_nvs.c"
-    "src/esp_wifi_config_http.c"
+    ${WIFI_CFG_SRC_HTTP}
     "src/esp_wifi_config_json.c"
-    "src/esp_wifi_config_dns.c"
+    ${WIFI_CFG_SRC_DNS}
     "src/esp_wifi_config_improv.c"
     # Improv BLE host shim — stubs out when Improv BLE is disabled.
     "src/esp_wifi_config_ble.c"
@@ -44,7 +68,15 @@ set(PRIV_REQUIRES
 
 set(EMBED_FILES)
 
-# Add Web UI if enabled
+# `json` stays in PRIV_REQUIRES unconditionally rather than being dropped when
+# the portal is off, for the reason documented above: a guarded PRIV_REQUIRES
+# does not reach ESP-IDF's first-pass dependency scan. It costs nothing to leave
+# it — with _http.c gone the library has no cJSON caller left (outside the
+# prov-BLE backend, which brings its own), so libjson.a contributes zero symbols
+# and the linker drops the archive, taking newlib's strtod/mprec/gdtoa with it.
+
+# Add Web UI if enabled (Kconfig makes this depend on WIFI_CFG_ENABLE_SOFTAP —
+# the Web UI is served by the portal's HTTP server)
 set(WIFI_CFG_WEBUI_EMBEDDED NO)
 if(CONFIG_WIFI_CFG_ENABLE_WEBUI)
     list(APPEND SRCS "src/esp_wifi_config_webui.c")
