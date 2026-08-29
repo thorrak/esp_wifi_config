@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-08-29 - The SoftAP portal can be compiled out
+
 ### Added
 
 - **`CONFIG_WIFI_CFG_ENABLE_SOFTAP`, defaulting to `y`.** Turning it off
@@ -41,6 +43,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `ESP_ERR_NOT_SUPPORTED`, so application code keeps compiling; `cfg.enable_ap`
   is ignored and logs a warning at init. `CONFIG_WIFI_CFG_ENABLE_WEBUI` now
   depends on this option, as the Web UI is served by the portal's HTTP server.
+
+### Fixed
+
+- **`test/json_writer/run.sh` no longer hangs where AddressSanitizer is
+  broken.** On macOS 26 with Apple clang 17 the ASan runtime deadlocks inside
+  its own initialiser — dyld allocates while ASan is still installing its
+  malloc interceptor — so the test hung before `main()` with no output rather
+  than failing. The script now probes the sanitizers by compiling and running
+  a trivial program under each, and takes the best that works: address plus
+  undefined where possible, undefined alone where ASan is broken, warning on
+  stderr when it degrades. `JSON_WRITER_SAN` overrides. Test-only; no library
+  code is affected.
 
 ## [0.2.2] — 2026-08-24 - Responses stream instead of buffering
 
